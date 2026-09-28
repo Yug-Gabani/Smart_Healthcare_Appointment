@@ -1,0 +1,66 @@
+# ============================================================
+# Smart Healthcare — environment variables
+# Copy to .env locally. NEVER commit the real .env.
+# ============================================================
+
+# ---------- Database ----------
+DATABASE_URL="postgresql+psycopg://healthapp:healthapp@localhost:5433/healthapp"
+
+# ---------- Redis (ARQ queue + cache) ----------
+REDIS_URL="redis://localhost:6380/0"
+
+# ---------- Object storage (MinIO in local dev) ----------
+S3_ENDPOINT_URL="http://localhost:9000"
+S3_ACCESS_KEY="minio"
+S3_SECRET_KEY="miniominio"
+S3_BUCKET="healthapp"
+S3_REGION="us-east-1"
+
+# ---------- Auth (backend JWT signing) ----------
+# Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+AUTH_SECRET="change-me-to-a-long-random-string"
+ACCESS_TOKEN_TTL_MINUTES=15
+REFRESH_TOKEN_TTL_DAYS=7
+
+# ---------- Frontend ↔ backend ----------
+CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
+BACKEND_BASE_URL="http://localhost:8000"
+
+# ---------- AI (OpenRouter → Claude) ----------
+# https://openrouter.ai/keys
+OPENROUTER_API_KEY=""
+OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
+OPENROUTER_MODEL="anthropic/claude-3.5-sonnet"
+
+# LangSmith is OPTIONAL — useful for tracing prompts. Leave blank to disable.
+LANGCHAIN_TRACING_V2="false"
+LANGCHAIN_API_KEY=""
+LANGCHAIN_PROJECT="smart-healthcare-dev"
+
+# ---------- Video (Daily.co) — Sprint 4 ----------
+DAILY_API_KEY=""
+DAILY_DOMAIN=""
+
+# ---------- Speech-to-text (Deepgram) — Sprint 4 ----------
+DEEPGRAM_API_KEY=""
+
+# ---------- Payment (Stripe test mode) — Sprint 5 ----------
+STRIPE_SECRET_KEY=""
+STRIPE_WEBHOOK_SECRET=""
+STRIPE_PUBLISHABLE_KEY=""
+
+# ---------- Email (Resend) ----------
+RESEND_API_KEY=""
+EMAIL_FROM="Smart Healthcare <no-reply@example.test>"
+
+# ---------- SMS (Twilio) — optional, Phase 2 ----------
+TWILIO_ACCOUNT_SID=""
+TWILIO_AUTH_TOKEN=""
+TWILIO_FROM_NUMBER=""
+
+# ---------- Observability ----------
+SENTRY_DSN=""
+LOG_LEVEL="INFO"
+
+# ---------- App ----------
+APP_ENV="development"
