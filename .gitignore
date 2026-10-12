@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+*.pyc
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Environment and sensitive keys
+.env
+.env.local
+
+# System files
+.DS_Store
+Thumbs.db

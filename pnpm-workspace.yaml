@@ -1,0 +1,6 @@
+# Implements: NFR-01, NFR-02
+# Safety:    none
+# Owner:     infra (Group 6)
+
+packages:
+  - 'apps/*'
