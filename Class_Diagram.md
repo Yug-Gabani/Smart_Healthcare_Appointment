@@ -2,6 +2,11 @@
 # Healthcare Platform — UML Class Diagram
 
 This UML class diagram represents all 26 classes and enumerations of the Healthcare Platform, including patient management, appointments, medical records, consultations, AI assistance, pharmacy, payments, notifications, and administration. -->
+## Class Diagram
+
+View the complete UML class diagram here:
+
+[**Open Class Diagram**](class.md)
 
 ```mermaid
 classDiagram
