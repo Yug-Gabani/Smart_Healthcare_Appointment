@@ -4,6 +4,9 @@ node_modules/
 .venv/
 __pycache__/
 *.pyc
+# Python virtual environments
+venv/
+.venv/
 
 # Build outputs
 dist/

@@ -1,28 +1,59 @@
-# Implements: NFR-03, NFR-04
+# Implements: NFR-01, NFR-03, NFR-04
 # Safety:    S7, S8
-# Owner:     backend (Group 6)
+# Owner:     backend (zhsraD)
 
 import sys
 import uuid
+from typing import Any
 import structlog
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from collections.abc import MutableMapping
+
+from src.api.admin import router as admin_router
 from src.api.appointments import router as appointments_router
 from src.api.audit import router as audit_router
 from src.api.users import router as users_router
 from src.config import settings
 
+# Optional Sentry initialization
+if getattr(settings, "SENTRY_DSN", None):
+    try:
+        import sentry_sdk
+
+        sentry_sdk.init(dsn=settings.SENTRY_DSN, environment=settings.APP_ENV)
+    except Exception:
+        pass
+
+
 # Configure structlog with PHI filter processor
-def filter_phi_processor(logger, log_method, event_dict):
+def filter_phi_processor(
+    logger: Any,
+    log_method: str,
+    event_dict: MutableMapping[str, Any],
+) -> MutableMapping[str, Any]:
     phi_keys = {
-        "ssn", "password", "token", "patient_name", "credit_card",
-        "card_number", "address", "phone", "email"
+        "name",
+        "email",
+        "phone",
+        "address",
+        "date_of_birth",
+        "dob",
+        "medical_history",
+        "symptoms",
+        "diagnosis",
+        "password",
+        "hashed_password",
+        "access_token",
+        "refresh_token",
     }
-    for k in list(event_dict.keys()):
-        if k.lower() in phi_keys:
-            event_dict[k] = "[REDACTED]"
+
+    for key in list(event_dict.keys()):
+        if key.lower() in phi_keys:
+            event_dict[key] = "[REDACTED]"
+
     return event_dict
 
 
@@ -81,12 +112,19 @@ async def structlog_request_logging_middleware(request: Request, call_next):
         )
 
 
-# Include Routers
+# Health checks
+@app.get("/health", tags=["health"])
+@app.get("/api/health", tags=["health"])
+async def health_check():
+    return {"ok": True, "version": "0.1.0"}
+
+
+# Mount Routers under API_V1_PREFIX
 app.include_router(users_router, prefix=settings.API_V1_PREFIX)
+app.include_router(admin_router, prefix=settings.API_V1_PREFIX)
 app.include_router(appointments_router, prefix=settings.API_V1_PREFIX)
 app.include_router(audit_router, prefix=settings.API_V1_PREFIX)
 
-
-@app.get("/health", tags=["health"])
-async def health_check():
-    return {"status": "ok", "project": settings.PROJECT_NAME}
+# Also mount under /api for convenience
+app.include_router(users_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
