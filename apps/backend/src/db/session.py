@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
+# pyrefly: ignore [missing-import]
 from src.config import settings
 
 engine = create_async_engine(

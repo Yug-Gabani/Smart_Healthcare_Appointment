@@ -9,9 +9,14 @@ from fastapi_users import BaseUserManager, UUIDIDMixin
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any
+
+# pyrefly: ignore [missing-import]
 from src.audit.helper import audit
+# pyrefly: ignore [missing-import]
 from src.config import settings
+# pyrefly: ignore [missing-import]
 from src.db.session import get_db
+# pyrefly: ignore [missing-import]
 from src.models.user import User
 
 

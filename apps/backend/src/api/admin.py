@@ -3,7 +3,9 @@
 # Owner:     backend (zhsraD)
 
 from fastapi import APIRouter, Depends
+# pyrefly: ignore [missing-import]
 from src.deps import require_role
+# pyrefly: ignore [missing-import]
 from src.models.user import Role, User
 
 router = APIRouter(prefix="/admin", tags=["admin"])

@@ -3,7 +3,9 @@
 # Owner:     backend (zhsraD)
 
 from fastapi_users.authentication import AuthenticationBackend, BearerTransport, CookieTransport
+# pyrefly: ignore [missing-import]
 from src.auth.strategy import get_jwt_strategy
+# pyrefly: ignore [missing-import]
 from src.config import settings
 
 cookie_transport = CookieTransport(
