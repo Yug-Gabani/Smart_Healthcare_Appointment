@@ -1,50 +1,61 @@
 # Implements: FR-01, FR-02
 # Safety:    S8
-# Owner:     backend (Group 6)
+# Owner:     backend (zhsraD)
 
 import enum
-import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Boolean, DateTime, Enum, Index, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from fastapi_users_db_sqlalchemy import SQLAlchemyBaseUserTableUUID
+from sqlalchemy import DateTime, Enum, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.db.session import Base
+from src.models.base import Base, TimestampMixin
 
 
 class Role(str, enum.Enum):
     PATIENT = "PATIENT"
+    CAREGIVER = "CAREGIVER"
     DOCTOR = "DOCTOR"
-    ADMIN = "ADMIN"
+    NURSE = "NURSE"
     PHARMACIST = "PHARMACIST"
+    PHARMACY_STAFF = "PHARMACY_STAFF"
+    RECEPTION = "RECEPTION"
+    CLINIC_ADMIN = "CLINIC_ADMIN"
+    SYSTEM_ADMIN = "SYSTEM_ADMIN"
+    # Backwards compatibility alias
+    ADMIN = "SYSTEM_ADMIN"
 
 
-class User(Base):
+class User(SQLAlchemyBaseUserTableUUID, TimestampMixin, Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    email: Mapped[str] = mapped_column(
-        String(255), unique=True, index=True, nullable=False
-    )
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     role: Mapped[Role] = mapped_column(
-        Enum(Role, native_enum=True, name="user_role_enum"),
+        Enum(
+            Role,
+            native_enum=True,
+            name="user_role_enum",
+            values_callable=lambda x: [
+                e.value
+                for e in [
+                    Role.PATIENT,
+                    Role.CAREGIVER,
+                    Role.DOCTOR,
+                    Role.NURSE,
+                    Role.PHARMACIST,
+                    Role.PHARMACY_STAFF,
+                    Role.RECEPTION,
+                    Role.CLINIC_ADMIN,
+                    Role.SYSTEM_ADMIN,
+                ]
+            ],
+        ),
         nullable=False,
         default=Role.PATIENT,
         index=True,
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
+    email_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     __table_args__ = (
