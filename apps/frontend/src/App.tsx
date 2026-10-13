@@ -16,7 +16,8 @@ import { AuthPage } from '@/routes/auth/AuthPage';
 import { PatientPortal } from '@/routes/patient/PatientPortal';
 import { DoctorQueue } from '@/routes/doctor/DoctorQueue';
 import { LandingPage } from '@/routes/patient/LandingPage';
-import { Activity, Stethoscope, Video, FlaskConical } from 'lucide-react';
+import { AboutPage } from '@/routes/about/AboutPage';
+import { Activity, Stethoscope, Video, FlaskConical, Info } from 'lucide-react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,13 @@ const NavigationBar: React.FC = () => {
             >
               <FlaskConical className="w-4 h-4 text-slate-400" />
               AI Triage
+            </Link>
+            <Link
+              to="/about"
+              className="hover:text-sky-600 transition flex items-center gap-1.5"
+            >
+              <Info className="w-4 h-4 text-slate-400" />
+              About
             </Link>
           </nav>
         </div>
@@ -132,6 +140,7 @@ export const App: React.FC = () => {
           <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 pt-6">
             <Routes>
               <Route path="/" element={<LandingPage />} />
+              <Route path="/about" element={<AboutPage />} />
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/patient" element={<PatientPortal />} />
               <Route path="/doctor" element={<DoctorQueue />} />
