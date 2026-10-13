@@ -22,22 +22,6 @@ Details: [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
-## Team
-
-| Name | Role |
-|---|---|
-| Yug Gabani | AI |
-| Kush Hingrajiya | AI |
-| Dev Sanghani | AI |
-| Vivek Amipara | Backend |
-| Parag Bera | Backend |
-| Darsh Valand | Backend |
-| Abhibrata Sarkar | Backend |
-| Hari Patel | Frontend |
-| Vikas Bhabhor | Frontend |
-
----
-
 ## Prerequisites
 
 - **Docker Desktop** — for Postgres + Redis + MinIO
