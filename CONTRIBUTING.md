@@ -1,76 +1,337 @@
-# Contributing — Group 6
+<!-- 
+# Healthcare Platform — UML Class Diagram
 
-Everyone commits, everyone reviews, no direct pushes to `main`.
+This UML class diagram represents all 26 classes and enumerations of the Healthcare Platform, including patient management, appointments, medical records, consultations, AI assistance, pharmacy, payments, notifications, and administration. -->
 
-## Branches
+```mermaid
+classDiagram
+    direction TB
 
-- `main` — always green, always deployable.
-- Feature branches — `feat/<short-desc>`, `fix/<short-desc>`, `docs/<short-desc>`, `chore/<short-desc>`, `test/<short-desc>`.
-- Example: `feat/auth-magic-link`, `fix/queue-sse-reconnect`.
+    class User {
+        +UUID id
+        +String name
+        +String email
+        +String phone
+        +String password
+        +UserRole role
+        +String status
+        +DateTime createdAt
+        +login()
+        +logout()
+        +updateProfile()
+        +changePassword()
+    }
 
-## Commit messages
+    class UserRole {
+        <<enumeration>>
+        PATIENT
+        CAREGIVER
+        DOCTOR
+        NURSE
+        PHARMACIST
+        ADMIN
+        IT_ADMIN
+        OWNER
+        PAYMENT_GATEWAY
+        INSURANCE_PROVIDER
+        REGULATORY_BODY
+    }
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+    class Patient {
+        +Date dateOfBirth
+        +String gender
+        +String address
+        +String medicalHistory
+        +String insuranceId
+        +createAccount()
+        +bookAppointment()
+        +cancelAppointment()
+        +uploadAttachment()
+        +viewAppointments()
+    }
 
+    class Appointment {
+        +UUID id
+        +DateTime appointmentDate
+        +AppointmentStatus status
+        +String reason
+        +String urgency
+        +String aiSummary
+        +DateTime createdAt
+        +reschedule()
+        +cancel()
+        +getDetails()
+        +sendNotification()
+    }
+
+    class AppointmentStatus {
+        <<enumeration>>
+        SCHEDULED
+        CONFIRMED
+        CANCELLED
+        RESCHEDULED
+        COMPLETED
+        NO_SHOW
+    }
+
+    class Doctor {
+        +String specialization
+        +String qualification
+        +String experience
+        +String availability
+        +Float rating
+        +setAvailability()
+        +viewAppointments()
+        +recordConsultation()
+        +createPrescription()
+        +viewPatientHistory()
+    }
+
+    class DoctorAvailability {
+        +UUID id
+        +UUID doctorId
+        +Date date
+        +Time startTime
+        +Time endTime
+        +Boolean isAvailable
+        +setAvailability()
+        +updateAvailability()
+    }
+
+    class Nurse {
+        +String licenseNo
+        +String department
+        +viewAppointments()
+        +assistDoctor()
+        +updatePatientInfo()
+    }
+
+    class Pharmacist {
+        +String licenseNo
+        +String pharmacyId
+        +viewPrescriptions()
+        +dispenseMedicine()
+        +updateInventory()
+    }
+
+    class AdminStaff {
+        +String department
+        +manageAppointments()
+        +manageDoctors()
+        +viewReports()
+    }
+
+    class ITAdmin {
+        +String skills
+        +manageSystem()
+        +troubleshoot()
+        +monitorLogs()
+    }
+
+    class Receptionist {
+        +String shift
+        +checkInPatients()
+        +scheduleAppointments()
+        +answerCalls()
+    }
+
+    class PlatformOwner {
+        +String businessName
+        +viewAnalytics()
+        +managePlatform()
+        +generateReports()
+    }
+
+    class PaymentGateway {
+        +String provider
+        +processPayment()
+        +refundPayment()
+        +verifyTransaction()
+    }
+
+    class InsuranceProvider {
+        +String providerName
+        +verifyCoverage()
+        +processClaim()
+        +checkEligibility()
+    }
+
+    class RegulatoryBody {
+        +String name
+        +auditRecords()
+        +verifyCompliance()
+        +generateReports()
+    }
+
+    class MedicalRecord {
+        +UUID id
+        +UUID patientId
+        +Date visitDate
+        +String diagnosis
+        +String notes
+        +List~String~ attachments
+        +addRecord()
+        +getHistory()
+        +updateRecord()
+    }
+
+    class Consultation {
+        +UUID id
+        +UUID appointmentId
+        +UUID doctorId
+        +UUID patientId
+        +String notes
+        +String aiSummary
+        +String transcript
+        +saveNotes()
+        +generateActionItems()
+        +getSummary()
+    }
+
+    class Prescription {
+        +UUID id
+        +UUID consultationId
+        +UUID doctorId
+        +String medicine
+        +String dosage
+        +String instructions
+        +DateTime issuedAt
+        +create()
+        +update()
+        +cancel()
+    }
+
+    class Medicine {
+        +UUID id
+        +String name
+        +String dosageForm
+        +String manufacturer
+        +checkAvailability()
+        +getDetails()
+    }
+
+    class PharmacyOrder {
+        +UUID id
+        +UUID prescriptionId
+        +UUID pharmacistId
+        +String status
+        +UUID deliveryPartnerId
+        +DateTime createdAt
+        +processOrder()
+        +updateStatus()
+        +trackDelivery()
+    }
+
+    class Pharmacy {
+        +UUID id
+        +String name
+        +String address
+        +String contact
+        +viewOrders()
+        +updateInventory()
+        +manageDelivery()
+    }
+
+    class Notification {
+        +UUID id
+        +UUID userId
+        +NotificationType type
+        +String message
+        +DateTime sentAt
+        +String status
+        +send()
+        +markAsRead()
+    }
+
+    class NotificationType {
+        <<enumeration>>
+        EMAIL
+        SMS
+        IN_APP
+        APPOINTMENT_REMINDER
+        PRESCRIPTION_ALERT
+        SYSTEM_ALERT
+    }
+
+    class VideoConsultation {
+        +UUID id
+        +UUID appointmentId
+        +DateTime startTime
+        +DateTime endTime
+        +String transcript
+        +String status
+        +start()
+        +end()
+        +generateTranscript()
+    }
+
+    class DeliveryPartner {
+        +UUID id
+        +String name
+        +String contact
+        +String area
+        +acceptOrder()
+        +updateDeliveryStatus()
+    }
+
+    %% Inheritance: platform user roles
+    User <|-- Patient
+    User <|-- Doctor
+    User <|-- Nurse
+    User <|-- Pharmacist
+    User <|-- AdminStaff
+    User <|-- ITAdmin
+    User <|-- Receptionist
+    User <|-- PlatformOwner
+
+    %% User role and status types
+    User --> UserRole : has role
+    Appointment --> AppointmentStatus : has status
+    Notification --> NotificationType : has type
+
+    %% Patient and appointment management
+    Patient "1" --> "0..*" Appointment : books
+    Doctor "1" --> "0..*" Appointment : assigned to
+    Doctor "1" --> "0..*" DoctorAvailability : has
+
+    %% Patient medical history
+    Patient "1" --> "0..*" MedicalRecord : has
+    Appointment "1" --> "0..1" Consultation : results in
+    Consultation "1" --> "0..*" Prescription : creates
+
+    %% Prescription and medicine management
+    Prescription "0..*" --> "1..*" Medicine : for
+    Prescription "1" --> "0..*" PharmacyOrder : authorizes
+    Pharmacy "1" --> "0..*" PharmacyOrder : fulfills
+    DeliveryPartner "1" --> "0..*" PharmacyOrder : delivers
+
+    %% Online consultation
+    Appointment "1" *-- "0..1" VideoConsultation : includes
+
+    %% Notifications
+    User "1" --> "0..*" Notification : receives
+
+    %% Staff associations
+    Nurse ..> Patient : assists
+    Nurse ..> Doctor : supports
+    Pharmacist ..> Prescription : verifies
+    AdminStaff ..> Appointment : manages
+    AdminStaff ..> Doctor : manages
+    ITAdmin ..> User : manages access
+    Receptionist ..> Appointment : schedules
+
+    %% Platform integrations
+    Patient ..> PaymentGateway : makes payments
+    Patient ..> InsuranceProvider : insurance claims
+    PlatformOwner ..> RegulatoryBody : compliance reports
+    Pharmacy ..> Pharmacist : employs
 ```
-<type>(<scope>): <short summary in imperative>
 
-<optional body: what and why, not how>
+## Class count
 
-<optional footer: BREAKING CHANGE / issue links>
-```
-
-Types: `feat` · `fix` · `docs` · `style` · `refactor` · `test` · `chore` · `ci`.
-
-Examples:
-```
-feat(auth): add email magic-link signin
-fix(triage): retry OpenRouter on HTTP 429
-docs(api): specify triage endpoint contract
-```
-
-## Pull requests
-
-1. Push your branch: `git push -u origin feat/…`
-2. Open a PR to `main`. Fill in the PR template.
-3. Assign at least one reviewer from a different track (e.g. backend PRs reviewed by an AI teammate, and vice versa — spreads knowledge).
-4. Wait for CI to pass (lint + typecheck + tests).
-5. Address review comments; do not force-push after review starts (add commits so the reviewer can see the delta).
-6. Squash-merge into `main` when approved.
-
-## Definition of Done
-
-A PR is Done only when **all** of these are true:
-
-- Feature works locally (screencap or steps in the PR description).
-- Type-check clean (`tsc --noEmit` for frontend; `mypy` optional for backend but preferred).
-- Lint clean (`eslint` for frontend; `ruff` for backend).
-- New logic has at least one unit test.
-- If the change touches PHI, AI, or authorization → an audit row is written, and a test verifies it.
-- No `.env`, no keys, no `console.log("patient full name = …")` in the diff.
-- README / docs updated if the change is user-visible or contract-changing.
-
-## Individual commits
-
-The instructor will check that commits reflect actual individual contribution. Every teammate makes their own commits — do **not** commit code someone else wrote under your name. Pair programming is fine; use `Co-authored-by:` in the commit trailer.
-
-## Getting help
-
-Ask in the team Slack channel (`#dev`). Decisions land in `#decisions` so they don't get lost.
-
-## Weekly cadence
-
-- **Daily async stand-up** in `#standup` — reply in the thread with: yesterday / today / blockers.
-- **Sprint planning** — first Monday of each sprint.
-- **Sprint review** — last Friday of each sprint (demo whatever is on `main`).
-- **Retrospective** — 15 min after review.
-
-## What NOT to commit
-
-- `.env` (or any `.env.*.local`)
-- Real API keys / passwords / tokens — ever, in any form
-- `node_modules/`, `.venv/`, `__pycache__/`, `dist/`, `build/`
-- Compiled binaries, media larger than 5 MB (use MinIO)
-- Patient-realistic data with real-looking names — use obvious fakes only
-
-If you commit a secret by accident: **do not just delete it in a new commit** — the history still has it. Rotate the secret immediately and tell the team. Then rewrite history if the repo is small.
+| Category | Count |
+|---|---:|
+| Core classes and user roles | 17 |
+| Enums | 3 |
+| Medical, consultation and pharmacy classes | 6 |
+| **Total** | **26** |
