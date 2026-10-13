@@ -2,6 +2,7 @@
 # Safety:    S10
 # Owner:     ai (zhsraD)
 
+# pyrefly: ignore [missing-import]
 from src.config import settings
 
 try:
