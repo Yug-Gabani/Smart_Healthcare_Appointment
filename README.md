@@ -14,6 +14,170 @@ A full-stack, GenAI-assisted healthcare appointment, clinical triage, and consul
 
 ---
 
+## System Class Diagram
+
+The following UML class diagram models the core domain entities, data relationships, and operations across the clinical workflow:
+
+```mermaid
+classDiagram
+    direction TB
+
+    class User {
+        +UUID id
+        +String email
+        +String hashed_password
+        +String full_name
+        +UserRole role
+        +Boolean is_active
+        +Boolean is_verified
+        +DateTime created_at
+        +register()
+        +login()
+    }
+
+    class PatientProfile {
+        +UUID id
+        +UUID user_id
+        +Date date_of_birth
+        +String gender
+        +String phone_number
+        +String emergency_contact_name
+        +String blood_group
+        +String known_allergies
+    }
+
+    class DoctorProfile {
+        +UUID id
+        +UUID user_id
+        +String specialization
+        +String medical_license_number
+        +Int years_of_experience
+        +Decimal consultation_fee
+        +String clinic_address
+    }
+
+    class Appointment {
+        +UUID id
+        +UUID patient_id
+        +UUID doctor_id
+        +AppointmentStatus status
+        +ConsultationType consultation_type
+        +DateTime scheduled_at
+        +String symptoms_text
+        +JSON questionnaire_responses
+        +TriageUrgency ai_urgency
+        +String ai_summary
+        +TriageUrgency clinician_urgency
+        +String clinician_notes
+        +TriageUrgency effective_urgency
+        +schedule()
+        +reviewTriage()
+    }
+
+    class Consultation {
+        +UUID id
+        +UUID appointment_id
+        +String room_url
+        +String recording_url
+        +String transcript_text
+        +String ai_soap_summary
+        +String clinician_notes
+        +startCall()
+        +endCall()
+    }
+
+    class Consent {
+        +UUID id
+        +UUID user_id
+        +UUID appointment_id
+        +ConsentKind kind
+        +Boolean granted
+        +grantConsent()
+        +revokeConsent()
+    }
+
+    class Prescription {
+        +UUID id
+        +UUID appointment_id
+        +UUID doctor_id
+        +UUID patient_id
+        +String diagnostic_notes
+        +DateTime issued_at
+        +issuePrescription()
+    }
+
+    class PrescriptionItem {
+        +UUID id
+        +UUID prescription_id
+        +String medication_name
+        +String dosage
+        +String frequency
+        +Int duration_days
+        +String special_instructions
+    }
+
+    class PharmacyOrder {
+        +UUID id
+        +UUID prescription_id
+        +UUID patient_id
+        +UUID pharmacy_partner_id
+        +OrderStatus status
+        +Decimal total_amount
+        +String delivery_address
+        +updateStatus()
+    }
+
+    class Delivery {
+        +UUID id
+        +UUID order_id
+        +UUID delivery_partner_id
+        +String tracking_number
+        +String delivery_status
+        +DateTime estimated_delivery
+    }
+
+    class Payment {
+        +UUID id
+        +UUID appointment_id
+        +UUID patient_id
+        +String stripe_payment_intent_id
+        +Decimal amount
+        +PaymentStatus status
+        +processPayment()
+    }
+
+    class AuditLog {
+        +UUID id
+        +DateTime timestamp
+        +UUID actor_user_id
+        +AuditAction action
+        +String entity_type
+        +String entity_id
+        +JSON metadata_json
+        +logEvent()
+    }
+
+    User "1" --> "0..1" PatientProfile : has profile
+    User "1" --> "0..1" DoctorProfile : has profile
+    User "1" --> "0..*" Appointment : books as patient
+    User "1" --> "0..*" Appointment : attends as doctor
+    User "1" --> "0..*" Consent : grants
+    User "1" --> "0..*" AuditLog : triggers
+
+    Appointment "1" --> "0..1" Consultation : conducts
+    Appointment "1" --> "0..*" Consent : associates
+    Appointment "1" --> "0..*" Prescription : results in
+    Appointment "1" --> "0..*" Payment : bills
+
+    Prescription "1" --> "1..*" PrescriptionItem : contains
+    Prescription "1" --> "0..*" PharmacyOrder : fulfills via
+    PharmacyOrder "1" --> "0..1" Delivery : ships via
+```
+
+> For the comprehensive physical schema, foreign key indexing, and custom PostgreSQL 16 enums, see [`docs/database_design.md`](docs/database_design.md).
+
+---
+
 ## Team Roster (Group 6)
 
 | Name | Role | Responsibilities |
