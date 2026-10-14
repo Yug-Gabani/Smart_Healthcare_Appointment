@@ -65,16 +65,16 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[85vh] flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-8 sm:p-10 transition-all">
-        <div className="flex flex-col items-center mb-8 text-center">
-          <div className="w-14 h-14 bg-sky-50 rounded-2xl flex items-center justify-center text-sky-600 mb-3 shadow-inner">
-            <Activity className="w-7 h-7" />
+    <div className="w-full flex items-center justify-center py-2">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl shadow-slate-200/60 border border-slate-100 p-6 sm:p-7 transition-all">
+        <div className="flex flex-col items-center mb-5 text-center">
+          <div className="w-12 h-12 bg-sky-50 rounded-2xl flex items-center justify-center text-sky-600 mb-2 shadow-inner">
+            <Activity className="w-6 h-6" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
             {isRegister ? 'Join PulseCare AI' : 'Sign in to PulseCare'}
           </h2>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs text-slate-500 mt-0.5">
             {isRegister
               ? 'Create your healthcare account in seconds'
               : 'Access your appointments and clinical queue'}
@@ -82,49 +82,49 @@ export const AuthPage: React.FC = () => {
         </div>
 
         {error && (
-          <div className="mb-6 p-3.5 bg-red-50 text-red-700 text-sm rounded-xl border border-red-200 flex items-center gap-2">
+          <div className="mb-4 p-2.5 bg-red-50 text-red-700 text-xs rounded-xl border border-red-200 flex items-center gap-2">
             <span className="font-semibold text-red-800">Notice:</span> {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-600 mb-1">
               Email Address
             </label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition placeholder:text-slate-400"
+                className="w-full pl-9 pr-3.5 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition placeholder:text-slate-400"
                 placeholder="name@hospital.org"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-600 mb-1">
               Password
             </label>
             <div className="relative">
-              <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
               <input
                 type="password"
                 required
                 minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition placeholder:text-slate-400"
+                className="w-full pl-9 pr-3.5 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 transition placeholder:text-slate-400"
                 placeholder="••••••••"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-600 mb-1">
               Select Role
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -133,7 +133,7 @@ export const AuthPage: React.FC = () => {
                   type="button"
                   key={r}
                   onClick={() => setRole(r)}
-                  className={`py-2 px-3 text-xs font-medium rounded-lg border text-center transition ${
+                  className={`py-1.5 px-3 text-xs font-medium rounded-lg border text-center transition ${
                     role === r
                       ? 'border-sky-600 bg-sky-50/70 text-sky-700 font-semibold shadow-sm'
                       : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -148,17 +148,17 @@ export const AuthPage: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full mt-2 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white font-medium py-2.5 rounded-xl transition duration-150 shadow-md shadow-sky-600/20 disabled:opacity-50 text-sm"
+            className="w-full mt-2 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white font-medium py-2.5 rounded-xl transition duration-150 shadow-md shadow-sky-600/20 disabled:opacity-50 text-sm cursor-pointer"
           >
             {loading ? 'Processing...' : isRegister ? 'Create Account' : 'Sign In to Dashboard'}
           </button>
         </form>
 
-        <div className="mt-8 text-center border-t border-slate-100 pt-5">
+        <div className="mt-5 text-center border-t border-slate-100 pt-3.5">
           <button
             type="button"
             onClick={() => setIsRegister(!isRegister)}
-            className="text-sm text-sky-600 hover:text-sky-700 font-medium transition"
+            className="text-xs text-sky-600 hover:text-sky-700 font-medium transition cursor-pointer"
           >
             {isRegister
               ? 'Already registered? Sign In'
