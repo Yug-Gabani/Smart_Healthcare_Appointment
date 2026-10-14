@@ -3,6 +3,7 @@
 **Group 6 · IT314 — Software Engineering**
 
 A web platform where patients book appointments, complete a pre-visit questionnaire, and consult a doctor in person or by video. Generative AI (via LangChain + LangGraph) suggests urgency and summarises patient history; **doctors always review and can override**. AI outputs are **advisory only** — never a diagnosis.
+Uses mordern software engineering principles for smoother debug and user experience.
 
 > This is a student portfolio/demo project. It is **not** a medical service and is **not** compliant with HIPAA/DPDP in its current form.
 
