@@ -8,10 +8,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
-
-# pyrefly: ignore [missing-import]
 from src.config import settings
+from src.models.base import Base
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -27,10 +25,6 @@ async_session_maker = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
-
-
-class Base(DeclarativeBase):
-    pass
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
