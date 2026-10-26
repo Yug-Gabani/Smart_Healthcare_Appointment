@@ -6,6 +6,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import com.group6.healthcare.auth.service.JwtService;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -31,6 +34,24 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex, HttpServletRequest req) {
         return build(HttpStatus.CONFLICT, ex.getMessage(), req, null);
+    }
+
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException ex,
+                                                              HttpServletRequest req) {
+        return build(HttpStatus.UNAUTHORIZED, ex.getMessage(), req, null);
+    }
+
+    @ExceptionHandler(JwtService.InvalidTokenException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidJwt(JwtService.InvalidTokenException ex,
+                                                          HttpServletRequest req) {
+        return build(HttpStatus.UNAUTHORIZED, ex.getMessage(), req, null);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleForbidden(AccessDeniedException ex,
+                                                        HttpServletRequest req) {
+        return build(HttpStatus.FORBIDDEN, "Access denied", req, null);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -47,6 +47,15 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
+app:
+  security:
+    jwt:
+      # 32+ char secret. For prod set JWT_SECRET env var; dev default below is NOT secret.
+      secret: ${JWT_SECRET:dev-secret-change-me-dev-secret-change-me-32chars}
+      access-token-validity-minutes: ${JWT_ACCESS_MINUTES:15}
+      refresh-token-validity-days: ${JWT_REFRESH_DAYS:7}
+      issuer: smart-healthcare
+
 logging:
   level:
     root: INFO

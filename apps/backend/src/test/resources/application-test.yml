@@ -1,0 +1,30 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:healthcare_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+    properties:
+      hibernate:
+        format_sql: false
+
+  flyway:
+    enabled: false
+
+app:
+  security:
+    jwt:
+      secret: test-secret-test-secret-test-secret-32chars-min
+      access-token-validity-minutes: 15
+      refresh-token-validity-days: 7
+      issuer: smart-healthcare-test
+
+logging:
+  level:
+    root: WARN
+    com.group6.healthcare: INFO
