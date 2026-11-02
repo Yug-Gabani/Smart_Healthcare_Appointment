@@ -1,0 +1,563 @@
+/* =========================================================
+   PulseCare Motion System
+   Easing, micro-interactions, and accessibility reductions.
+   ========================================================= */
+
+:root {
+  --enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --exit: cubic-bezier(0.4, 0, 0.2, 1);
+  --anim-accent-1: #ff3d9a;
+  --anim-accent-2: #8b5cf6;
+  --anim-accent-3: #ffa600;
+  --anim-ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Micro-interaction utility classes */
+.hover-lift {
+  transition: transform 150ms var(--enter), box-shadow 150ms var(--enter);
+}
+
+.hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(20, 60, 55, 0.10);
+}
+
+/* Card Corner Edge Design (Soft Mint tokens, static corners) */
+.card,
+.card-hover {
+  position: relative;
+}
+
+.card > *,
+.card-hover > * {
+  position: relative;
+}
+
+.card::before,
+.card::after,
+.card-hover::before,
+.card-hover::after {
+  position: absolute;
+  content: "";
+  width: 28px;
+  height: 28px;
+  background-color: var(--card-corner-bg, rgba(15, 118, 110, 0.08));
+  pointer-events: none;
+  z-index: 0;
+}
+
+.card::before,
+.card-hover::before {
+  top: 0;
+  right: 0;
+  border-radius: 0 16px 0 100%;
+}
+
+.card::after,
+.card-hover::after {
+  bottom: 0;
+  left: 0;
+  border-radius: 0 100% 0 16px;
+}
+
+/* Dark card variant (e.g. Next Appointment teal hero card) */
+.card-dark {
+  --card-corner-bg: rgba(255, 255, 255, 0.16);
+}
+
+.chip {
+  transition: background-color 150ms var(--enter), color 150ms var(--enter), border-color 150ms var(--enter);
+}
+
+.badge-morph {
+  transition: background-color 220ms var(--enter), color 220ms var(--enter), border-color 220ms var(--enter);
+}
+
+.icon-pop {
+  transition: transform 120ms var(--enter);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-pop:hover {
+  transform: scale(1.08);
+}
+
+/* 1. Animated gradient */
+@keyframes gradientCycle {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.gradient-text {
+  background: linear-gradient(90deg, var(--anim-accent-1), var(--anim-accent-2), var(--anim-accent-3), var(--anim-accent-1));
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradientCycle 4s ease infinite;
+  display: inline-block;
+}
+
+/* SVG icons gradient stops */
+@keyframes stopA { 0%,100% { stop-color: var(--anim-accent-1); } 50% { stop-color: var(--anim-accent-2); } }
+@keyframes stopB { 0%,100% { stop-color: var(--anim-accent-3); } 50% { stop-color: var(--anim-accent-1); } }
+.grad-stop-a { animation: stopA 3s ease infinite; }
+.grad-stop-b { animation: stopB 3s ease infinite; }
+
+/* 2. Infinite marquee */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(calc(-100% - var(--marquee-gap, 0.75rem))); }
+}
+.marquee { display: flex; gap: var(--marquee-gap, 0.75rem); overflow: hidden; }
+.marquee__track {
+  display: flex; gap: var(--marquee-gap, 0.75rem); flex-shrink: 0;
+  animation: marquee var(--marquee-speed, 25s) linear infinite;
+}
+.marquee:hover .marquee__track { animation-play-state: paused; }
+
+/* 3. CTA light sweep */
+@keyframes swoosh {
+  0%      { background-position: -350px center; }
+  25%     { background-position: calc(100% + 350px) center; }
+  25.001%, 100% { background-position: -350px center; }
+}
+.btn-swoosh {
+  background-color: var(--color-monday-violet, #6161ff) !important;
+  background-image: linear-gradient(110deg, transparent 0, rgba(255,255,255,.45) 50%, transparent 100%) !important;
+  background-size: 140px 100% !important;
+  background-repeat: no-repeat !important;
+  animation: swoosh 6s ease-in-out 1.5s infinite both !important;
+}
+
+/* 4. Click feedback */
+@keyframes shake {
+  0%    { transform: scale(1); }
+  15%   { transform: scale(1.05); }
+  35%   { transform: scale(0.989); }
+  67.5% { transform: scale(1.005); }
+  100%  { transform: scale(1); }
+}
+.is-shaking { animation: shake 0.5s ease-in-out; }
+
+@keyframes bounceSoft {
+  0% { transform: scale(1); } 40% { transform: scale(1.02); } 100% { transform: scale(1); }
+}
+.is-bouncing { animation: bounceSoft 0.5s var(--anim-ease-out); }
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); }
+}
+.is-breathing { animation: breathe 0.3s linear; }
+
+/* 5. Pop-up tag/badge */
+@keyframes tagPop {
+  0%   { transform: translate(-50%, 0) rotate(24deg) scale(.2); animation-timing-function: linear; }
+  25%  { transform: translate(-50%, -18px) rotate(24deg) scale(1); animation-timing-function: ease-out; }
+  50%  { transform: translate(-50%, -36px) rotate(24deg) scale(1); animation-timing-function: ease-in; }
+  100% { transform: translate(-50%, 0) rotate(0) scale(1); }
+}
+.tag-pop { position: relative; }
+.tag-pop::before {
+  content: attr(data-tag);
+  position: absolute; left: 50%; bottom: 100%;
+  padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+  background: var(--anim-accent-3); color: #1a1a1a;
+  animation: tagPop 0.5s ease both;
+}
+
+/* 6. Menu / dropdown entrance */
+@keyframes slideFade { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes fade      { from { opacity: 0; } to { opacity: 1; } }
+.enter-slide { animation: slideFade 0.3s ease-out forwards; }
+.enter-fade  { animation: fade 0.2s ease-out forwards; }
+
+/* 7. Scroll reveal */
+[data-reveal] { opacity: 0; transform: translateY(24px); transition: opacity .6s var(--anim-ease-out), transform .6s var(--anim-ease-out); }
+[data-reveal].is-visible { opacity: 1; transform: none; }
+
+/* =========================================================
+   8. PulseCare Animated Input System (Adapted from Uiverse)
+   Expanding center-out underline bar + focus highlight pulse
+   ========================================================= */
+
+.form-group,
+.field-group,
+.input-group-uiverse,
+.group {
+  position: relative;
+}
+
+.form-group .form-label,
+.field-group label,
+.group label {
+  transition: color 0.2s var(--enter);
+}
+
+.form-group:focus-within .form-label,
+.field-group:focus-within label,
+.group:focus-within label {
+  color: #0f766e !important;
+}
+
+/* Universal input focus animation with expanding underline and highlight ripple */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+textarea,
+.form-input,
+.form-textarea {
+  position: relative;
+  background-image: linear-gradient(#0f766e, #0f766e);
+  background-position: bottom center;
+  background-size: 0% 2.5px;
+  background-repeat: no-repeat;
+  transition: border-color 0.22s var(--enter),
+              box-shadow 0.22s var(--enter),
+              background-size 0.32s var(--enter);
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+textarea:focus,
+.form-input:focus,
+.form-textarea:focus {
+  border-color: #0f766e !important;
+  background-size: 100% 2.5px;
+  animation: inputHighlighter 0.35s var(--enter) forwards;
+  outline: none;
+}
+
+@keyframes inputHighlighter {
+  0% {
+    box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.3), 0 0 0 0 rgba(15, 118, 110, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.18), 0 2px 8px rgba(15, 118, 110, 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14), 0 1px 4px rgba(15, 118, 110, 0.05);
+  }
+}
+
+/* Direct Uiverse classes (.group, .input, .bar, .highlight) support */
+.bar {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.bar:before,
+.bar:after {
+  content: '';
+  height: 2px;
+  width: 0;
+  bottom: 0px;
+  position: absolute;
+  background: #0f766e;
+  transition: width 0.3s var(--enter);
+}
+
+.bar:before {
+  left: 50%;
+}
+
+.bar:after {
+  right: 50%;
+}
+
+input:focus ~ .bar:before,
+input:focus ~ .bar:after,
+.input:focus ~ .bar:before,
+.input:focus ~ .bar:after {
+  width: 50%;
+}
+
+.highlight {
+  position: absolute;
+  height: 60%;
+  width: 100px;
+  top: 25%;
+  left: 0;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+input:focus ~ .highlight,
+.input:focus ~ .highlight {
+  animation: inputHighlighterSweep 0.3s ease;
+}
+
+@keyframes inputHighlighterSweep {
+  from {
+    background: #0f766e;
+  }
+  to {
+    width: 0;
+    background: transparent;
+  }
+}
+
+/* =========================================================
+   9. Animated SVG Checkbox (Adapted from Uiverse by PriyanshuGupta28)
+   ========================================================= */
+
+.checkbox-wrapper {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  user-select: none;
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+  display: none;
+}
+
+.checkbox-wrapper .terms-label {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.checkbox-wrapper .terms-label .label-text {
+  margin-left: 10px;
+  font-size: 13px;
+  color: var(--ink, #0b3f3a);
+  transition: color 0.2s var(--enter);
+}
+
+.checkbox-wrapper:hover .terms-label .label-text {
+  color: #0f766e;
+}
+
+.checkbox-wrapper .checkbox-svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+.checkbox-wrapper .checkbox-box-bg {
+  transition: stroke 0.25s var(--enter), fill 0.25s var(--enter);
+}
+
+.checkbox-wrapper:hover .checkbox-box-bg {
+  stroke: #0f766e;
+}
+
+.checkbox-wrapper .checkbox-box {
+  stroke: #0f766e;
+  stroke-dasharray: 800;
+  stroke-dashoffset: 800;
+  transition: stroke-dashoffset 0.45s var(--enter);
+}
+
+.checkbox-wrapper .checkbox-tick {
+  stroke: #0f766e;
+  stroke-dasharray: 172;
+  stroke-dashoffset: 172;
+  transition: stroke-dashoffset 0.45s var(--enter);
+}
+
+.checkbox-wrapper input[type="checkbox"]:checked + .terms-label .checkbox-box,
+.checkbox-wrapper input[type="checkbox"]:checked + .terms-label .checkbox-tick {
+  stroke-dashoffset: 0;
+}
+
+.checkbox-wrapper input[type="checkbox"]:checked + .terms-label .checkbox-box-bg {
+  fill: rgba(15, 118, 110, 0.08);
+  stroke: #0f766e;
+}
+
+/* =========================================================
+   10. Minimalist Underline Input System (Uiverse by Satwinder04)
+   ========================================================= */
+
+.input-container,
+.wave-group {
+  position: relative;
+  width: 100%;
+  margin-top: 22px;
+  margin-bottom: 24px;
+}
+
+.input-container input,
+.input-container .input,
+.wave-group input,
+.wave-group .input {
+  font-size: 15px;
+  font-family: inherit;
+  width: 100%;
+  border: none;
+  border-bottom: 2px solid #d9ece7;
+  border-radius: 0;
+  padding: 8px 0;
+  background-color: transparent;
+  outline: none;
+  color: #0b3f3a;
+  box-sizing: border-box;
+  box-shadow: none;
+  transition: border-color 0.3s ease;
+}
+
+.input-container input.has-icon,
+.input-container .input.has-icon,
+.wave-group input.has-icon,
+.wave-group .input.has-icon {
+  padding-left: 28px;
+}
+
+.input-container input.has-right-element,
+.input-container .input.has-right-element,
+.wave-group input.has-right-element,
+.wave-group .input.has-right-element {
+  padding-right: 32px;
+}
+
+.input-container input:focus,
+.input-container .input:focus,
+.wave-group input:focus,
+.wave-group .input:focus {
+  outline: none;
+  border-color: #d9ece7;
+  box-shadow: none;
+}
+
+.input-container input:disabled,
+.input-container .input:disabled,
+.wave-group input:disabled,
+.wave-group .input:disabled {
+  color: #8aa39d;
+  cursor: not-allowed;
+  border-bottom-style: dashed;
+}
+
+.input-container .icon-left,
+.wave-group .icon-left {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #8aa39d;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  transition: color 0.3s ease;
+  z-index: 2;
+}
+
+.input-container:focus-within .icon-left,
+.wave-group:focus-within .icon-left {
+  color: #0f766e;
+}
+
+.input-container .element-right,
+.wave-group .element-right {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  z-index: 2;
+}
+
+.input-container .label,
+.wave-group .label {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  color: #8aa39d;
+  font-size: 15px;
+  font-weight: 400;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  z-index: 2;
+  transition: all 0.3s ease;
+}
+
+.input-container .label.has-icon,
+.wave-group .label.has-icon {
+  left: 28px;
+}
+
+/* Floating label when focused, valid, or active */
+.input-container input:focus ~ .label,
+.input-container input:valid ~ .label,
+.input-container input:not(:placeholder-shown) ~ .label,
+.input-container input:-webkit-autofill ~ .label,
+.input-container.is-active .label,
+.wave-group input:focus ~ .label,
+.wave-group input:valid ~ .label,
+.wave-group input:not(:placeholder-shown) ~ .label,
+.wave-group input:-webkit-autofill ~ .label,
+.wave-group.is-active .label {
+  top: -18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.input-container input:focus ~ .label.has-icon,
+.input-container input:valid ~ .label.has-icon,
+.input-container input:not(:placeholder-shown) ~ .label.has-icon,
+.input-container input:-webkit-autofill ~ .label.has-icon,
+.input-container.is-active .label.has-icon,
+.wave-group input:focus ~ .label.has-icon,
+.wave-group input:valid ~ .label.has-icon,
+.wave-group input:not(:placeholder-shown) ~ .label.has-icon,
+.wave-group input:-webkit-autofill ~ .label.has-icon,
+.wave-group.is-active .label.has-icon {
+  left: 0;
+}
+
+/* Satwinder04 .underline expanding effect */
+.input-container .underline,
+.wave-group .underline {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  background-color: #0f766e;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.3s ease;
+  pointer-events: none;
+}
+
+.input-container input:focus ~ .underline,
+.input-container input:valid ~ .underline,
+.input-container.is-active .underline,
+.wave-group input:focus ~ .underline,
+.wave-group input:valid ~ .underline,
+.wave-group.is-active .underline {
+  transform: scaleX(1);
+}
+
+
+
+/* Global Reduced Motion Override */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  .hover-lift:hover,
+  .icon-pop:hover {
+    transform: none !important;
+  }
+  [data-reveal] { opacity: 1; transform: none; }
+}
