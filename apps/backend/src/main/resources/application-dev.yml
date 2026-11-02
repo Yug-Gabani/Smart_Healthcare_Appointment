@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/healthcare
-    username: healthcare
-    password: healthcare
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/healthcare}
+    username: ${DB_USERNAME:healthcare}
+    password: ${DB_PASSWORD:healthcare}
 
 logging:
   level:

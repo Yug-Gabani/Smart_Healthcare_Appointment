@@ -26,8 +26,15 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
 
+  # Phone photos and lab reports regularly exceed Spring's 1 MB default. Bump to 15 MB per file,
+  # 20 MB per multipart request (headroom for the form envelope).
+  servlet:
+    multipart:
+      max-file-size: 15MB
+      max-request-size: 20MB
+
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${PORT:${SERVER_PORT:8080}}
   error:
     include-message: always
     include-binding-errors: always
