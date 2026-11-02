@@ -107,6 +107,16 @@
             <version>1.11.0</version>
         </dependency>
 
+        <!-- Cloudinary — remote object storage for triage/appointment attachments.
+             Credentials come from env (CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET); when
+             those are blank the service falls back to local disk, so dev doesn't need an
+             account.  http44 variant uses java.net.http (ships with JDK 11+). -->
+        <dependency>
+            <groupId>com.cloudinary</groupId>
+            <artifactId>cloudinary-http44</artifactId>
+            <version>1.39.0</version>
+        </dependency>
+
         <!-- Developer ergonomics -->
         <dependency>
             <groupId>org.projectlombok</groupId>
