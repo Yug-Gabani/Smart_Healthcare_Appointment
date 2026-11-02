@@ -16,6 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -51,6 +52,38 @@ public class User {
 
     @Column(name = "enabled", nullable = false)
     private boolean enabled;
+
+    // ----- Patient profile fields (all nullable; patient edits them on /profile) -----
+
+    @Column(name = "date_of_birth")
+    private LocalDate dateOfBirth;
+
+    @Column(name = "gender", length = 16)
+    private String gender;
+
+    @Column(name = "address_street")
+    private String addressStreet;
+
+    @Column(name = "address_city", length = 128)
+    private String addressCity;
+
+    @Column(name = "address_state", length = 128)
+    private String addressState;
+
+    @Column(name = "address_pincode", length = 16)
+    private String addressPincode;
+
+    @Column(name = "emergency_contact_name")
+    private String emergencyContactName;
+
+    @Column(name = "emergency_contact_phone", length = 50)
+    private String emergencyContactPhone;
+
+    @Column(name = "is_deleted", nullable = false)
+    private boolean isDeleted;
+
+    @Column(name = "deleted_at")
+    private OffsetDateTime deletedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
