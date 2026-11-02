@@ -20,6 +20,7 @@
 
     <properties>
         <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
         <springdoc.version>2.6.0</springdoc.version>
         <jjwt.version>0.12.6</jjwt.version>
     </properties>
@@ -92,6 +93,20 @@
             <version>${springdoc.version}</version>
         </dependency>
 
+        <!-- PDF generation (OpenPDF — Apache/MPL dual license, Java-native fork of iText 4). -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>1.3.43</version>
+        </dependency>
+
+        <!-- CSV parsing for hospital data seed (data.gov.in PMJAY ~30K rows). -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.11.0</version>
+        </dependency>
+
         <!-- Developer ergonomics -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -141,8 +156,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>${maven.compiler.release}</release>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>
