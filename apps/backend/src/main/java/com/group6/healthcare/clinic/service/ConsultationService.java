@@ -24,10 +24,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,8 +42,9 @@ public class ConsultationService {
     private final UserRepository userRepository;
 
     // In-memory signaling bus for peer-to-peer WebRTC SDP & ICE candidate exchange.
-    // Key: appointmentId, Value: list of recent signal messages with timestamps.
+    // Key: appointmentId, Value: synchronized list of recent signal messages with monotonic timestamps.
     private final Map<UUID, List<ConsultationSignalMessage>> signalQueues = new ConcurrentHashMap<>();
+    private final AtomicLong lastSignalTimestamp = new AtomicLong(0);
 
     public ConsultationService(
             ConsultationSessionRepository sessionRepository,
@@ -99,9 +102,10 @@ public class ConsultationService {
         OffsetDateTime slotAt = slot.getSlotAt();
 
         // Timing activation rule:
-        // Room opens 15 mins before slotAt until slotAt + 2 hours.
+        // Room opens 30 mins before slotAt until slotAt + 12 hours.
         // Doctors have override capability to start the room at any time for testing/prep.
-        boolean inWindow = now.isAfter(slotAt.minusMinutes(15)) && now.isBefore(slotAt.plusHours(2));
+        // If doctor has already opened or started the room, patient can join immediately.
+        boolean inWindow = now.isAfter(slotAt.minusMinutes(30)) && now.isBefore(slotAt.plusHours(12));
         boolean roomAlreadyStarted = session.getStatus() == ConsultationSessionStatus.WAITING
                 || session.getStatus() == ConsultationSessionStatus.IN_PROGRESS;
         boolean canJoin = isDoctor || inWindow || roomAlreadyStarted;
@@ -113,7 +117,7 @@ public class ConsultationService {
             joinMessage = "Consultation room is active. Click to join the video session.";
         } else {
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("h:mm a");
-            joinMessage = "Room activates 15 minutes before your scheduled slot (" + slotAt.format(formatter) + ").";
+            joinMessage = "Room activates 30 minutes before your scheduled slot (" + slotAt.format(formatter) + ").";
         }
 
         return toResponse(session, slotAt, doctorName, patientName, canJoin, joinMessage);
@@ -199,18 +203,35 @@ public class ConsultationService {
         }
         appointmentRepository.save(appt);
 
-        // Clean up signaling queue for this appointment
-        signalQueues.remove(appointmentId);
+        // Broadcast an END_CALL message so connected peers immediately transition to summary screen
+        pushSignal(appointmentId, new ConsultationSignalMessage(
+                "END_CALL",
+                requesterId,
+                doctor != null && doctor.getUserId().equals(requesterId) ? "DOCTOR" : "PATIENT",
+                "Consultation completed by clinician",
+                System.currentTimeMillis()
+        ));
 
         return getOrCreateSession(appointmentId, requesterId);
     }
 
     public void pushSignal(UUID appointmentId, ConsultationSignalMessage message) {
+        long now = System.currentTimeMillis();
+        long monotonicTs = lastSignalTimestamp.updateAndGet(prev -> Math.max(now, prev + 1));
+        ConsultationSignalMessage stamped = new ConsultationSignalMessage(
+                message.type(),
+                message.senderId(),
+                message.senderRole(),
+                message.payload(),
+                monotonicTs
+        );
         signalQueues.compute(appointmentId, (k, list) -> {
-            List<ConsultationSignalMessage> q = (list == null) ? new ArrayList<>() : list;
+            List<ConsultationSignalMessage> q = (list == null) ? Collections.synchronizedList(new ArrayList<>()) : list;
             long cutoff = System.currentTimeMillis() - 120_000; // retain for 2 minutes
-            q.removeIf(m -> m.timestamp() < cutoff);
-            q.add(message);
+            synchronized (q) {
+                q.removeIf(m -> m.timestamp() < cutoff);
+                q.add(stamped);
+            }
             return q;
         });
     }
