@@ -26,12 +26,12 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
 
-  # Phone photos and lab reports regularly exceed Spring's 1 MB default. Bump to 15 MB per file,
-  # 20 MB per multipart request (headroom for the form envelope).
+  # Phone photos and lab reports regularly exceed Spring's 1 MB default. Aligned to Cloudinary's
+  # free-tier limit (10 MB/image) with headroom on the multipart envelope.
   servlet:
     multipart:
-      max-file-size: 15MB
-      max-request-size: 20MB
+      max-file-size: 10MB
+      max-request-size: 15MB
 
 server:
   port: ${PORT:${SERVER_PORT:8080}}
@@ -62,6 +62,14 @@ app:
       access-token-validity-minutes: ${JWT_ACCESS_MINUTES:15}
       refresh-token-validity-days: ${JWT_REFRESH_DAYS:7}
       issuer: smart-healthcare
+
+  # Remote object storage for file uploads. When all three creds are blank, FileStorageService
+  # falls back to writing under ./uploads on local disk so dev runs without a Cloudinary account.
+  cloudinary:
+    cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+    api-key:    ${CLOUDINARY_API_KEY:}
+    api-secret: ${CLOUDINARY_API_SECRET:}
+    folder:     ${CLOUDINARY_FOLDER:pulsecare}
 
 logging:
   level:
