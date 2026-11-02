@@ -1,0 +1,332 @@
+@import './animations.css';
+
+/* ==========================================================================
+   PulseCare Design System — "Soft Mint" Theme
+   Palette:
+   - Canvas / section bg: #eaf6f2 (pale mint)
+   - Card / surface:      #ffffff
+   - Border / hairline:   #d9ece7
+   - Ink primary:         #0b3f3a (deep teal)
+   - Ink body:            #52736d
+   - Ink muted:           #8aa39d
+   - Primary action:      #0f766e (teal)
+   - Accent / CTA:        #ff6b5b (warm coral)
+   - Danger:              #dc2626
+   ========================================================================== */
+
+:root,
+[data-surface="warm"],
+[data-surface="clinical"] {
+  --canvas: #eaf6f2;              /* pale mint */
+  --surface: #ffffff;             /* card / surface */
+  --surface-raised: #ffffff;
+  --primary: #0f766e;             /* teal primary action */
+  --primary-hover: #115e59;
+  --accent: #ff6b5b;              /* warm coral CTA */
+  --accent-hover: #fa5543;
+  --ink: #0b3f3a;                 /* deep teal primary */
+  --ink-primary: #0b3f3a;
+  --ink-body: #52736d;
+  --ink-muted: #8aa39d;
+  --muted: #52736d;
+  --border: #d9ece7;              /* hairline mint */
+  --border-strong: #c2e2db;
+
+  --accent-soft: #ccebe3;
+  --accent-warm: #ff6b5b;
+  --accent-coral: #ff6b5b;
+  --success: #0f766e;
+  --warning: #f59e0b;
+  --danger: #dc2626;              /* keep #dc2626 */
+  --info: #eaf6f2;
+
+  /* Shadows: 0 2px 10px rgba(20,60,55,0.08) rest; 0 10px 24px rgba(20,60,55,0.10) hover */
+  --shadow-sm: 0 2px 6px rgba(20, 60, 55, 0.05);
+  --shadow-md: 0 2px 10px rgba(20, 60, 55, 0.08);
+  --shadow-lg: 0 10px 24px rgba(20, 60, 55, 0.10);
+
+  /* Shape: 10 (inputs/small), 14 (buttons/cards), 16 (large sections), 9999 (pills) */
+  --radius-sm: 10px;
+  --radius-input: 10px;
+  --radius-btn: 14px;
+  --radius-card: 14px;
+  --radius-section: 16px;
+  --radius-pill: 9999px;
+  --radius-badge: 9999px;
+
+  /* Single family: Space Grotesk */
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  min-height: 100vh;
+  background-color: var(--canvas);
+  color: var(--ink-body);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+
+/* Typography Classes */
+.font-serif {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+.text-display {
+  font-size: 54px;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.text-heading-lg {
+  font-size: 38px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.text-heading {
+  font-size: 26px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.text-subheading {
+  font-size: 19px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.text-body {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.text-body-sm {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.text-caption {
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 14px;
+  border-radius: var(--radius-btn);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background-color: var(--primary);
+  color: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+
+.btn-secondary:hover {
+  background-color: var(--surface);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn-ghost {
+  background-color: transparent;
+  color: var(--muted);
+}
+
+.btn-ghost:hover {
+  background-color: rgba(72, 101, 255, 0.08);
+  color: var(--ink);
+}
+
+/* Cards */
+.card {
+  background-color: var(--surface);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Form Inputs */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.form-input, .form-textarea, .form-select {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-input);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  background-color: var(--surface);
+  color: var(--ink);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input:focus, .form-textarea:focus, .form-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(120, 91, 71, 0.15);
+  outline: none;
+}
+
+/* Cross-Cutting AI Advisory Badges (PULSECARE_DESIGN.md Section 5.1) */
+.badge-ai-warm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background-color: var(--info);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.badge-ai-clinical {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background-color: var(--ai-tint, #ede9fe);
+  color: var(--ai-ink, #5b21b6);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Urgency Badges (PULSECARE_DESIGN.md Section 5.3) */
+.badge-urgency-emergency-warm {
+  background-color: rgba(192, 57, 43, 0.12);
+  color: #c0392b;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.badge-urgency-urgent-warm {
+  background-color: rgba(255, 109, 57, 0.14);
+  color: #ea580c;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.badge-urgency-routine-warm {
+  background-color: var(--info);
+  color: var(--ink);
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.badge-urgency-emergency-clinical {
+  background-color: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-urgency-urgent-clinical {
+  background-color: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-urgency-routine-clinical {
+  background-color: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Logo Mark */
+.pulsecare-logo-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4865ff 0%, #1b1463 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(72, 101, 255, 0.3);
+}
+
+/* Accessibility Focus States */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
