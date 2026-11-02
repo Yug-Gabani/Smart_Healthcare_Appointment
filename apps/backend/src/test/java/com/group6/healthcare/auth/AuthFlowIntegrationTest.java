@@ -46,7 +46,8 @@ class AuthFlowIntegrationTest {
 
     private JsonNode registerAlice() throws Exception {
         var req = new RegisterRequest(
-                "alice@example.com", "Secret12345", "Alice Patient", "+10000000000", Role.PATIENT);
+                "alice@example.com", "Secret12345", "Alice Patient", "+10000000000", Role.PATIENT,
+                null, null, null, null);
         MvcResult result = mvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(req)))
@@ -94,7 +95,8 @@ class AuthFlowIntegrationTest {
     void duplicateEmailReturnsConflict() throws Exception {
         registerAlice();
         var req = new RegisterRequest(
-                "ALICE@EXAMPLE.COM", "Another12345", "Alice Dupe", null, Role.DOCTOR);
+                "ALICE@EXAMPLE.COM", "Another12345", "Alice Dupe", null, Role.DOCTOR,
+                "Cardiology", "Test Hospital", null, "REG-12345");
         mvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(req)))
