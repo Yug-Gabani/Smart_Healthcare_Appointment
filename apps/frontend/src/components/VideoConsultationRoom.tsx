@@ -22,8 +22,10 @@ import {
   VolumeX,
   Radio,
   Wifi,
+  Bell,
 } from 'lucide-react';
 import { consultationsApi, appointmentsApi } from '../services/api';
+import { playNotificationChime } from './AppointmentReminderBanner';
 import type { Appointment, ConsultationSession, User } from '../types';
 
 interface VideoConsultationRoomProps {
@@ -171,6 +173,11 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
   const [callActive, setCallActive] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
 
+  // Auto-activation & arrival countdown
+  const [countdownRemaining, setCountdownRemaining] = useState<number | null>(null);
+  const [hasNotifiedArrival, setHasNotifiedArrival] = useState<boolean>(false);
+  const prevPeerStatusRef = useRef<PeerConnectionStatus>('waiting');
+
   // Right sidebar tab: 'chat' | 'notes'
   const [activeTab, setActiveTab] = useState<'chat' | 'notes'>('chat');
 
@@ -268,6 +275,84 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
     }, 1000);
     return () => clearInterval(interval);
   }, [callActive]);
+
+  // Real-time countdown & auto-activation poller for waiting patients
+  useEffect(() => {
+    if (!session || session.status === 'COMPLETED' || session.canJoin) {
+      setCountdownRemaining(null);
+      return;
+    }
+
+    const calculateRemaining = () => {
+      const slotMs = session.slotAt ? new Date(session.slotAt).getTime() : null;
+      if (!slotMs) return null;
+      const nowMs = Date.now();
+      return Math.max(0, Math.floor((slotMs - nowMs) / 1000));
+    };
+
+    setCountdownRemaining(calculateRemaining());
+
+    // 1-second interval to tick countdown and auto-activate when time arrives
+    const timer = setInterval(() => {
+      const remaining = calculateRemaining();
+      setCountdownRemaining(remaining);
+
+      // When the appointment time arrives (remaining <= 0)
+      if (remaining !== null && remaining <= 0) {
+        if (!hasNotifiedArrival) {
+          setHasNotifiedArrival(true);
+          playNotificationChime();
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification('PulseCare Consultation Active', {
+                body: `Your video appointment time with ${session.doctorName || 'Doctor'} has arrived! Room is now active.`,
+                icon: '/favicon.ico',
+              });
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+        // Automatically activate the call
+        setCallActive(true);
+        if (appointmentId) {
+          consultationsApi.start(appointmentId).then(setSession).catch(console.warn);
+        }
+      }
+    }, 1000);
+
+    // Also poll backend every 4 seconds in case doctor started the room early
+    const poller = setInterval(() => {
+      if (appointmentId) {
+        consultationsApi
+          .getSession(appointmentId)
+          .then(fresh => {
+            setSession(fresh);
+            if (fresh.canJoin) {
+              playNotificationChime();
+              setCallActive(true);
+              if (fresh.status === 'SCHEDULED') {
+                consultationsApi.start(appointmentId).then(setSession).catch(console.warn);
+              }
+            }
+          })
+          .catch(console.warn);
+      }
+    }, 4000);
+
+    return () => {
+      clearInterval(timer);
+      clearInterval(poller);
+    };
+  }, [session?.canJoin, session?.status, session?.slotAt, appointmentId, hasNotifiedArrival]);
+
+  // Peer joined alert chime
+  useEffect(() => {
+    if (peerConnectionStatus === 'connected' && prevPeerStatusRef.current !== 'connected') {
+      playNotificationChime();
+    }
+    prevPeerStatusRef.current = peerConnectionStatus;
+  }, [peerConnectionStatus]);
 
   // Request browser camera & microphone with automatic canvas fallback
   useEffect(() => {
@@ -927,9 +1012,77 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
           <h1 style={{ fontSize: '24px', fontWeight: 700, color: '#0b3f3a', marginBottom: '10px' }}>
             Consultation Room Opens Soon
           </h1>
-          <p style={{ fontSize: '14px', color: '#52736d', lineHeight: 1.6, marginBottom: '24px' }}>
+          <p style={{ fontSize: '14px', color: '#52736d', lineHeight: 1.6, marginBottom: '20px' }}>
             {session.joinMessage}
           </p>
+
+          {countdownRemaining !== null && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #065f46 0%, #047857 50%, #0d9488 100%)',
+                color: '#ffffff',
+                borderRadius: '18px',
+                padding: '24px 20px',
+                marginBottom: '24px',
+                boxShadow: '0 8px 24px rgba(4, 120, 87, 0.25)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  letterSpacing: '0.08em',
+                  opacity: 0.9,
+                  marginBottom: '10px',
+                  textTransform: 'uppercase',
+                }}
+              >
+                <Clock size={16} />
+                <span>Starts in</span>
+              </div>
+              <div
+                style={{
+                  fontSize: '38px',
+                  fontWeight: 800,
+                  letterSpacing: '3px',
+                  fontFamily: 'monospace',
+                  textShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                }}
+              >
+                {(() => {
+                  const hrs = Math.floor(countdownRemaining / 3600);
+                  const mins = Math.floor((countdownRemaining % 3600) / 60);
+                  const secs = countdownRemaining % 60;
+                  if (hrs > 0) {
+                    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                  }
+                  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                })()}
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  fontSize: '12px',
+                  marginTop: '12px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                  padding: '6px 14px',
+                  borderRadius: '9999px',
+                  width: 'fit-content',
+                  margin: '12px auto 0',
+                }}
+              >
+                <Radio size={14} color="#a7f3d0" />
+                <span>Auto-activates when time arrives · Chime alert enabled</span>
+              </div>
+            </div>
+          )}
 
           <div
             style={{
@@ -965,6 +1118,14 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
                 <Video size={16} /> Start Consultation Early
               </button>
             )}
+            <button
+              onClick={() => playNotificationChime()}
+              className="btn btn-secondary hover-lift"
+              title="Test audio chime"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+            >
+              <Bell size={14} /> Test Chime
+            </button>
           </div>
         </div>
       </div>

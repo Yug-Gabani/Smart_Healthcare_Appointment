@@ -16,6 +16,7 @@ import { AdminDoctors } from './components/AdminDoctors';
 import { PharmacyDashboard } from './components/PharmacyDashboard';
 import { PatientOrders } from './components/PatientOrders';
 import { VideoConsultationRoom } from './components/VideoConsultationRoom';
+import { AppointmentReminderBanner } from './components/AppointmentReminderBanner';
 import { AuthPage } from './components/AuthPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { authApi } from './services/api';
@@ -96,14 +97,17 @@ export const App: React.FC = () => {
       }}
     >
       {!isAuthRoute && !isConsultationRoute && (
-        <Header
-          currentUser={currentUser}
-          onOpenAuth={() => navigate('/login')}
-          onOpenRegister={() => navigate('/signup')}
-          onLogout={handleLogout}
-          onGetCare={handleGetCare}
-          onGoHome={() => navigate('/')}
-        />
+        <>
+          <AppointmentReminderBanner currentUser={currentUser} />
+          <Header
+            currentUser={currentUser}
+            onOpenAuth={() => navigate('/login')}
+            onOpenRegister={() => navigate('/signup')}
+            onLogout={handleLogout}
+            onGetCare={handleGetCare}
+            onGoHome={() => navigate('/')}
+          />
+        </>
       )}
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: isConsultationRoute ? 'hidden' : undefined }}>
