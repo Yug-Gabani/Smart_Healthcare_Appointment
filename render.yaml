@@ -1,0 +1,35 @@
+services:
+  # Spring Boot Backend Web Service
+  - type: web
+    name: healthcare-backend
+    runtime: docker
+    dockerfilePath: ./apps/backend/Dockerfile
+    dockerContext: ./apps/backend
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: dev
+      - key: DB_URL
+        fromDatabase:
+          name: healthcare-postgres
+          property: connectionString
+      - key: DB_USERNAME
+        fromDatabase:
+          name: healthcare-postgres
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: healthcare-postgres
+          property: password
+      - key: JWT_SECRET
+        generateValue: true
+
+databases:
+  # Managed PostgreSQL Database for Render
+  - name: healthcare-postgres
+    databaseName: healthcare
+    user: healthcare
+    plan: free
+

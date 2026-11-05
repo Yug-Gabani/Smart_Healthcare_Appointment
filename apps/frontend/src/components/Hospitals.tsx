@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { PageTransition } from '../motion/PageTransition';
 import { fadeInUp, listItem, staggerContainer } from '../motion/presets';
@@ -11,19 +11,13 @@ import { hospitalsApi } from '../services/api';
 /**
  * Live-list hospital search. The query runs ~300 ms after the user stops typing
  * (or whenever a filter changes). Keeps the request volume sane against a 30K-row index.
- *
- * <p>Accepts URL query params for deep-linking from landing-page specialty cards and other entry
- * points: {@code ?specialty=Cardiology&city=Mumbai&q=apollo}. The params seed the initial filter
- * state; subsequent user input doesn't rewrite the URL (avoids history clutter during live typing).
  */
 export const Hospitals: React.FC = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-
-  const [q, setQ] = useState(searchParams.get('q') || '');
-  const [state, setState] = useState(searchParams.get('state') || '');
-  const [city, setCity] = useState(searchParams.get('city') || '');
-  const [specialty, setSpecialty] = useState(searchParams.get('specialty') || '');
+  const [q, setQ] = useState('');
+  const [state, setState] = useState('');
+  const [city, setCity] = useState('');
+  const [specialty, setSpecialty] = useState('');
 
   const [states, setStates] = useState<string[]>([]);
   const [cities, setCities] = useState<string[]>([]);

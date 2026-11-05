@@ -22,7 +22,6 @@ import { CustomSelect } from './CustomSelect';
 import { PageTransition } from '../motion/PageTransition';
 import { listItem, staggerContainer, EASE_ENTER } from '../motion/presets';
 import BodyMapHero from './BodyMapHero';
-import SpecialtyGrid from './SpecialtyGrid';
 
 interface LandingPageProps {
   onSelectDoctor?: (doctorName: string) => void;
@@ -508,10 +507,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           }
         }}
       />
-
-      {/* SECTION C-2: SPECIALTY GRID — "pick a specialty" entry point, Practo-style.
-          Complements the body-map above: symptom-first (BodyMap) vs. specialty-first (this grid). */}
-      <SpecialtyGrid />
 
       {/* SECTION D: HOW PULSECARE WORKS */}
       <section
