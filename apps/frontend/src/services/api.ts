@@ -161,6 +161,26 @@ export const doctorsApi = {
   slots: (id: string): Promise<Slot[]> => request<Slot[]>(`/v1/doctors/${id}/slots`),
 };
 
+export interface SlotHoldResponse {
+  slotId: string;
+  success: boolean;
+  heldByYou: boolean;
+  remainingHoldSeconds: number;
+  message: string;
+}
+
+export const slotsApi = {
+  hold: (slotId: string, holdTtlSeconds: number = 600): Promise<SlotHoldResponse> =>
+    request<SlotHoldResponse>(`/v1/slots/${slotId}/hold`, {
+      method: 'POST',
+      body: JSON.stringify({ holdTtlSeconds }),
+    }),
+  release: (slotId: string): Promise<boolean> =>
+    request<boolean>(`/v1/slots/${slotId}/hold`, { method: 'DELETE' }),
+  status: (slotId: string): Promise<{ onHold: boolean; heldByYou: boolean; remainingSeconds: number }> =>
+    request<{ onHold: boolean; heldByYou: boolean; remainingSeconds: number }>(`/v1/slots/${slotId}/hold-status`),
+};
+
 /** Public (no auth) hospital search for the landing page. */
 export const publicHospitalsApi = {
   search: (opts: { q?: string; city?: string; limit?: number } = {}): Promise<Hospital[]> => {
@@ -489,3 +509,140 @@ export const consultationsApi = {
     ),
 };
 
+// ---------- Payments & Razorpay Gateway ----------
+
+export interface CreatePaymentOrderBody {
+  amountPaise: number;
+  patientName?: string;
+  patientEmail?: string;
+  patientPhone?: string;
+  doctorId?: string;
+  patientId?: string;
+  appointmentId?: string;
+  slotTime?: string;
+}
+
+export interface CreatePaymentOrderResponse {
+  paymentOrderId: string;
+  razorpayOrderId: string;
+  amountPaise: number;
+  currency: string;
+  keyId: string;
+  receipt: string;
+  status: string;
+}
+
+export interface VerifyPaymentBody {
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+}
+
+export interface VerifyPaymentResponse {
+  status: string;
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+}
+
+export interface NotificationAuditLog {
+  id: string;
+  orderId: string;
+  appointmentId?: string;
+  channel: 'KAFKA' | 'EMAIL' | 'WHATSAPP' | 'DLQ' | 'REFUND';
+  recipient?: string;
+  status: 'QUEUED' | 'DISPATCHED' | 'DELIVERED' | 'FAILED' | 'DLQ_ROUTED' | 'PROCESSED';
+  details?: string;
+  retryCount: number;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export type RefundTier = 'FULL_100' | 'PARTIAL_50' | 'PARTIAL_25' | 'NO_REFUND_0' | 'FREE_CONSULTATION';
+
+export interface RefundPreviewResponse {
+  appointmentId: string;
+  doctorName?: string;
+  slotAt: string;
+  hoursRemaining: number;
+  tier: RefundTier;
+  refundPercentage: number;
+  originalAmountPaise: number;
+  refundAmountPaise: number;
+  retentionAmountPaise: number;
+  policyMessage: string;
+  eligibleForRefund: boolean;
+  canCancel: boolean;
+  currentAppointmentStatus: string;
+  paymentStatus: string;
+  razorpayPaymentId?: string;
+  simulatedNotice?: string;
+}
+
+export interface CancelAndRefundBody {
+  reason?: string;
+  simulatedHoursRemaining?: number;
+}
+
+export interface CancelAndRefundResponse {
+  appointmentId: string;
+  appointmentStatus: string;
+  refundId?: string;
+  razorpayPaymentId?: string;
+  originalAmountPaise: number;
+  refundAmountPaise: number;
+  retentionAmountPaise: number;
+  refundPercentage: number;
+  tier: RefundTier;
+  refundStatus: string;
+  policyMessage: string;
+  slotAt: string;
+  cancelledAt: string;
+  hoursRemaining: number;
+}
+
+export interface PaymentRefund {
+  id: string;
+  paymentOrderId?: string;
+  appointmentId?: string;
+  patientId: string;
+  razorpayPaymentId?: string;
+  razorpayRefundId?: string;
+  originalAmountPaise: number;
+  refundAmountPaise: number;
+  retentionAmountPaise: number;
+  refundPercentage: number;
+  tier: string;
+  status: string;
+  hoursBeforeSlot?: number;
+  policyMessage?: string;
+  createdAt: string;
+}
+
+export const paymentsApi = {
+  createOrder: (body: CreatePaymentOrderBody): Promise<CreatePaymentOrderResponse> =>
+    request<CreatePaymentOrderResponse>('/v1/payments/create-order', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  verify: (body: VerifyPaymentBody): Promise<VerifyPaymentResponse> =>
+    request<VerifyPaymentResponse>('/v1/payments/verify', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  receiptPdfUrl: (orderId: string): string => '/api/v1/payments/receipt/' + orderId + '/pdf',
+  getNotificationAudit: (orderId: string): Promise<NotificationAuditLog[]> =>
+    request<NotificationAuditLog[]>(`/v1/payments/${orderId}/notifications`),
+  getGlobalAudit: (): Promise<NotificationAuditLog[]> =>
+    request<NotificationAuditLog[]>('/v1/payments/notifications/audit'),
+  getRefundPreview: (appointmentId: string, simulatedHours?: number): Promise<RefundPreviewResponse> => {
+    const q = simulatedHours !== undefined ? `?simulatedHours=${simulatedHours}` : '';
+    return request<RefundPreviewResponse>(`/v1/payments/appointments/${appointmentId}/refund-preview${q}`);
+  },
+  cancelAndRefund: (appointmentId: string, body?: CancelAndRefundBody): Promise<CancelAndRefundResponse> =>
+    request<CancelAndRefundResponse>(`/v1/payments/appointments/${appointmentId}/cancel-and-refund`, {
+      method: 'POST',
+      body: JSON.stringify(body || {}),
+    }),
+  getRefundStatus: (appointmentId: string): Promise<PaymentRefund | null> =>
+    request<PaymentRefund | null>(`/v1/payments/appointments/${appointmentId}/refund-status`),
+};
