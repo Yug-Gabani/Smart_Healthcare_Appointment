@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { Appointment, Prescription, User } from '../types';
 import { appointmentsApi, prescriptionsApi } from '../services/api';
+import { MeetingSummaryModal } from './MeetingSummaryModal';
 
 interface PatientDashboardProps {
   currentUser: User;
@@ -59,6 +60,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSummaryAppt, setSelectedSummaryAppt] = useState<Appointment | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -632,7 +634,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button
-                    onClick={() => navigate(`/consultation/${visit.id}`)}
+                    onClick={() => setSelectedSummaryAppt(visit)}
                     className="hover-lift"
                     style={{
                       flex: 1, backgroundColor: '#0f766e', color: '#ffffff',
@@ -642,7 +644,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
                     }}
                   >
                     <FileText size={14} />
-                    View Summary
+                    View Meeting Summary
                   </button>
                   <button
                     onClick={() => navigate(`/appointments/${visit.id}`)}
@@ -814,6 +816,13 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
           ))}
         </div>
       </section>
+
+      {selectedSummaryAppt && (
+        <MeetingSummaryModal
+          appointment={selectedSummaryAppt}
+          onClose={() => setSelectedSummaryAppt(null)}
+        />
+      )}
     </PageTransition>
   );
 };

@@ -18,30 +18,43 @@ import com.group6.healthcare.common.exception.BusinessRuleException;
 import com.group6.healthcare.common.exception.ResourceNotFoundException;
 import com.group6.healthcare.user.entity.User;
 import com.group6.healthcare.user.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
 
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Service
 public class ConsultationService {
+
+    private static final Logger log = LoggerFactory.getLogger(ConsultationService.class);
 
     private final ConsultationSessionRepository sessionRepository;
     private final AppointmentRepository appointmentRepository;
     private final DoctorRepository doctorRepository;
     private final DoctorSlotRepository slotRepository;
     private final UserRepository userRepository;
+    private final RestClient restClient;
+
+    @Value("${app.ai.service-url:http://localhost:8001}")
+    private String aiServiceUrl;
 
     // In-memory signaling bus for peer-to-peer WebRTC SDP & ICE candidate exchange.
-    // Key: appointmentId, Value: list of recent signal messages with timestamps.
+    // Key: appointmentId, Value: synchronized list of recent signal messages with monotonic timestamps.
     private final Map<UUID, List<ConsultationSignalMessage>> signalQueues = new ConcurrentHashMap<>();
+    private final AtomicLong lastSignalTimestamp = new AtomicLong(0);
 
     public ConsultationService(
             ConsultationSessionRepository sessionRepository,
@@ -54,6 +67,7 @@ public class ConsultationService {
         this.doctorRepository = doctorRepository;
         this.slotRepository = slotRepository;
         this.userRepository = userRepository;
+        this.restClient = RestClient.builder().build();
     }
 
     @Transactional
@@ -99,9 +113,10 @@ public class ConsultationService {
         OffsetDateTime slotAt = slot.getSlotAt();
 
         // Timing activation rule:
-        // Room opens 15 mins before slotAt until slotAt + 2 hours.
+        // Room opens 30 mins before slotAt until slotAt + 12 hours.
         // Doctors have override capability to start the room at any time for testing/prep.
-        boolean inWindow = now.isAfter(slotAt.minusMinutes(15)) && now.isBefore(slotAt.plusHours(2));
+        // If doctor has already opened or started the room, patient can join immediately.
+        boolean inWindow = now.isAfter(slotAt.minusMinutes(30)) && now.isBefore(slotAt.plusHours(12));
         boolean roomAlreadyStarted = session.getStatus() == ConsultationSessionStatus.WAITING
                 || session.getStatus() == ConsultationSessionStatus.IN_PROGRESS;
         boolean canJoin = isDoctor || inWindow || roomAlreadyStarted;
@@ -113,7 +128,7 @@ public class ConsultationService {
             joinMessage = "Consultation room is active. Click to join the video session.";
         } else {
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("h:mm a");
-            joinMessage = "Room activates 15 minutes before your scheduled slot (" + slotAt.format(formatter) + ").";
+            joinMessage = "Room activates 30 minutes before your scheduled slot (" + slotAt.format(formatter) + ").";
         }
 
         return toResponse(session, slotAt, doctorName, patientName, canJoin, joinMessage);
@@ -163,23 +178,38 @@ public class ConsultationService {
             chiefComplaint = "Routine medical teleconsultation follow-up.";
         }
 
+        String transcript = (req != null && req.transcript() != null) ? req.transcript() : "";
+        String doctorNotes = (req != null && req.doctorNotes() != null) ? req.doctorNotes() : "";
+
+        String patientName = patient != null ? patient.getFullName() : "Patient";
+        String doctorName = doctor != null ? "Dr. " + doctor.getFullName() : "Doctor";
+
+        // Attempt LangChain + LangGraph AI Meeting Summarization via ai-service / OpenRouter
+        AiSummaryResponse aiSummary = tryGenerateAiSummary(patientName, doctorName, chiefComplaint, transcript, doctorNotes);
+
         String observations = (req != null && req.observations() != null && !req.observations().isBlank())
                 ? req.observations()
+                : (aiSummary != null && aiSummary.observations() != null && !aiSummary.observations().isBlank())
+                ? aiSummary.observations()
                 : "Patient appeared alert and oriented. Symptoms evaluated over secure video consult. Visual assessment noted stable condition with no acute respiratory distress.";
 
         String advice = (req != null && req.doctorNotes() != null && !req.doctorNotes().isBlank())
                 ? req.doctorNotes()
+                : (aiSummary != null && aiSummary.doctor_advice() != null && !aiSummary.doctor_advice().isBlank())
+                ? aiSummary.doctor_advice()
                 : "Continue prescribed hydration and symptomatic relief. Monitor body temperature and rest. Maintain current treatment course as discussed.";
 
         String actions = (req != null && req.prescribedActions() != null && !req.prescribedActions().isBlank())
                 ? req.prescribedActions()
+                : (aiSummary != null && aiSummary.prescribed_actions() != null && !aiSummary.prescribed_actions().isBlank())
+                ? aiSummary.prescribed_actions()
                 : "Adhere to the digital prescription issued in the portal. Complete any ordered blood tests or follow-up laboratory work.";
 
         String followUp = (req != null && req.followUp() != null && !req.followUp().isBlank())
                 ? req.followUp()
+                : (aiSummary != null && aiSummary.follow_up() != null && !aiSummary.follow_up().isBlank())
+                ? aiSummary.follow_up()
                 : "Schedule follow-up review in 7–10 days if symptoms persist. Seek immediate emergency care if chest tightness, severe fever, or shortness of breath develops.";
-
-        String transcript = (req != null && req.transcript() != null) ? req.transcript() : "";
 
         session.setStatus(ConsultationSessionStatus.COMPLETED);
         session.setEndedAt(OffsetDateTime.now());
@@ -199,18 +229,35 @@ public class ConsultationService {
         }
         appointmentRepository.save(appt);
 
-        // Clean up signaling queue for this appointment
-        signalQueues.remove(appointmentId);
+        // Broadcast an END_CALL message so connected peers immediately transition to summary screen
+        pushSignal(appointmentId, new ConsultationSignalMessage(
+                "END_CALL",
+                requesterId,
+                doctor != null && doctor.getUserId().equals(requesterId) ? "DOCTOR" : "PATIENT",
+                "Consultation completed by clinician",
+                System.currentTimeMillis()
+        ));
 
         return getOrCreateSession(appointmentId, requesterId);
     }
 
     public void pushSignal(UUID appointmentId, ConsultationSignalMessage message) {
+        long now = System.currentTimeMillis();
+        long monotonicTs = lastSignalTimestamp.updateAndGet(prev -> Math.max(now, prev + 1));
+        ConsultationSignalMessage stamped = new ConsultationSignalMessage(
+                message.type(),
+                message.senderId(),
+                message.senderRole(),
+                message.payload(),
+                monotonicTs
+        );
         signalQueues.compute(appointmentId, (k, list) -> {
-            List<ConsultationSignalMessage> q = (list == null) ? new ArrayList<>() : list;
+            List<ConsultationSignalMessage> q = (list == null) ? Collections.synchronizedList(new ArrayList<>()) : list;
             long cutoff = System.currentTimeMillis() - 120_000; // retain for 2 minutes
-            q.removeIf(m -> m.timestamp() < cutoff);
-            q.add(message);
+            synchronized (q) {
+                q.removeIf(m -> m.timestamp() < cutoff);
+                q.add(stamped);
+            }
             return q;
         });
     }
@@ -252,5 +299,45 @@ public class ConsultationService {
                 s.getSummaryFollowUp(),
                 s.getCreatedAt()
         );
+    }
+
+    private record AiSummaryPayload(
+            String patient_name,
+            String doctor_name,
+            String chief_complaint,
+            String transcript,
+            String doctor_notes
+    ) {}
+
+    public record AiSummaryResponse(
+            String chief_complaint,
+            String observations,
+            String doctor_advice,
+            String prescribed_actions,
+            String follow_up,
+            String safety_disclaimer
+    ) {}
+
+    private AiSummaryResponse tryGenerateAiSummary(
+            String patientName,
+            String doctorName,
+            String chiefComplaint,
+            String transcript,
+            String doctorNotes) {
+        if (aiServiceUrl == null || aiServiceUrl.isBlank()) {
+            return null;
+        }
+        try {
+            String targetUri = aiServiceUrl.replaceAll("/$", "") + "/summarize-consultation";
+            log.info("Requesting LangGraph consultation summary from: {}", targetUri);
+            return restClient.post()
+                    .uri(targetUri)
+                    .body(new AiSummaryPayload(patientName, doctorName, chiefComplaint, transcript, doctorNotes))
+                    .retrieve()
+                    .body(AiSummaryResponse.class);
+        } catch (Exception ex) {
+            log.warn("AI meeting summarization fallback invoked ({}: {})", ex.getClass().getSimpleName(), ex.getMessage());
+            return null;
+        }
     }
 }

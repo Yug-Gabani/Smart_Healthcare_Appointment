@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: healthcare
       POSTGRES_PASSWORD: healthcare
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -65,10 +65,25 @@ services:
       DB_USERNAME: healthcare
       DB_PASSWORD: healthcare
       SERVER_PORT: "8080"
+      AI_SERVICE_URL: http://ai-service:8001
     ports:
       - "8080:8080"
     profiles:
       - full   # start only when `docker compose --profile full up`
+
+  ai-service:
+    build:
+      context: ../apps/ai-service
+      dockerfile: Dockerfile
+    container_name: healthcare-ai-service
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
+      PORT: "8001"
+    ports:
+      - "8001:8001"
+    profiles:
+      - full
 
 volumes:
   postgres_data:
