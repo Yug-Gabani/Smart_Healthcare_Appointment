@@ -39,13 +39,19 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
   }, [location.pathname]);
 
   // Where to land after successful auth.
+  //
+  // Patients are intentionally sent to the public landing page (practo-style single home).
+  // Everything they need — hospital search, specialty grid, body-map triage, their own
+  // appointments/prescriptions/orders via the top-right profile chip — is reachable from there.
+  // Workforce roles (admin / pharmacist / doctor) still go to their role-specific dashboard
+  // because that *is* their job. A ?next= override wins for deep-link flows.
   const nextParam = new URLSearchParams(location.search).get('next');
   const landingFor = (role: Role) =>
     nextParam ? nextParam
       : role === 'ADMIN'      ? '/admin/doctors'
       : role === 'PHARMACIST' ? '/pharmacy'
       : role === 'DOCTOR'     ? '/doctor'
-                              : '/patient';
+                              : '/';
 
   // If already logged in, redirect to appropriate landing
   useEffect(() => {
