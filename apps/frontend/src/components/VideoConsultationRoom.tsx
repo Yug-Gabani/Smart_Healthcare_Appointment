@@ -209,8 +209,8 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const cameraVideoTrackRef = useRef<MediaStreamTrack | null>(null);
   const makingOffer = useRef<boolean>(false);
-  const ignoreOffer = useRef<boolean>(false);
   const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
+  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
 
   // HTML Video element refs
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -218,8 +218,6 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
   const isDoctor = currentUser?.role === 'DOCTOR';
-  // Patient is the polite peer in Perfect Negotiation; Doctor is impolite
-  const isPolite = !isDoctor;
 
   const peerDisplayName = isDoctor
     ? session?.patientName || 'Patient'
@@ -398,7 +396,73 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
     };
   }, [session?.canJoin, session?.status, currentUser, isDoctor]);
 
-  // WebRTC PeerConnection initialization & Perfect Negotiation setup
+  // Helper to create and dispatch an SDP offer (Doctor initiates)
+  const createAndSendOffer = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc || !appointmentId || makingOffer.current) return;
+    try {
+      makingOffer.current = true;
+      if (pc.signalingState === 'have-local-offer' && pc.localDescription) {
+        await consultationsApi.sendSignal(appointmentId, {
+          type: 'SDP_OFFER',
+          payload: JSON.stringify({ sdp: pc.localDescription }),
+        });
+        return;
+      }
+      if (pc.signalingState !== 'stable') {
+        return;
+      }
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      if (pc.localDescription) {
+        await consultationsApi.sendSignal(appointmentId, {
+          type: 'SDP_OFFER',
+          payload: JSON.stringify({ sdp: pc.localDescription }),
+        });
+      }
+    } catch (err) {
+      console.warn('Error creating/sending SDP offer:', err);
+    } finally {
+      makingOffer.current = false;
+    }
+  }, [appointmentId]);
+
+  // Helper to process an incoming SDP offer and return an SDP answer
+  const handleReceiveOffer = useCallback(async (sdp: RTCSessionDescriptionInit) => {
+    const pc = pcRef.current;
+    if (!pc || !appointmentId) {
+      pendingOfferRef.current = sdp;
+      return;
+    }
+    try {
+      if (pc.signalingState !== 'stable') {
+        await pc.setLocalDescription({ type: 'rollback' });
+      }
+      await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+
+      // Flush queued candidates
+      while (iceCandidatesQueue.current.length > 0) {
+        const c = iceCandidatesQueue.current.shift();
+        if (c) {
+          await pc.addIceCandidate(new RTCIceCandidate(c)).catch(console.warn);
+        }
+      }
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      if (pc.localDescription) {
+        await consultationsApi.sendSignal(appointmentId, {
+          type: 'SDP_ANSWER',
+          payload: JSON.stringify({ sdp: pc.localDescription }),
+        });
+      }
+      setPeerConnectionStatus('connected');
+    } catch (err) {
+      console.error('Error handling remote offer:', err);
+    }
+  }, [appointmentId]);
+
+  // WebRTC PeerConnection initialization
   useEffect(() => {
     if (!appointmentId || !callActive || !localStream) return;
 
@@ -413,15 +477,23 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
 
     // Handle track arrival from remote peer
     pc.ontrack = (event: RTCTrackEvent) => {
-      const [stream] = event.streams;
-      if (stream) {
-        remoteStreamRef.current = stream;
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream;
+      let stream = event.streams && event.streams[0];
+      if (!stream) {
+        if (!remoteStreamRef.current) {
+          remoteStreamRef.current = new MediaStream();
         }
-        setHasRemoteStream(true);
-        setPeerConnectionStatus('connected');
+        remoteStreamRef.current.addTrack(event.track);
+        stream = remoteStreamRef.current;
+      } else {
+        remoteStreamRef.current = stream;
       }
+
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.play().catch(e => console.warn('remoteVideo play error:', e));
+      }
+      setHasRemoteStream(true);
+      setPeerConnectionStatus('connected');
     };
 
     // Handle ICE candidates generated locally
@@ -436,13 +508,13 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
       }
     };
 
-    // Monitor connection state
+    // Monitor connection states
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
       if (state === 'connected') {
         setPeerConnectionStatus('connected');
       } else if (state === 'connecting') {
-        setPeerConnectionStatus('connecting');
+        setPeerConnectionStatus(prev => (prev === 'connected' ? 'connected' : 'connecting'));
       } else if (state === 'disconnected') {
         setPeerConnectionStatus('disconnected');
       } else if (state === 'failed') {
@@ -450,23 +522,25 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
       }
     };
 
-    // Handle negotiation needed (Perfect Negotiation pattern)
-    pc.onnegotiationneeded = async () => {
-      try {
-        makingOffer.current = true;
-        await pc.setLocalDescription();
-        if (pc.localDescription && appointmentId) {
-          await consultationsApi.sendSignal(appointmentId, {
-            type: 'SDP_OFFER',
-            payload: JSON.stringify({ sdp: pc.localDescription }),
-          });
-        }
-      } catch (err) {
-        console.error('WebRTC negotiation offer error:', err);
-      } finally {
-        makingOffer.current = false;
+    pc.oniceconnectionstatechange = () => {
+      const state = pc.iceConnectionState;
+      if (state === 'connected' || state === 'completed') {
+        setPeerConnectionStatus('connected');
+      } else if (state === 'disconnected') {
+        setPeerConnectionStatus('disconnected');
+      } else if (state === 'failed') {
+        setPeerConnectionStatus('failed');
       }
     };
+
+    // If an SDP offer arrived while waiting for localStream, process it now!
+    if (pendingOfferRef.current) {
+      const pendingSdp = pendingOfferRef.current;
+      pendingOfferRef.current = null;
+      handleReceiveOffer(pendingSdp);
+    } else if (isDoctor) {
+      createAndSendOffer();
+    }
 
     // Broadcast PEER_READY signal so remote participant detects our presence immediately
     consultationsApi
@@ -480,7 +554,31 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
       pc.close();
       pcRef.current = null;
     };
-  }, [appointmentId, callActive, localStream, isDoctor]);
+  }, [appointmentId, callActive, localStream, isDoctor, createAndSendOffer, handleReceiveOffer]);
+
+  // Periodic PEER_READY heartbeat until connection is established
+  useEffect(() => {
+    if (!appointmentId || !callActive || peerConnectionStatus === 'connected' || !localStream) return;
+    const interval = setInterval(() => {
+      consultationsApi
+        .sendSignal(appointmentId, {
+          type: 'PEER_READY',
+          payload: JSON.stringify({ role: isDoctor ? 'DOCTOR' : 'PATIENT' }),
+        })
+        .catch(console.warn);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [appointmentId, callActive, peerConnectionStatus, localStream, isDoctor]);
+
+  // Ensure remote video element has the active remote stream attached
+  useEffect(() => {
+    if (hasRemoteStream && remoteStreamRef.current && remoteVideoRef.current) {
+      if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      }
+      remoteVideoRef.current.play().catch(e => console.warn('remoteVideo play error:', e));
+    }
+  }, [hasRemoteStream]);
 
   // Signaling bus polling loop for SDP Offer/Answer, ICE candidates, and Chat
   useEffect(() => {
@@ -515,64 +613,25 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
             switch (sig.type) {
               case 'PEER_READY': {
                 setPeerConnectionStatus(prev => (prev === 'connected' ? 'connected' : 'connecting'));
-                // Impolite peer (Doctor) initiates negotiation upon peer ready if connection is not yet stable
-                if (!isPolite && pc && pc.signalingState === 'stable') {
-                  try {
-                    makingOffer.current = true;
-                    await pc.setLocalDescription();
-                    if (pc.localDescription) {
-                      await consultationsApi.sendSignal(appointmentId, {
-                        type: 'SDP_OFFER',
-                        payload: JSON.stringify({ sdp: pc.localDescription }),
-                      });
-                    }
-                  } catch (err) {
-                    console.warn('Error sending SDP offer on PEER_READY:', err);
-                  } finally {
-                    makingOffer.current = false;
+                if (isDoctor) {
+                  createAndSendOffer();
+                } else {
+                  if (appointmentId && peerConnectionStatus !== 'connected') {
+                    consultationsApi
+                      .sendSignal(appointmentId, {
+                        type: 'PEER_READY',
+                        payload: JSON.stringify({ role: 'PATIENT' }),
+                      })
+                      .catch(console.warn);
                   }
                 }
                 break;
               }
 
               case 'SDP_OFFER': {
-                if (!pc) break;
                 try {
                   const { sdp } = JSON.parse(sig.payload);
-                  const offerCollision = makingOffer.current || pc.signalingState !== 'stable';
-                  ignoreOffer.current = !isPolite && offerCollision;
-
-                  if (ignoreOffer.current) {
-                    console.log('Glade conflict: impolite peer ignoring colliding offer');
-                    break;
-                  }
-
-                  if (offerCollision) {
-                    await Promise.all([
-                      pc.setLocalDescription({ type: 'rollback' }),
-                      pc.setRemoteDescription(new RTCSessionDescription(sdp)),
-                    ]);
-                  } else {
-                    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-                  }
-
-                  // Process buffered ICE candidates
-                  while (iceCandidatesQueue.current.length > 0) {
-                    const candidate = iceCandidatesQueue.current.shift();
-                    if (candidate) {
-                      await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.warn);
-                    }
-                  }
-
-                  // Create & dispatch SDP Answer
-                  await pc.setLocalDescription();
-                  if (pc.localDescription) {
-                    await consultationsApi.sendSignal(appointmentId, {
-                      type: 'SDP_ANSWER',
-                      payload: JSON.stringify({ sdp: pc.localDescription }),
-                    });
-                  }
-                  setPeerConnectionStatus('connected');
+                  handleReceiveOffer(sdp);
                 } catch (err) {
                   console.error('Error handling SDP_OFFER:', err);
                 }
@@ -602,11 +661,10 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
               }
 
               case 'ICE_CANDIDATE': {
-                if (!pc) break;
                 try {
                   const { candidate } = JSON.parse(sig.payload);
                   if (candidate) {
-                    if (pc.remoteDescription && pc.remoteDescription.type) {
+                    if (pc && pc.remoteDescription && pc.remoteDescription.type) {
                       await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.warn);
                     } else {
                       iceCandidatesQueue.current.push(candidate);
@@ -683,7 +741,7 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
 
     const interval = setInterval(poll, 800);
     return () => clearInterval(interval);
-  }, [appointmentId, callActive, isPolite]);
+  }, [appointmentId, callActive, isDoctor, createAndSendOffer, handleReceiveOffer, peerConnectionStatus]);
 
   // Scroll chat to bottom
   useEffect(() => {

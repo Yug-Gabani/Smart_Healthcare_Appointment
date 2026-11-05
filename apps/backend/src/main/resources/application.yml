@@ -5,7 +5,7 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/healthcare}
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/healthcare}
     username: ${DB_USERNAME:healthcare}
     password: ${DB_PASSWORD:healthcare}
     hikari:
