@@ -71,6 +71,9 @@ app:
     api-secret: ${CLOUDINARY_API_SECRET:}
     folder:     ${CLOUDINARY_FOLDER:pulsecare}
 
+  ai:
+    service-url: ${AI_SERVICE_URL:http://localhost:8001}
+
 logging:
   level:
     root: INFO
