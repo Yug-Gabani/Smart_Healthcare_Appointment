@@ -41,10 +41,10 @@ public class PaymentTestbenchController {
     @Autowired(required = false)
     private JdbcTemplate jdbcTemplate;
 
-    @Value("${razorpay.key-id:rzp_test_TswNlnPR1Z1bzM}")
+    @Value("${razorpay.key-id:}")
     private String razorpayKeyId;
 
-    @Value("${razorpay.key-secret:fkrfZsCjyDxl3ZrM5LhYTvHg}")
+    @Value("${razorpay.key-secret:}")
     private String razorpayKeySecret;
 
     @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
@@ -65,7 +65,7 @@ public class PaymentTestbenchController {
     @Value("${whatsapp.enabled:true}")
     private boolean whatsappEnabled;
 
-    @Value("${whatsapp.meta.phone-number-id:1419682501223273}")
+    @Value("${whatsapp.meta.phone-number-id:}")
     private String metaPhoneId;
 
     @Value("${whatsapp.twilio.from-number:whatsapp:+17372508034}")
@@ -272,7 +272,7 @@ public class PaymentTestbenchController {
         ));
         waCheck.put("twilioSandboxFallback", Map.of(
                 "fromNumber", twilioFrom,
-                "contentSid", "HXfe5ab5f00277942d4d4200328b4d403c"
+                "contentSid", "${whatsapp.twilio.content-sid:}"
         ));
         waCheck.put("resiliency", "Permissive SSLContext enabled for campus firewalls; Auto-failover Meta -> Twilio");
         waCheck.put("status", "READY");
