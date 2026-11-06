@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: healthcare
       POSTGRES_PASSWORD: healthcare
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -97,6 +97,7 @@ services:
       REDIS_PORT: "6379"
       MINIO_ENDPOINT: "http://minio:9000"
       SPRING_CONFIG_ADDITIONAL_LOCATION: "file:/app/config/"
+      AI_SERVICE_URL: http://ai-service:8001
     ports:
       - "8080:8080"
     volumes:
@@ -126,6 +127,20 @@ services:
     profiles:
       - full
       - cdc
+
+  ai-service:
+    build:
+      context: ../apps/ai-service
+      dockerfile: Dockerfile
+    container_name: healthcare-ai-service
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
+      PORT: "8001"
+    ports:
+      - "8001:8001"
+    profiles:
+      - full
 
 volumes:
   postgres_data:

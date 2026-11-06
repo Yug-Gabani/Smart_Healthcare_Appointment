@@ -8,6 +8,7 @@ import type { Appointment, AppointmentStatus } from '../types';
 import { appointmentsApi } from '../services/api';
 import { DoctorReviewModal } from './DoctorReviewModal';
 import { CancelRefundModal } from './CancelRefundModal';
+import { MeetingSummaryModal } from './MeetingSummaryModal';
 
 type Tab = 'upcoming' | 'past' | 'cancelled';
 
@@ -60,6 +61,7 @@ export const MyAppointments: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [reviewingAppt, setReviewingAppt] = useState<Appointment | null>(null);
   const [cancelModalAppt, setCancelModalAppt] = useState<Appointment | null>(null);
+  const [summaryAppt, setSummaryAppt] = useState<Appointment | null>(null);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -290,11 +292,11 @@ export const MyAppointments: React.FC = () => {
                     )}
                     {appt.consultationType === 'VIDEO' && appt.status === 'COMPLETED' && (
                       <button
-                        onClick={() => navigate(`/consultation/${appt.id}`)}
+                        onClick={() => setSummaryAppt(appt)}
                         className="btn btn-secondary hover-lift"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                       >
-                        <FileText size={14} /> Visit Summary
+                        <FileText size={14} /> Meeting Summary
                       </button>
                     )}
                     <button
@@ -367,6 +369,13 @@ export const MyAppointments: React.FC = () => {
           doctorSpecialty={reviewingAppt.doctorSpecialty}
           doctorAvatarUrl={reviewingAppt.doctorAvatarUrl}
           onSuccess={() => reload()}
+        />
+      )}
+      {/* Meeting Summary Modal */}
+      {summaryAppt && (
+        <MeetingSummaryModal
+          appointment={summaryAppt}
+          onClose={() => setSummaryAppt(null)}
         />
       )}
     </PageTransition>

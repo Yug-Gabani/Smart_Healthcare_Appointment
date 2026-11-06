@@ -16,6 +16,7 @@ import { AdminDoctors } from './components/AdminDoctors';
 import { PharmacyDashboard } from './components/PharmacyDashboard';
 import { PatientOrders } from './components/PatientOrders';
 import { VideoConsultationRoom } from './components/VideoConsultationRoom';
+import { AppointmentReminderBanner } from './components/AppointmentReminderBanner';
 import { AuthPage } from './components/AuthPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { authApi } from './services/api';
@@ -96,19 +97,30 @@ export const App: React.FC = () => {
       }}
     >
       {!isAuthRoute && !isConsultationRoute && (
-        <Header
-          currentUser={currentUser}
-          onOpenAuth={() => navigate('/login')}
-          onOpenRegister={() => navigate('/signup')}
-          onLogout={handleLogout}
-          onGetCare={handleGetCare}
-          onGoHome={() => navigate('/')}
-        />
+        <>
+          <AppointmentReminderBanner currentUser={currentUser} />
+          <Header
+            currentUser={currentUser}
+            onOpenAuth={() => navigate('/login')}
+            onOpenRegister={() => navigate('/signup')}
+            onLogout={handleLogout}
+            onGetCare={handleGetCare}
+            onGoHome={() => navigate('/')}
+          />
+        </>
       )}
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: isConsultationRoute ? 'hidden' : undefined }}>
         <Routes>
           {/* Root: dashboard for signed-in users, landing otherwise */}
+          {/*
+            Root route.
+            Role-specific redirects only for workforce users (admin / pharmacist / doctor) whose
+            whole job lives on their dashboard. Patients and unauthenticated visitors both see the
+            same landing page — patients just get a "Welcome back" strip + full access to search,
+            specialties, hospitals from one place (practo-style). The `/patient` dashboard URL still
+            resolves for anyone who wants the drill-down view.
+          */}
           <Route
             path="/"
             element={
@@ -118,8 +130,6 @@ export const App: React.FC = () => {
                 <Navigate to="/pharmacy" replace />
               ) : currentUser?.role === 'DOCTOR' ? (
                 <Navigate to="/doctor" replace />
-              ) : currentUser?.role === 'PATIENT' ? (
-                <Navigate to="/patient" replace />
               ) : (
                 <LandingPage
                   onGetCare={handleGetCare}
