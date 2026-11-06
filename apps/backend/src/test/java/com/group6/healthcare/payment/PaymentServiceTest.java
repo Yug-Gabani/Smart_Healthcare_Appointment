@@ -149,6 +149,7 @@ class PaymentServiceTest {
 
     @Test
     void shouldRejectBypassSignatureOnLiveOrder() {
+        paymentService.setCredentials("rzp_live_realProductionKey", testSecret);
         String orderId = "order_realLive999";
         String paymentId = "pay_live888";
 
