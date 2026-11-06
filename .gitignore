@@ -47,5 +47,10 @@ __pycache__/
 .venv/
 .pytest_cache/
 
+# ---- Archives ----
+*.zip
+*.tar.gz
+*.rar
+
 # ---- Docker ----
 .docker-volumes/
