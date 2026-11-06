@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageTransition } from '../motion/PageTransition';
-import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw } from 'lucide-react';
 import type { Appointment } from '../types';
 import { appointmentsApi } from '../services/api';
+import { CancelRefundModal } from './CancelRefundModal';
 
 function formatSlot(iso?: string): string {
   if (!iso) return 'TBA';
@@ -32,7 +33,8 @@ export const AppointmentDetail: React.FC = () => {
   const [appt, setAppt] = useState<Appointment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [refundSummary, setRefundSummary] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -50,20 +52,6 @@ export const AppointmentDetail: React.FC = () => {
     appt.status !== 'CANCELLED' &&
     appt.status !== 'COMPLETED' &&
     appt.status !== 'NO_SHOW';
-
-  const handleCancel = async () => {
-    if (!appt) return;
-    if (!confirm('Cancel this appointment? The slot will be released.')) return;
-    setCancelling(true);
-    try {
-      const updated = await appointmentsApi.cancel(appt.id);
-      setAppt(updated);
-    } catch (err: any) {
-      alert(err.message || 'Could not cancel this appointment.');
-    } finally {
-      setCancelling(false);
-    }
-  };
 
   return (
     <PageTransition style={{ maxWidth: '720px', margin: '20px auto 28px', padding: '0 20px' }}>
@@ -158,6 +146,27 @@ export const AppointmentDetail: React.FC = () => {
             </div>
           </div>
 
+          {/* Refund Status Notice if cancelled */}
+          {(appt.status === 'CANCELLED' || refundSummary) && (
+            <div
+              style={{
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+              }}
+            >
+              <RotateCcw size={18} color="#dc2626" />
+              <div style={{ fontSize: '13px', color: '#991b1b' }}>
+                <strong>Appointment Cancelled.</strong> {refundSummary || 'Slot has been released.'}
+              </div>
+            </div>
+          )}
+
           {appt.chiefComplaint && (
             <div style={{ marginBottom: '16px' }}>
               <div style={{ fontSize: '12px', fontWeight: 700, color: '#52736d', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>
@@ -197,24 +206,36 @@ export const AppointmentDetail: React.FC = () => {
             </button>
             {canCancel && (
               <button
-                onClick={handleCancel}
-                disabled={cancelling}
+                onClick={() => setIsCancelModalOpen(true)}
                 className="btn btn-secondary hover-lift"
-                style={{ color: '#dc2626', borderColor: 'rgba(220,38,38,0.3)' }}
+                style={{
+                  color: '#dc2626',
+                  borderColor: 'rgba(220,38,38,0.3)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
               >
-                {cancelling ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" /> Cancelling…
-                  </>
-                ) : (
-                  <>
-                    <XCircle size={14} /> Cancel appointment
-                  </>
-                )}
+                <XCircle size={14} /> Cancel & Refund Policy
               </button>
             )}
           </div>
         </div>
+      )}
+
+      {/* Cancellation & Tiered Refund Modal */}
+      {appt && (
+        <CancelRefundModal
+          isOpen={isCancelModalOpen}
+          appointmentId={appt.id}
+          doctorName={appt.doctorName}
+          slotTimeStr={formatSlot(appt.slotAt)}
+          onClose={() => setIsCancelModalOpen(false)}
+          onSuccess={(res) => {
+            setAppt(prev => prev ? { ...prev, status: 'CANCELLED' } : null);
+            setRefundSummary(`Refund processed: ₹${(res.refundAmountPaise / 100).toFixed(2)} (${res.refundPercentage}% refund under tier ${res.tier}).`);
+          }}
+        />
       )}
     </PageTransition>
   );
