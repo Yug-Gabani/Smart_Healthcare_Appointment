@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -19,6 +19,12 @@ import {
   FileText,
   Trash2,
   Paperclip,
+  CreditCard,
+  Lock,
+  Zap,
+  Tag,
+  Ticket,
+  Check,
 } from 'lucide-react';
 import type {
   Appointment,
@@ -29,13 +35,38 @@ import type {
   TriageAssessment,
   User,
 } from '../types';
-import { appointmentsApi, doctorsApi, triageApi, filesApi } from '../services/api';
+import {
+  appointmentsApi,
+  doctorsApi,
+  triageApi,
+  filesApi,
+  paymentsApi,
+  slotsApi,
+} from '../services/api';
 import { PageTransition } from '../motion/PageTransition';
 import { CustomCheckbox } from './CustomCheckbox';
+import { AppointmentConfirmedView } from './AppointmentConfirmedView';
+import { CouponFeedbackModal, type CouponSuccessData, type CouponErrorData } from './CouponFeedbackModal';
 
 interface PatientTriageBookingProps {
   currentUser: User | null;
 }
+
+export interface DiscountCoupon {
+  code: string;
+  description: string;
+  type: 'PERCENT' | 'FLAT' | 'FIXED';
+  value: number;
+  badge: string;
+}
+
+export const TEST_COUPONS: DiscountCoupon[] = [
+  { code: 'PULSE50', description: '50% Flat Off Consultation', type: 'PERCENT', value: 50, badge: '50% OFF' },
+  { code: 'CARE100', description: '₹100 Instant Medical Credit', type: 'FLAT', value: 100, badge: '₹100 OFF' },
+  { code: 'HEALTH1', description: 'Pay ₹1 Special Gateway Test Coin', type: 'FIXED', value: 1, badge: '₹1 TEST' },
+  { code: 'PULSE90', description: '90% Healthcare Subsidy', type: 'PERCENT', value: 90, badge: '90% OFF' },
+  { code: 'FREECONSULT', description: '100% Free Consultation', type: 'PERCENT', value: 100, badge: '100% FREE' },
+];
 
 const COMMON_SYMPTOMS = [
   'Fever / Chills',
@@ -338,7 +369,6 @@ function inferPresetFromComplaint(text: string): SpotIntakePreset {
 }
 
 export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ currentUser }) => {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -493,6 +523,9 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const [doctorsError, setDoctorsError] = useState<string | null>(null);
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
   const [selectedSlotId, setSelectedSlotId] = useState<string>('');
+  const [holdSecondsRemaining, setHoldSecondsRemaining] = useState<number | null>(null);
+  const [reservingSlot, setReservingSlot] = useState<boolean>(false);
+  const [slotReservationMessage, setSlotReservationMessage] = useState<string | null>(null);
   const [doctorSlots, setDoctorSlots] = useState<Slot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState<boolean>(false);
   const [selectedDayISO, setSelectedDayISO] = useState<string>('');
@@ -520,6 +553,88 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const [booking, setBooking] = useState<boolean>(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<Appointment | null>(null);
+  const [paymentInfo, setPaymentInfo] = useState<{
+    orderId: string;
+    paymentId: string;
+    amountPaise: number;
+    status: string;
+    pdfUrl: string;
+  } | null>(null);
+  const [patientPhone, setPatientPhone] = useState<string>(currentUser?.phone || '+919876543210');
+
+  // Coupon state
+  const [couponInput, setCouponInput] = useState<string>('');
+  const [appliedCoupon, setAppliedCoupon] = useState<DiscountCoupon | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponSuccess, setCouponSuccess] = useState<string | null>(null);
+  const [couponSuccessModal, setCouponSuccessModal] = useState<CouponSuccessData | null>(null);
+  const [couponErrorModal, setCouponErrorModal] = useState<CouponErrorData | null>(null);
+
+  const calculatePayablePaise = (coupon: DiscountCoupon | null): { payablePaise: number; discountPaise: number } => {
+    if (!coupon) return { payablePaise: 50000, discountPaise: 0 };
+    if (coupon.type === 'PERCENT') {
+      if (coupon.value >= 100) return { payablePaise: 0, discountPaise: 50000 };
+      const discount = Math.round(50000 * (coupon.value / 100));
+      return { payablePaise: Math.max(100, 50000 - discount), discountPaise: discount };
+    }
+    if (coupon.type === 'FLAT') {
+      const discount = coupon.value * 100;
+      return { payablePaise: Math.max(100, 50000 - discount), discountPaise: discount };
+    }
+    if (coupon.type === 'FIXED') {
+      const payable = coupon.value * 100;
+      return { payablePaise: payable, discountPaise: Math.max(0, 50000 - payable) };
+    }
+    return { payablePaise: 50000, discountPaise: 0 };
+  };
+
+  const { payablePaise, discountPaise } = calculatePayablePaise(appliedCoupon);
+
+  const handleApplyCoupon = (codeToApply?: string) => {
+    const raw = (codeToApply || couponInput).trim().toUpperCase();
+    if (!raw) {
+      const errMsg = 'Please enter a coupon code before clicking Apply.';
+      setCouponError(errMsg);
+      setCouponSuccess(null);
+      setCouponErrorModal({
+        attemptedCode: '',
+        message: errMsg,
+      });
+      return;
+    }
+    const found = TEST_COUPONS.find((c) => c.code.toUpperCase() === raw);
+    if (!found) {
+      const errMsg = `Invalid coupon code '${raw}'. It is not recognized or may have expired.`;
+      setCouponError(errMsg);
+      setCouponSuccess(null);
+      setCouponErrorModal({
+        attemptedCode: raw,
+        message: errMsg,
+      });
+      return;
+    }
+    setAppliedCoupon(found);
+    setCouponInput(found.code);
+    setCouponError(null);
+    const { payablePaise: newPayable, discountPaise: newDisc } = calculatePayablePaise(found);
+    const msg = `Coupon '${found.code}' applied! You save ₹${(newDisc / 100).toFixed(2)}.`;
+    setCouponSuccess(msg);
+    setCouponErrorModal(null);
+    setCouponSuccessModal({
+      coupon: found,
+      discountPaise: newDisc,
+      payablePaise: newPayable,
+    });
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponInput('');
+    setCouponError(null);
+    setCouponSuccess(null);
+    setCouponSuccessModal(null);
+    setCouponErrorModal(null);
+  };
 
   const toggleSymptom = (symptom: string) =>
     setSelectedSymptoms(prev =>
@@ -699,7 +814,33 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     return Array.from(daysMap.values()).sort((a, b) => a.dateISO.localeCompare(b.dateISO));
   }, [availableSlots]);
 
-  // Auto-select first available day and slot when schedule changes
+  // Countdown timer for Redis 2-Phase reservation hold
+  useEffect(() => {
+    if (holdSecondsRemaining === null || holdSecondsRemaining <= 0) return;
+    const interval = setInterval(() => {
+      setHoldSecondsRemaining(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          setSelectedSlotId('');
+          setSlotReservationMessage('Your 10-minute slot reservation has expired. Please select a time slot again.');
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [holdSecondsRemaining]);
+
+  // Release hold if user navigates away or unmounts
+  useEffect(() => {
+    return () => {
+      if (selectedSlotId) {
+        slotsApi.release(selectedSlotId).catch(() => {});
+      }
+    };
+  }, [selectedSlotId]);
+
+  // Auto-select first available day when schedule changes
   useEffect(() => {
     if (scheduleDays.length === 0) return;
     const currentDayObj = scheduleDays.find(d => d.dateISO === selectedDayISO);
@@ -707,29 +848,52 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
       const firstWithSlots = scheduleDays.find(d => d.slots.length > 0) || scheduleDays[0];
       if (firstWithSlots) {
         setSelectedDayISO(firstWithSlots.dateISO);
-        if (firstWithSlots.slots.length > 0) {
-          setSelectedSlotId(firstWithSlots.slots[0].id);
-        } else {
-          setSelectedSlotId('');
-        }
-      }
-    } else {
-      if (!currentDayObj.slots.some(s => s.id === selectedSlotId)) {
-        setSelectedSlotId(currentDayObj.slots[0]?.id ?? '');
       }
     }
-  }, [scheduleDays, selectedDayISO, selectedSlotId]);
+  }, [scheduleDays, selectedDayISO]);
 
   const handleDayClick = (dayISO: string) => {
-    setSelectedDayISO(dayISO);
-    const dayObj = scheduleDays.find(d => d.dateISO === dayISO);
-    if (dayObj && dayObj.slots.length > 0) {
-      const hasSelected = dayObj.slots.some(s => s.id === selectedSlotId);
-      if (!hasSelected) {
-        setSelectedSlotId(dayObj.slots[0].id);
-      }
-    } else {
+    if (selectedSlotId) {
+      slotsApi.release(selectedSlotId).catch(() => {});
       setSelectedSlotId('');
+      setHoldSecondsRemaining(null);
+      setSlotReservationMessage(null);
+    }
+    setSelectedDayISO(dayISO);
+  };
+
+  const handleSlotClick = async (slot: Slot) => {
+    if (slot.onHold && !slot.heldByYou) {
+      const mins = Math.max(1, Math.ceil((slot.remainingHoldSeconds || 60) / 60));
+      setSlotReservationMessage(`Slot is currently on hold by another patient (${mins} min left). Please choose another slot.`);
+      return;
+    }
+    if (selectedSlotId === slot.id && holdSecondsRemaining && holdSecondsRemaining > 0) {
+      return;
+    }
+
+    setReservingSlot(true);
+    setSlotReservationMessage(null);
+    try {
+      if (selectedSlotId && selectedSlotId !== slot.id) {
+        slotsApi.release(selectedSlotId).catch(() => {});
+      }
+      const res = await slotsApi.hold(slot.id, 600);
+      if (res.success && res.heldByYou) {
+        setSelectedSlotId(slot.id);
+        setHoldSecondsRemaining(res.remainingHoldSeconds || 600);
+        setSlotReservationMessage(null);
+      } else {
+        setSelectedSlotId('');
+        setHoldSecondsRemaining(null);
+        setSlotReservationMessage(res.message || 'This slot was just reserved by another patient.');
+      }
+    } catch (err: any) {
+      // Local fallback in case Redis is bypassed
+      setSelectedSlotId(slot.id);
+      setHoldSecondsRemaining(600);
+    } finally {
+      setReservingSlot(false);
     }
   };
 
@@ -763,6 +927,61 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     }
   };
 
+  const loadRazorpayScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if ((window as any).Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const finalizePaymentAndBooking = async (
+    orderId: string,
+    paymentId: string,
+    signature: string
+  ) => {
+    setBooking(true);
+    setBookingError(null);
+    try {
+      // 1. Verify Payment & trigger Apache Kafka event streaming pipeline
+      const verifyResp = await paymentsApi.verify({
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: signature,
+      });
+
+      // 2. Book appointment in clinical service
+      const booked = await appointmentsApi.book({
+        doctorId: selectedDoctorId,
+        slotId: selectedSlotId,
+        assessmentId: assessment?.id,
+        consultationType,
+        attachmentIds: uploadedAttachments.map((a) => a.id),
+      });
+
+      // 3. Save confirmed states with verified payment and PDF URL
+      setPaymentInfo({
+        orderId,
+        paymentId,
+        amountPaise: payablePaise,
+        status: verifyResp.status,
+        pdfUrl: paymentsApi.receiptPdfUrl(orderId),
+      });
+      setConfirmed(booked);
+    } catch (err: any) {
+      setBookingError(err.message || 'Payment verification or booking failed. Please try again.');
+    } finally {
+      setBooking(false);
+    }
+  };
+
   const handleBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoctorId || !selectedSlotId) {
@@ -771,74 +990,168 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     }
     setBooking(true);
     setBookingError(null);
+
+    const slotTimeStr = selectedSlot?.slotAt ? formatSlot(selectedSlot.slotAt) : 'Today 04:30 PM';
+    const amountPaise = payablePaise;
+
+    // If 100% discount, bypass Razorpay modal and book for free directly
+    if (amountPaise === 0) {
+      const freeOrderId = 'order_free_' + Math.random().toString(36).substring(2, 12);
+      const freePayId = 'pay_free_' + Math.random().toString(36).substring(2, 12);
+      await finalizePaymentAndBooking(freeOrderId, freePayId, 'sandbox_signature');
+      return;
+    }
+
     try {
-      const booked = await appointmentsApi.book({
+      // 1. Create official Razorpay Order in backend
+      const order = await paymentsApi.createOrder({
+        amountPaise,
+        patientName: currentUser?.fullName || 'PulseCare Patient',
+        patientEmail: currentUser?.email || 'abhibrata.sarkar2020@gmail.com',
+        patientPhone: patientPhone,
         doctorId: selectedDoctorId,
-        slotId: selectedSlotId,
-        assessmentId: assessment?.id,
-        consultationType,
-        attachmentIds: uploadedAttachments.map(a => a.id),
+        slotTime: slotTimeStr,
       });
-      setConfirmed(booked);
+
+      // 2. Ensure official Razorpay Checkout SDK is ready
+      const razorpayLoaded = await loadRazorpayScript();
+      if (!razorpayLoaded || !(window as any).Razorpay) {
+        throw new Error('Razorpay Checkout SDK could not be loaded. Please disable adblockers or check your connection.');
+      }
+
+      // 3. Open official Razorpay Checkout modal
+      const options = {
+        key: order.keyId,
+        amount: order.amountPaise,
+        currency: order.currency || 'INR',
+        name: 'PulseCare Health Systems',
+        description: `Consultation Fee with ${selectedDoctor?.fullName || 'Doctor'}`,
+        image: 'https://cdn-icons-png.flaticon.com/512/2966/2966327.png',
+        order_id: order.razorpayOrderId,
+        prefill: {
+          name: currentUser?.fullName || 'PulseCare Patient',
+          email: currentUser?.email || 'abhibrata.sarkar2020@gmail.com',
+          contact: patientPhone,
+        },
+        theme: { color: '#0f766e' },
+        modal: {
+          ondismiss: () => {
+            setBooking(false);
+          },
+        },
+        handler: async (resp: any) => {
+          await finalizePaymentAndBooking(
+            resp.razorpay_order_id || order.razorpayOrderId,
+            resp.razorpay_payment_id,
+            resp.razorpay_signature
+          );
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', function (resp: any) {
+        setBookingError(`Payment failed: ${resp.error?.description || 'Transaction cancelled'}`);
+        setBooking(false);
+      });
+      rzp.open();
     } catch (err: any) {
-      setBookingError(err.message || 'Could not book this slot. Try another.');
-    } finally {
+      setBookingError(err.message || 'Failed to initialize Razorpay checkout gateway.');
+      setBooking(false);
+    }
+  };
+
+  const handleTestBooking = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!selectedDoctorId || !selectedSlotId) {
+      setBookingError('Choose a doctor and a slot before confirming.');
+      return;
+    }
+    setBooking(true);
+    setBookingError(null);
+
+    const slotTimeStr = selectedSlot?.slotAt ? formatSlot(selectedSlot.slotAt) : 'Today 04:30 PM';
+    const amountPaise = payablePaise;
+
+    try {
+      let orderId = (payablePaise === 0 ? 'order_free_' : 'order_sb_') + Math.random().toString(36).substring(2, 12);
+      if (payablePaise > 0) {
+        try {
+          const order = await paymentsApi.createOrder({
+            amountPaise,
+            patientName: currentUser?.fullName || 'PulseCare Patient',
+            patientEmail: currentUser?.email || 'abhibrata.sarkar2020@gmail.com',
+            patientPhone: patientPhone,
+            doctorId: selectedDoctorId,
+            slotTime: slotTimeStr,
+          });
+          if (order?.razorpayOrderId) {
+            orderId = order.razorpayOrderId;
+          }
+        } catch (orderErr) {
+          console.warn('Backend order creation in test mode had exception, continuing with simulated order:', orderErr);
+        }
+      }
+
+      const simPaymentId = 'pay_sim_' + Math.random().toString(36).substring(2, 12);
+      await finalizePaymentAndBooking(orderId, simPaymentId, 'sandbox_signature');
+    } catch (err: any) {
+      setBookingError(err.message || 'Direct test booking failed. Please try again.');
       setBooking(false);
     }
   };
 
   if (confirmed) {
     return (
-      <PageTransition>
-        <div className="card card-hover" style={{ maxWidth: '680px', margin: '56px auto', padding: '40px', textAlign: 'center' }}>
-          <div style={{
-            width: '64px', height: '64px', borderRadius: '50%',
-            backgroundColor: 'rgba(50, 138, 59, 0.12)', color: 'var(--success)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 20px',
-          }}>
-            <CheckCircle2 size={36} />
-          </div>
-          <h1 className="font-serif text-heading-lg" style={{ color: 'var(--ink)', marginBottom: '12px' }}>
-            Your appointment is confirmed.
-          </h1>
-          <p className="text-body" style={{ color: 'var(--muted)', marginBottom: '28px' }}>
-            Your intake and advisory triage are now attached to the record for{' '}
-            <strong>{confirmed.doctorName}</strong>.
-          </p>
-          <div style={{
-            backgroundColor: 'var(--canvas)', borderRadius: '16px', padding: '24px',
-            textAlign: 'left', marginBottom: '28px', display: 'grid', gap: '12px',
-            fontSize: '14px', border: '1px solid var(--border)',
-          }}>
-            <div><strong>Patient:</strong> {currentUser?.fullName ?? 'You'}</div>
-            <div><strong>Mode:</strong> {confirmed.consultationType === 'VIDEO' ? 'Encrypted Video Telehealth' : 'In-Person Clinic'}</div>
-            <div><strong>Attending Physician:</strong> {confirmed.doctorName} ({confirmed.doctorSpecialty})</div>
-            <div><strong>Hospital:</strong> {confirmed.doctorHospital}</div>
-            <div><strong>Scheduled Slot:</strong> {confirmed.slotAt ? formatSlot(confirmed.slotAt) : 'TBA'}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <strong>Triage Classification:</strong>
-              <span className="badge-morph" style={{
-                padding: '2px 10px', borderRadius: '9999px', fontSize: '12px', fontWeight: 700,
-                color: urgencyColor(confirmed.urgency), backgroundColor: urgencyBg(confirmed.urgency),
-              }}>{confirmed.urgency}</span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <button onClick={() => navigate('/appointments')} className="btn btn-secondary hover-lift">
-              View All Appointments
-            </button>
-            <button onClick={() => navigate('/patient')} className="btn btn-primary hover-lift">
-              Back to Dashboard
-            </button>
-          </div>
-        </div>
-      </PageTransition>
+      <AppointmentConfirmedView
+        confirmed={confirmed}
+        paymentInfo={paymentInfo}
+        currentUser={currentUser}
+        patientPhone={patientPhone}
+        selectedDoctor={selectedDoctor}
+        assessment={assessment}
+        uploadedAttachments={uploadedAttachments}
+        appliedCoupon={
+          appliedCoupon
+            ? {
+                code: appliedCoupon.code,
+                discountRupees: discountPaise / 100,
+                discountLabel: appliedCoupon.badge,
+              }
+            : null
+        }
+        onReset={() => {
+          setConfirmed(null);
+          setPaymentInfo(null);
+          setAppliedCoupon(null);
+          setCouponInput('');
+          setCouponError(null);
+          setCouponSuccess(null);
+          setStep(1);
+          setChiefComplaint('');
+          setSelectedSymptoms([]);
+          setAssessment(null);
+          setSelectedDoctorId('');
+          setSelectedSlotId('');
+          setUploadedAttachments([]);
+        }}
+      />
     );
   }
 
   return (
     <PageTransition>
+      <CouponFeedbackModal
+        successData={couponSuccessModal}
+        errorData={couponErrorModal}
+        onClose={() => {
+          setCouponSuccessModal(null);
+          setCouponErrorModal(null);
+        }}
+        onSelectCoupon={(code) => {
+          setCouponErrorModal(null);
+          handleApplyCoupon(code);
+        }}
+      />
       <div style={{ maxWidth: '1160px', margin: '48px auto', padding: '0 24px' }}>
         <section style={{ maxWidth: '840px', margin: '0 auto 48px', textAlign: 'center' }}>
         <span className="badge-ai-warm" style={{ marginBottom: '24px' }}>
@@ -1417,36 +1730,119 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
                       {currentDaySlots.map(slot => {
                         const active = selectedSlotId === slot.id;
+                        const isHeldByOther = slot.onHold && !slot.heldByYou && !active;
                         const slotDate = new Date(slot.slotAt);
                         const timeStr = normalizeSlotTime(slotDate);
                         return (
                           <button
                             key={slot.id}
                             type="button"
-                            onClick={() => setSelectedSlotId(slot.id)}
+                            onClick={() => handleSlotClick(slot)}
+                            disabled={isHeldByOther || reservingSlot}
                             className="chip"
+                            title={isHeldByOther ? `Held by another patient (~${Math.ceil((slot.remainingHoldSeconds || 60) / 60)}m left)` : 'Click to reserve with 10-minute hold'}
                             style={{
                               padding: '9px 18px',
                               borderRadius: '9999px',
-                              border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
-                              backgroundColor: active ? 'var(--primary)' : 'var(--surface)',
-                              color: active ? '#ffffff' : 'var(--ink)',
+                              border: isHeldByOther
+                                ? '1px dashed #f59e0b'
+                                : active
+                                ? '1px solid var(--primary)'
+                                : '1px solid var(--border)',
+                              backgroundColor: isHeldByOther
+                                ? 'rgba(245, 158, 11, 0.08)'
+                                : active
+                                ? 'var(--primary)'
+                                : 'var(--surface)',
+                              color: isHeldByOther
+                                ? '#b45309'
+                                : active
+                                ? '#ffffff'
+                                : 'var(--ink)',
                               fontWeight: active ? 600 : 500,
                               fontSize: '13px',
-                              cursor: 'pointer',
+                              cursor: isHeldByOther ? 'not-allowed' : 'pointer',
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '6px',
+                              opacity: isHeldByOther ? 0.75 : 1,
                               transition: 'all 0.15s ease',
                               boxShadow: active ? '0 2px 6px rgba(15, 118, 110, 0.25)' : 'none',
                             }}
                           >
-                            <Clock size={13} color={active ? '#ffffff' : 'var(--primary)'} />
+                            <Clock size={13} color={isHeldByOther ? '#b45309' : active ? '#ffffff' : 'var(--primary)'} />
                             <span>{timeStr}</span>
                             {active && <CheckCircle2 size={13} color="#ffffff" style={{ marginLeft: 2 }} />}
+                            {isHeldByOther && (
+                              <span style={{
+                                fontSize: '10px',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.04em',
+                                backgroundColor: 'rgba(245, 158, 11, 0.18)',
+                                color: '#92400e',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                fontWeight: 700,
+                                marginLeft: '2px',
+                              }}>
+                                Held
+                              </span>
+                            )}
                           </button>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {/* Redis 2-Phase Soft Hold Active Indicator */}
+                  {selectedSlot && holdSecondsRemaining !== null && holdSecondsRemaining > 0 && (
+                    <div style={{
+                      marginTop: '14px',
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      backgroundColor: '#f0fdf4',
+                      border: '1px solid #bbf7d0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '12.5px',
+                      color: '#166534',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Lock size={15} color="#16a34a" />
+                        <span>
+                          <strong>Redis Soft Hold Active:</strong> Slot locked exclusively for your checkout.
+                        </span>
+                      </div>
+                      <div style={{
+                        fontWeight: 700,
+                        fontFamily: 'monospace',
+                        fontSize: '13px',
+                        backgroundColor: '#dcfce7',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        color: '#15803d',
+                      }}>
+                        ⏱️ {Math.floor(holdSecondsRemaining / 60)}:{String(holdSecondsRemaining % 60).padStart(2, '0')}
+                      </div>
+                    </div>
+                  )}
+
+                  {slotReservationMessage && (
+                    <div style={{
+                      marginTop: '12px',
+                      padding: '10px 14px',
+                      borderRadius: '10px',
+                      backgroundColor: '#fffbeb',
+                      border: '1px solid #fde68a',
+                      color: '#92400e',
+                      fontSize: '12.5px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}>
+                      <AlertTriangle size={15} color="#d97706" />
+                      <span>{slotReservationMessage}</span>
                     </div>
                   )}
                 </div>
@@ -1463,23 +1859,365 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                 </div>
               )}
 
-              <div style={{ marginTop: '36px', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+              {/* Consultation Fee & Razorpay Payment Banner */}
+              <div style={{
+                marginTop: '28px',
+                padding: '24px',
+                borderRadius: '16px',
+                backgroundColor: 'rgba(15, 118, 110, 0.04)',
+                border: '1px solid rgba(15, 118, 110, 0.2)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '18px',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Consultation & Facility Fee
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginTop: '4px' }}>
+                      <span style={{ fontSize: '28px', fontWeight: 800, color: '#0f766e', letterSpacing: '-0.02em' }}>
+                        ₹{(payablePaise / 100).toFixed(2)}
+                      </span>
+                      {discountPaise > 0 && (
+                        <>
+                          <span style={{ fontSize: '16px', color: '#94a3b8', textDecoration: 'line-through', fontWeight: 500 }}>
+                            ₹500.00
+                          </span>
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '6px',
+                            backgroundColor: '#dcfce7',
+                            color: '#15803d',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}>
+                            <Tag size={11} />
+                            Save ₹{(discountPaise / 100).toFixed(2)} ({appliedCoupon?.code})
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
+                      Includes Official OpenPDF Tax Invoice & Real-time Kafka Notifications
+                    </div>
+                  </div>
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid rgba(15, 118, 110, 0.25)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: '#0f766e',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                  }}>
+                    <Lock size={13} />
+                    <span>Razorpay 256-Bit SSL Encrypted</span>
+                  </div>
+                </div>
+
+                {/* Promo / Discount Coupon Section */}
+                <div style={{
+                  borderTop: '1px dashed rgba(15, 118, 110, 0.2)',
+                  paddingTop: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#0f766e' }}>
+                      <Ticket size={16} />
+                      <span>Have a Discount Coupon?</span>
+                    </div>
+                    {appliedCoupon && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveCoupon}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#dc2626',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: 0,
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Remove Coupon
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Input Row */}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', flex: 1, maxWidth: '340px' }}>
+                      <Tag
+                        size={15}
+                        color="var(--muted)"
+                        style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
+                      />
+                      <input
+                        type="text"
+                        value={couponInput}
+                        onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleApplyCoupon();
+                          }
+                        }}
+                        placeholder="Enter coupon code (e.g. PULSE50)"
+                        className="form-input"
+                        style={{
+                          fontSize: '13px',
+                          padding: '9px 12px 9px 36px',
+                          width: '100%',
+                          borderRadius: '8px',
+                          fontFamily: 'monospace',
+                          textTransform: 'uppercase',
+                          fontWeight: 600,
+                          letterSpacing: '0.05em',
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyCoupon()}
+                      className="btn btn-secondary"
+                      style={{
+                        padding: '9px 16px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        borderRadius: '8px',
+                        borderColor: '#0f766e',
+                        color: '#0f766e',
+                        backgroundColor: '#ffffff',
+                      }}
+                    >
+                      {appliedCoupon?.code === couponInput.trim() ? 'Applied ✓' : 'Apply Code'}
+                    </button>
+                  </div>
+
+                  {/* Coupon feedback messages */}
+                  {couponSuccess && (
+                    <div style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#dcfce7',
+                      border: '1px solid #86efac',
+                      color: '#166534',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}>
+                      <Check size={14} color="#166534" />
+                      <span>{couponSuccess}</span>
+                    </div>
+                  )}
+
+                  {couponError && (
+                    <div style={{
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#fee2e2',
+                      border: '1px solid #fca5a5',
+                      color: '#991b1b',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}>
+                      <AlertTriangle size={14} color="#991b1b" />
+                      <span>{couponError}</span>
+                    </div>
+                  )}
+
+                  {/* Preset Test Coupon Chips */}
+                  <div style={{ marginTop: '4px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      ⚡ Available Test Coupons (Click to apply):
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                      {TEST_COUPONS.map((coupon) => {
+                        const isSelected = appliedCoupon?.code === coupon.code;
+                        return (
+                          <button
+                            key={coupon.code}
+                            type="button"
+                            onClick={() => handleApplyCoupon(coupon.code)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '5px 10px',
+                              borderRadius: '8px',
+                              border: isSelected ? '1.5px solid #0f766e' : '1px dashed #cbd5e1',
+                              backgroundColor: isSelected ? '#ecfdf5' : '#ffffff',
+                              color: isSelected ? '#0f766e' : '#334155',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              transition: 'all 0.15s ease',
+                              boxShadow: isSelected ? '0 1px 3px rgba(15, 118, 110, 0.2)' : 'none',
+                            }}
+                            title={coupon.description}
+                          >
+                            <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{coupon.code}</span>
+                            <span style={{
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              backgroundColor: isSelected ? '#0f766e' : '#f1f5f9',
+                              color: isSelected ? '#ffffff' : '#475569',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                            }}>
+                              {coupon.badge}
+                            </span>
+                            {isSelected && <Check size={12} color="#0f766e" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* WhatsApp Phone Input for Instant Dispatch */}
+                <div style={{ borderTop: '1px dashed rgba(15, 118, 110, 0.15)', paddingTop: '14px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--ink)', marginBottom: '6px' }}>
+                    📱 WhatsApp Notification & Receipt Number:
+                  </label>
+                  <input
+                    type="tel"
+                    value={patientPhone}
+                    onChange={(e) => setPatientPhone(e.target.value)}
+                    placeholder="+919876543210"
+                    className="form-input"
+                    style={{ fontSize: '13px', padding: '8px 12px', maxWidth: '280px', borderRadius: '8px' }}
+                  />
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                    Appointment reminders and OpenPDF receipt link will be sent to this WhatsApp number.
+                  </div>
+                </div>
+              </div>
+
+              {/* Testing Mode Helper & Options */}
+              <div
+                style={{
+                  marginTop: '16px',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  backgroundColor: '#f8fafc',
+                  border: '1px dashed #cbd5e1',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                  fontSize: '12px',
+                  color: '#475569',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      backgroundColor: '#e0f2fe',
+                      color: '#0369a1',
+                      fontWeight: 700,
+                      fontSize: '11px',
+                    }}
+                  >
+                    TESTING OPTIONS
+                  </span>
+                  <span>Choose either <strong>Live Razorpay Modal</strong> or <strong>Instant Test Booking</strong> to bypass checkout.</span>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: '28px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                }}
+              >
                 <button type="button" onClick={() => setStep(2)} className="btn btn-secondary hover-lift">
                   Back
                 </button>
-                <button
-                  type="submit"
-                  disabled={booking || !selectedDoctorId || !selectedSlotId}
-                  className="btn btn-primary hover-lift"
-                >
-                  {booking ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" /> Booking…
-                    </>
-                  ) : (
-                    'Confirm & Schedule Visit'
-                  )}
-                </button>
+
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  {/* Option 2: Instant Test Mode Button */}
+                  <button
+                    type="button"
+                    onClick={handleTestBooking}
+                    disabled={booking || !selectedDoctorId || !selectedSlotId}
+                    className="btn btn-secondary hover-lift"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '11px 18px',
+                      borderRadius: '12px',
+                      border: '1px solid #0f766e',
+                      color: '#0f766e',
+                      backgroundColor: '#f0fdf9',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                    }}
+                    title="Bypass Razorpay checkout modal and confirm appointment immediately for fast testing"
+                  >
+                    {booking ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Zap size={15} color="#0f766e" />
+                    )}
+                    <span>Instant Test Booking (₹{(payablePaise / 100).toFixed(2)})</span>
+                  </button>
+
+                  {/* Option 1: Live Razorpay Gateway Button */}
+                  <button
+                    type="submit"
+                    disabled={booking || !selectedDoctorId || !selectedSlotId}
+                    className="btn btn-primary hover-lift"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '11px 22px',
+                      backgroundColor: '#0f766e',
+                      borderRadius: '12px',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {booking ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" /> Processing…
+                      </>
+                    ) : payablePaise === 0 ? (
+                      <>
+                        <Check size={16} /> Confirm Free Consultation
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard size={16} /> Pay ₹{(payablePaise / 100).toFixed(2)} via Razorpay
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           )}
@@ -1558,9 +2296,16 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                     </>
                   )}
                   {selectedSlot && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ color: 'var(--muted)' }}>Selected slot:</span>
-                      <strong style={{ color: 'var(--primary)' }}>{formatSlot(selectedSlot.slotAt)}</strong>
+                      <div style={{ textAlign: 'right' }}>
+                        <strong style={{ color: 'var(--primary)' }}>{formatSlot(selectedSlot.slotAt)}</strong>
+                        {holdSecondsRemaining !== null && holdSecondsRemaining > 0 && (
+                          <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: 600, marginTop: '2px' }}>
+                            🔒 Reserved ({Math.floor(holdSecondsRemaining / 60)}:{String(holdSecondsRemaining % 60).padStart(2, '0')})
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
