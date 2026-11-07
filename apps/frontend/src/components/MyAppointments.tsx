@@ -7,6 +7,7 @@ import { Calendar, Clock, Loader2, MapPin, Video, FileText, XCircle, Star } from
 import type { Appointment, AppointmentStatus } from '../types';
 import { appointmentsApi } from '../services/api';
 import { DoctorReviewModal } from './DoctorReviewModal';
+import { CancelRefundModal } from './CancelRefundModal';
 import { MeetingSummaryModal } from './MeetingSummaryModal';
 
 type Tab = 'upcoming' | 'past' | 'cancelled';
@@ -58,8 +59,8 @@ export const MyAppointments: React.FC = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [reviewingAppt, setReviewingAppt] = useState<Appointment | null>(null);
+  const [cancelModalAppt, setCancelModalAppt] = useState<Appointment | null>(null);
   const [summaryAppt, setSummaryAppt] = useState<Appointment | null>(null);
 
   const reload = useCallback(() => {
@@ -75,19 +76,6 @@ export const MyAppointments: React.FC = () => {
   useEffect(() => {
     reload();
   }, [reload]);
-
-  const handleCancel = async (id: string) => {
-    if (!confirm('Cancel this appointment? The slot will be released.')) return;
-    setCancellingId(id);
-    try {
-      const updated = await appointmentsApi.cancel(id);
-      setAppointments(prev => prev.map(a => (a.id === id ? updated : a)));
-    } catch (err: any) {
-      alert(err.message || 'Could not cancel this appointment.');
-    } finally {
-      setCancellingId(null);
-    }
-  };
 
   const filtered = appointments.filter(a => tabFor(a) === tab);
   const counts = {
@@ -335,20 +323,17 @@ export const MyAppointments: React.FC = () => {
                     )}
                     {canCancel && (
                       <button
-                        onClick={() => handleCancel(appt.id)}
-                        disabled={cancellingId === appt.id}
+                        onClick={() => setCancelModalAppt(appt)}
                         className="btn btn-secondary hover-lift"
-                        style={{ color: '#dc2626', borderColor: 'rgba(220,38,38,0.3)' }}
+                        style={{
+                          color: '#dc2626',
+                          borderColor: 'rgba(220,38,38,0.3)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
                       >
-                        {cancellingId === appt.id ? (
-                          <>
-                            <Loader2 size={14} className="animate-spin" /> Cancelling…
-                          </>
-                        ) : (
-                          <>
-                            <XCircle size={14} /> Cancel
-                          </>
-                        )}
+                        <XCircle size={14} /> Cancel & Refund
                       </button>
                     )}
                   </div>
@@ -357,6 +342,20 @@ export const MyAppointments: React.FC = () => {
             })}
           </AnimatePresence>
         </div>
+      )}
+
+      {/* Cancellation & Tiered Refund Modal */}
+      {cancelModalAppt && (
+        <CancelRefundModal
+          isOpen={!!cancelModalAppt}
+          appointmentId={cancelModalAppt.id}
+          doctorName={cancelModalAppt.doctorName}
+          slotTimeStr={formatSlot(cancelModalAppt.slotAt)}
+          onClose={() => setCancelModalAppt(null)}
+          onSuccess={() => {
+            reload();
+          }}
+        />
       )}
 
       {/* Post-appointment Review Modal */}

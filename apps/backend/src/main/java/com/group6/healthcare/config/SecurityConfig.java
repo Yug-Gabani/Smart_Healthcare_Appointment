@@ -32,6 +32,8 @@ public class SecurityConfig {
             "/api/auth/login",
             "/api/auth/refresh",
             "/api/ping",
+            "/api/v1/payments/**",
+            "/api/v1/slots/**",
             "/api/v1/hospitals/public/**",
             "/api/v1/files/**",
             "/api/v1/reviews/landing",

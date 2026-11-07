@@ -27,8 +27,41 @@ public record AppointmentResponse(
         String notes,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt,
-        List<AttachmentResponse> attachments
+        List<AttachmentResponse> attachments,
+        String cancellationReason,
+        OffsetDateTime cancelledAt,
+        Integer refundPercentage,
+        Long refundAmountPaise
 ) {
+    public AppointmentResponse(
+            UUID id,
+            UUID patientId,
+            String patientName,
+            UUID doctorId,
+            String doctorName,
+            String doctorSpecialty,
+            String doctorHospital,
+            String doctorAvatarUrl,
+            UUID slotId,
+            OffsetDateTime slotAt,
+            UUID assessmentId,
+            ConsultationType consultationType,
+            Urgency urgency,
+            AppointmentStatus status,
+            String chiefComplaint,
+            String notes,
+            OffsetDateTime createdAt,
+            OffsetDateTime updatedAt,
+            List<AttachmentResponse> attachments
+    ) {
+        this(
+                id, patientId, patientName, doctorId, doctorName, doctorSpecialty,
+                doctorHospital, doctorAvatarUrl, slotId, slotAt, assessmentId,
+                consultationType, urgency, status, chiefComplaint, notes,
+                createdAt, updatedAt, attachments, null, null, null, null
+        );
+    }
+
     public AppointmentResponse(
             UUID id,
             UUID patientId,
@@ -53,7 +86,7 @@ public record AppointmentResponse(
                 id, patientId, patientName, doctorId, doctorName, doctorSpecialty,
                 doctorHospital, doctorAvatarUrl, slotId, slotAt, assessmentId,
                 consultationType, urgency, status, chiefComplaint, notes,
-                createdAt, updatedAt, List.of()
+                createdAt, updatedAt, List.of(), null, null, null, null
         );
     }
 }

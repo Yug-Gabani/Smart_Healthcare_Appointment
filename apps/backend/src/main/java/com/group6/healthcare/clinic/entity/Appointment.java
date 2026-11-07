@@ -63,6 +63,18 @@ public class Appointment {
     @Column(name = "notes")
     private String notes;
 
+    @Column(name = "cancellation_reason")
+    private String cancellationReason;
+
+    @Column(name = "cancelled_at")
+    private OffsetDateTime cancelledAt;
+
+    @Column(name = "refund_percentage")
+    private Integer refundPercentage;
+
+    @Column(name = "refund_amount_paise")
+    private Long refundAmountPaise;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
