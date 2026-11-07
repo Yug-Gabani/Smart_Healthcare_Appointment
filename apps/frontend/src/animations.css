@@ -3,6 +3,24 @@
    Easing, micro-interactions, and accessibility reductions.
    ========================================================= */
 
+/* --- Spinner utility for lucide-react Loader2 icons -------
+   42 buttons across the app use <Loader2 className="animate-spin" />
+   expecting Tailwind's default spin keyframes to be present. We
+   don't ship Tailwind, so without this the icon just sits static
+   and every loading state looks frozen. 1s linear infinite matches
+   Tailwind's spec so visuals are identical. */
+@keyframes bv-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: bv-spin 1s linear infinite;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin { animation-duration: 2s; }
+}
+
 :root {
   --enter: cubic-bezier(0.22, 1, 0.36, 1);
   --exit: cubic-bezier(0.4, 0, 0.2, 1);
