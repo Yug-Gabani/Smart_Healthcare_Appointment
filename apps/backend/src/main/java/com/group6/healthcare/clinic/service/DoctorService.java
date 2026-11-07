@@ -19,6 +19,9 @@ import java.util.UUID;
 @Service
 public class DoctorService {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private RedisSlotReservationService redisSlotReservationService;
+
     private final DoctorRepository doctorRepository;
     private final DoctorSlotRepository slotRepository;
 
@@ -69,7 +72,20 @@ public class DoctorService {
             slots = slotRepository.findOpenSlots(doctorId, OffsetDateTime.now());
         }
         return slots.stream()
-                .map(s -> new SlotResponse(s.getId(), s.getDoctorId(), s.getSlotAt(), s.isBooked()))
+                .map(s -> {
+                    RedisSlotReservationService.HoldMetadata meta = (redisSlotReservationService != null)
+                            ? redisSlotReservationService.getHoldMetadata(s.getId(), null)
+                            : new RedisSlotReservationService.HoldMetadata(false, false, 0L);
+                    return new SlotResponse(
+                            s.getId(),
+                            s.getDoctorId(),
+                            s.getSlotAt(),
+                            s.isBooked(),
+                            meta.onHold(),
+                            meta.heldByYou(),
+                            meta.remainingSeconds()
+                    );
+                })
                 .toList();
     }
 

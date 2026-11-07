@@ -9,7 +9,11 @@ spring:
     username: ${DB_USERNAME:healthcare}
     password: ${DB_PASSWORD:healthcare}
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
 
   jpa:
     hibernate:
@@ -33,6 +37,43 @@ spring:
       max-file-size: 10MB
       max-request-size: 15MB
 
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: payment-receipt-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.value.default.type: com.group6.healthcare.payment.event.PaymentSuccessEvent
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
+      ack-mode: record
+
+  # Redis Cache & Distributed In-Memory Concurrency (2-Phase Slot Reservation)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 3000ms
+
+  # Gmail SMTP Mail Sender
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
+
 server:
   port: ${PORT:${SERVER_PORT:8080}}
   error:
@@ -40,13 +81,16 @@ server:
     include-binding-errors: always
 
 management:
+  health:
+    mail:
+      enabled: false
   endpoints:
     web:
       exposure:
         include: health,info
   endpoint:
     health:
-      show-details: when_authorized
+      show-details: always
 
 springdoc:
   api-docs:
@@ -79,3 +123,33 @@ logging:
     root: INFO
     com.group6.healthcare: DEBUG
     org.hibernate.SQL: INFO
+
+# =========================================================================
+# Razorpay Credentials (SINGLE SOURCE OF TRUTH)
+# Loaded from environment or apps/backend/.env
+# =========================================================================
+razorpay:
+  key-id: ${RAZORPAY_KEY_ID:rzp_test_placeholder}
+  key-secret: ${RAZORPAY_KEY_SECRET:placeholder_secret}
+
+# WhatsApp Notification Gateway (Meta Cloud API / Twilio Sandbox)
+whatsapp:
+  enabled: ${WHATSAPP_ENABLED:true}
+  provider: ${WHATSAPP_PROVIDER:meta} # Default preferred: 'meta'. Auto-falls back to 'twilio'.
+  meta:
+    access-token: ${META_WHATSAPP_TOKEN:}
+    phone-number-id: ${META_PHONE_NUMBER_ID:1419682501223273}
+    api-version: ${META_API_VERSION:v21.0}
+  twilio:
+    account-sid: ${TWILIO_ACCOUNT_SID:}
+    auth-token: ${TWILIO_AUTH_TOKEN:}
+    from-number: ${TWILIO_FROM_NUMBER:whatsapp:+14155238886}
+    content-sid: ${TWILIO_CONTENT_SID:}
+
+# MinIO / S3 Object Storage Configuration (Async PDF Receipt Storage)
+minio:
+  enabled: ${MINIO_ENABLED:false}
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket: ${MINIO_BUCKET:pulsecare-invoices}

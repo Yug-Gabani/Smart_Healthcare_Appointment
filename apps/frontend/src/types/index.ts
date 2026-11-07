@@ -74,6 +74,9 @@ export interface Slot {
   doctorId: string;
   slotAt: string;
   booked: boolean;
+  onHold?: boolean;
+  heldByYou?: boolean;
+  remainingHoldSeconds?: number;
 }
 
 export interface TriageAssessment {

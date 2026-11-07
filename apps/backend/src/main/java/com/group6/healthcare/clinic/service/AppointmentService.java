@@ -17,8 +17,10 @@ import com.group6.healthcare.clinic.repository.TriageAssessmentRepository;
 import com.group6.healthcare.common.exception.BusinessRuleException;
 import com.group6.healthcare.common.exception.ConflictException;
 import com.group6.healthcare.common.exception.ResourceNotFoundException;
+import com.group6.healthcare.payment.service.RefundService;
 import com.group6.healthcare.user.entity.User;
 import com.group6.healthcare.user.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,12 @@ public class AppointmentService {
     private final TriageAssessmentRepository triageRepository;
     private final UserRepository userRepository;
     private final FileStorageService fileStorageService;
+
+    @Autowired(required = false)
+    private RefundService refundService;
+
+    @Autowired(required = false)
+    private RedisSlotReservationService redisSlotReservationService;
 
     public AppointmentService(AppointmentRepository appointmentRepository,
                               DoctorRepository doctorRepository,
@@ -66,6 +74,14 @@ public class AppointmentService {
             throw new ConflictException("Slot already booked");
         }
 
+        // Redis 2-Phase Concurrency Guard: Check if slot has an active soft hold by another patient
+        if (redisSlotReservationService != null && !redisSlotReservationService.isSlotAvailableForPatient(req.slotId(), patientId)) {
+            RedisSlotReservationService.HoldMetadata holdMeta = redisSlotReservationService.getHoldMetadata(req.slotId(), patientId);
+            throw new ConflictException(String.format(
+                    "Slot is currently reserved by another patient (expires in %ds). Please choose another slot.",
+                    holdMeta.remainingSeconds()));
+        }
+
         TriageAssessment assessment = null;
         if (req.assessmentId() != null) {
             assessment = triageRepository.findById(req.assessmentId())
@@ -92,6 +108,11 @@ public class AppointmentService {
                 .chiefComplaint(complaint)
                 .build();
         appt = appointmentRepository.save(appt);
+
+        // Phase 2: Hard Commit completed — release Redis soft reservation
+        if (redisSlotReservationService != null) {
+            redisSlotReservationService.releaseHold(slot.getId(), patientId);
+        }
 
         if (req.attachmentIds() != null && !req.attachmentIds().isEmpty()) {
             fileStorageService.linkAttachmentsToAppointment(req.attachmentIds(), appt.getId());
@@ -168,7 +189,6 @@ public class AppointmentService {
                         || appt.getStatus() == AppointmentStatus.NO_SHOW) {
                     throw new BusinessRuleException("Appointment is already " + appt.getStatus());
                 }
-                // Keep CONFIRMED while in session; a future field could stamp startedAt.
                 appt.setStatus(AppointmentStatus.CONFIRMED);
             }
             case COMPLETE -> {
@@ -194,7 +214,6 @@ public class AppointmentService {
                 }
                 Urgency previous = appt.getUrgency();
                 appt.setUrgency(req.urgency());
-                // Doctor names in our seed already include "Dr."; strip a leading one to avoid "Dr. Dr. …".
                 String displayName = doctor.getFullName();
                 if (displayName != null && displayName.toLowerCase().startsWith("dr. ")) {
                     displayName = displayName.substring(4);
@@ -228,6 +247,16 @@ public class AppointmentService {
                 || appt.getStatus() == AppointmentStatus.COMPLETED) {
             throw new BusinessRuleException("Appointment cannot be cancelled from status " + appt.getStatus());
         }
+
+        if (refundService != null) {
+            refundService.processCancelAndRefund(appointmentId, patientId, null);
+            Appointment updated = appointmentRepository.findById(appointmentId).orElse(appt);
+            Doctor doctor = doctorRepository.findById(updated.getDoctorId()).orElse(null);
+            DoctorSlot slot = slotRepository.findById(updated.getSlotId()).orElse(null);
+            User patient = userRepository.findById(patientId).orElse(null);
+            return toResponse(updated, doctor, slot, patient);
+        }
+
         appt.setStatus(AppointmentStatus.CANCELLED);
         appointmentRepository.save(appt);
 
@@ -303,7 +332,11 @@ public class AppointmentService {
                 a.getNotes(),
                 a.getCreatedAt(),
                 a.getUpdatedAt(),
-                attachments
+                attachments,
+                a.getCancellationReason(),
+                a.getCancelledAt(),
+                a.getRefundPercentage(),
+                a.getRefundAmountPaise()
         );
     }
 }

@@ -1,28 +1,63 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
-  ArrowRight, ArrowLeft, Loader2, CheckCircle2, Video, MapPin,
-  Upload, FileText, Trash2, Clock,
+  MapPin,
+  Video,
+  ArrowRight,
+  ArrowLeft,
+  Loader2,
+  Clock,
+  Upload,
+  FileText,
+  Trash2,
+  CreditCard,
+  Lock,
+  Zap,
+  Tag,
+  Check,
 } from 'lucide-react';
 import type {
   Appointment, Attachment, ConsultationType, Doctor, Slot, TriageAssessment, User,
 } from '../types';
-import { appointmentsApi, doctorsApi, triageApi, filesApi } from '../services/api';
+import {
+  appointmentsApi,
+  doctorsApi,
+  triageApi,
+  filesApi,
+  paymentsApi,
+  slotsApi,
+} from '../services/api';
 import { PageTransition } from '../motion/PageTransition';
-import { CustomCheckbox } from './CustomCheckbox';
+import { AppointmentConfirmedView } from './AppointmentConfirmedView';
+import { CouponFeedbackModal, type CouponSuccessData, type CouponErrorData } from './CouponFeedbackModal';
 
 /* ------------------------------------------------------------------ *
- * "Book a Visit" — one-at-a-time redesign.
- * Step 1 is split into six calm micro-questions; Steps 2 & 3 stay single
- * screens. Palette / type / icons unchanged from the rest of PulseCare.
- * Design spec: "Book Visit — Handoff Notes".
+ * "Book a Visit" — One-at-a-Time Triage + Razorpay Payment Gateway.
+ * Combines designer one-at-a-time triage flow with atomic Redis 2-phase
+ * slot holds, discount coupons, and Razorpay checkout modal.
  * ------------------------------------------------------------------ */
 
 interface PatientTriageBookingProps {
   currentUser: User | null;
 }
 
-/* Patient-friendly symptom chips (no clinical jargon, no "+" prefix). */
+export interface DiscountCoupon {
+  code: string;
+  description: string;
+  type: 'PERCENT' | 'FLAT' | 'FIXED';
+  value: number;
+  badge: string;
+}
+
+export const TEST_COUPONS: DiscountCoupon[] = [
+  { code: 'PULSE50', description: '50% Flat Off Consultation', type: 'PERCENT', value: 50, badge: '50% OFF' },
+  { code: 'CARE100', description: '₹100 Instant Medical Credit', type: 'FLAT', value: 100, badge: '₹100 OFF' },
+  { code: 'HEALTH1', description: 'Pay ₹1 Special Gateway Test Coin', type: 'FIXED', value: 1, badge: '₹1 TEST' },
+  { code: 'PULSE90', description: '90% Healthcare Subsidy', type: 'PERCENT', value: 90, badge: '90% OFF' },
+  { code: 'FREECONSULT', description: '100% Free Consultation', type: 'PERCENT', value: 100, badge: '100% FREE' },
+];
+
+/* Patient-friendly symptom chips */
 const COMMON_SYMPTOMS = [
   'Fever', 'Cough', 'Headache', 'Chest tightness', 'Stomach pain',
   'Rash', 'Dizziness', 'Joint swelling', 'Sore throat', 'Trouble breathing',
@@ -38,7 +73,6 @@ function urgencyColor(u: TriageAssessment['urgency']): string {
   return '#059669';
 }
 
-/** Warm, patient-facing wording — the chip label still carries the raw level. */
 function friendlyUrgency(u: TriageAssessment['urgency']): { label: string; message: string } {
   if (u === 'EMERGENCY') return {
     label: 'Please get seen right away',
@@ -81,21 +115,21 @@ function normalizeSlotTime(d: Date): string {
   h = h % 12; if (h === 0) h = 12;
   return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
 }
+
 function getSlotDateISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/* --- body-map / specialty pre-fill (unchanged from the original) --- */
 export interface SpotIntakePreset {
   label: string; chiefComplaint: string; selectedSymptoms: string[];
   durationDays: number; painLevel: number; fever: boolean; chestPain: boolean; shortnessOfBreath: boolean;
 }
+
 const DEFAULT_PRESET: SpotIntakePreset = {
   label: '', chiefComplaint: '', selectedSymptoms: [],
   durationDays: 2, painLevel: 4, fever: false, chestPain: false, shortnessOfBreath: false,
 };
-/* Keep your existing SPOT_INTAKE_PRESETS / resolveSpotKey / inferPresetFromComplaint
- * here (omitted for brevity) — they already live in the current file and need no change. */
+
 function inferPresetFromComplaint(text: string): SpotIntakePreset {
   const l = text.toLowerCase();
   const sym: string[] = [];
@@ -117,13 +151,6 @@ function inferPresetFromComplaint(text: string): SpotIntakePreset {
   };
 }
 
-/* ------------------------------------------------------------------ *
- * Body-map hotspot → intake preset.
- * BodyMapHero navigates here with ?hotspot=<key> (or ?focus=), or drops
- * the key in sessionStorage under 'pulsecare_pending_hotspot' when the
- * user wasn't signed in yet. resolveSpotKey does a fuzzy match so
- * "cardiac" → "chest", "migraine" → "head", etc.
- * ------------------------------------------------------------------ */
 const SPOT_INTAKE_PRESETS: Record<string, SpotIntakePreset> = {
   chest: {
     label: 'Chest & Heart',
@@ -149,76 +176,75 @@ const SPOT_INTAKE_PRESETS: Record<string, SpotIntakePreset> = {
     selectedSymptoms: ['Stomach pain'],
     durationDays: 3, painLevel: 6, fever: false, chestPain: false, shortnessOfBreath: false,
   },
-  joints: {
-    label: 'Joints',
-    chiefComplaint: 'Swollen, stiff joints that are worse in the morning.',
+  knee: {
+    label: 'Knee & Joint',
+    chiefComplaint: 'Swollen right knee with stiff aching pain after walking or climbing stairs.',
     selectedSymptoms: ['Joint swelling'],
-    durationDays: 7, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
+    durationDays: 5, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  ankle: {
+    label: 'Ankle & Foot',
+    chiefComplaint: 'Twisted ankle with tenderness on the outer side and mild swelling.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 2, painLevel: 6, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  upper_back: {
+    label: 'Upper Back & Shoulders',
+    chiefComplaint: 'Persistent tension knots and aching between the shoulder blades from desk posture.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 7, painLevel: 4, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  lower_back: {
+    label: 'Lower Back & Lumbar',
+    chiefComplaint: 'Sharp shooting pain across lower back when bending forward or standing up.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 4, painLevel: 7, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  hips_back: {
+    label: 'Hips & Pelvis',
+    chiefComplaint: 'Deep hip aching with stiffness during morning movements.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 10, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  neck_back: {
+    label: 'Neck & Cervical',
+    chiefComplaint: 'Stiff neck with limited rotation and pain radiating towards upper shoulders.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 3, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  calf: {
+    label: 'Calf & Lower Leg',
+    chiefComplaint: 'Sudden calf cramping with tightness during evening walks.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 2, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  joints: {
+    label: 'Joints & Arthritis',
+    chiefComplaint: 'Multiple aching joints with stiffness and mild morning swelling.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 14, painLevel: 6, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   skin: {
-    label: 'Skin',
-    chiefComplaint: 'Red, itchy rash spreading across the forearm; no known trigger.',
+    label: 'Skin & Dermatology',
+    chiefComplaint: 'Itchy reddish rash across forearms with mild flaking and irritation.',
     selectedSymptoms: ['Rash'],
     durationDays: 4, painLevel: 3, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   reproductive: {
-    label: 'Reproductive & Urinary',
-    chiefComplaint: 'Lower-pelvic discomfort with irregular menstrual cycle.',
+    label: 'Reproductive & Pelvic',
+    chiefComplaint: 'Lower abdominal pelvic dull ache with burning sensation during urination.',
     selectedSymptoms: ['Stomach pain'],
-    durationDays: 10, painLevel: 4, fever: false, chestPain: false, shortnessOfBreath: false,
-  },
-  knee: {
-    label: 'Knee',
-    chiefComplaint: 'Knee pain and swelling after a fall; hard to put weight on it.',
-    selectedSymptoms: ['Joint swelling'],
-    durationDays: 2, painLevel: 7, fever: false, chestPain: false, shortnessOfBreath: false,
-  },
-  ankle: {
-    label: 'Ankle',
-    chiefComplaint: 'Twisted ankle — swollen and painful when bearing weight.',
-    selectedSymptoms: ['Joint swelling'],
-    durationDays: 1, painLevel: 6, fever: false, chestPain: false, shortnessOfBreath: false,
-  },
-  neck_back: {
-    label: 'Neck & Back',
-    chiefComplaint: 'Dull back pain with stiffness that worsens through the day.',
-    selectedSymptoms: ['Joint swelling'],
-    durationDays: 5, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
-  },
-  upper_back: {
-    label: 'Upper Back',
-    chiefComplaint: 'Upper-back tightness between the shoulder blades.',
-    selectedSymptoms: ['Joint swelling'],
-    durationDays: 4, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
-  },
-  lower_back: {
-    label: 'Lower Back',
-    chiefComplaint: 'Lower back ache radiating down one leg.',
-    selectedSymptoms: ['Joint swelling'],
-    durationDays: 6, painLevel: 6, fever: false, chestPain: false, shortnessOfBreath: false,
-  },
-  hips_back: {
-    label: 'Hips & Back',
-    chiefComplaint: 'Hip pain that flares with walking or climbing stairs.',
-    selectedSymptoms: ['Joint swelling'],
-    durationDays: 7, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
-  },
-  calf: {
-    label: 'Calf',
-    chiefComplaint: 'Calf tenderness and mild swelling after a long flight.',
-    selectedSymptoms: ['Joint swelling'],
-    durationDays: 2, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
+    durationDays: 3, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
   },
 };
 
-/** Fuzzy match the hotspot string coming from BodyMapHero to a preset key. */
-function resolveSpotKey(raw: string): string | null {
+function resolveSpotKey(raw: string | null): string | null {
   if (!raw) return null;
   const k = raw.toLowerCase().trim();
   if (SPOT_INTAKE_PRESETS[k]) return k;
-  if (/(chest|heart|cardiac|angina|lung)/.test(k)) return 'chest';
-  if (/(head|migraine|face|skull)/.test(k)) return 'head';
-  if (/(mental|mood|mind|anxiety|depress|psych)/.test(k)) return 'mental';
+  if (/(chest|heart|cardiac|angina)/.test(k)) return 'chest';
+  if (/(head|migraine|brain|cranial)/.test(k)) return 'head';
+  if (/(mental|mood|depress|anxiety)/.test(k)) return 'mental';
   if (/(abdom|stomach|belly|gut|liver)/.test(k)) return 'abdomen';
   if (/(knee)/.test(k)) return 'knee';
   if (/(ankle|foot)/.test(k)) return 'ankle';
@@ -235,89 +261,77 @@ function resolveSpotKey(raw: string): string | null {
 
 type UploadCategory = 'SYMPTOM_IMAGE' | 'PRIOR_PRESCRIPTION' | 'LAB_REPORT';
 
-export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ currentUser: _currentUser }) => {
-  const navigate = useNavigate();
+export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ currentUser }) => {
   const [searchParams] = useSearchParams();
-
-  /* Prefill chain, in priority order:
-   *   1. ?hotspot= / ?focus= URL param (body-map figure click)
-   *   2. sessionStorage['pulsecare_pending_hotspot'] (clicked pre-login)
-   *   3. ?complaint= URL param (free text from hero search)
-   *   4. sessionStorage['pulsecare_pending_complaint']
-   *   5. DEFAULT_PRESET (blank)
-   */
-  const initialPreset = useMemo<SpotIntakePreset>(() => {
-    let hotspotKey = searchParams.get('hotspot') || searchParams.get('focus') || '';
-    if (!hotspotKey) {
-      try {
-        const stored = sessionStorage.getItem('pulsecare_pending_hotspot');
-        if (stored) { hotspotKey = stored; sessionStorage.removeItem('pulsecare_pending_hotspot'); }
-      } catch { /* sessionStorage may be unavailable */ }
-    }
-    const resolved = resolveSpotKey(hotspotKey);
-    if (resolved && SPOT_INTAKE_PRESETS[resolved]) return SPOT_INTAKE_PRESETS[resolved];
-
-    let complaint = searchParams.get('complaint') || '';
-    if (!complaint) {
-      try {
-        const stored = sessionStorage.getItem('pulsecare_pending_complaint');
-        if (stored) { complaint = stored; sessionStorage.removeItem('pulsecare_pending_complaint'); }
-      } catch { /* ignore */ }
-    }
-    if (complaint) return inferPresetFromComplaint(complaint);
-    return DEFAULT_PRESET;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* "Shortcut" mode: patient landed here from a landing-page specialty tile
    * with ?specialty=X. They skip the 6-question triage flow and go straight
-   * to step 3 (pick a doctor & time). A short required intake textarea on
-   * step 3 still gathers one line of context for the doctor, and is sent
-   * as a minimal triage assessment just before booking so downstream joins
-   * (assessment -> appointment) keep working. */
+   * to step 3 (pick a doctor, time & pay). A short required intake textarea
+   * on step 3 still gathers one line of context for the doctor; it is sent
+   * as a minimal triage assessment just before booking so the appointment
+   * still links to a TriageAssessment row. */
   const shortcutSpecialty = useMemo(() => searchParams.get('specialty') || null, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const [step, setStep] = useState<1 | 2 | 3>(shortcutSpecialty ? 3 : 1);
-  const [subStep, setSubStep] = useState(0); // 0..5 within Step 1
-  const [shortcutIntake, setShortcutIntake] = useState('');
-  const [shortcutIntakeError, setShortcutIntakeError] = useState(false);
 
   /* React Router doesn't reset scroll position on navigation. Patients often click a
    * specialty tile near the bottom of the landing page, so without this they'd land
    * mid-way down the booking page (past the intake and the Fast Lane chip). Reset once. */
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
-  // Step 1 fields
+  const initialPreset = useMemo<SpotIntakePreset>(() => {
+    let hotspotKey = searchParams.get('hotspot') || searchParams.get('focus') || '';
+    if (!hotspotKey) {
+      try {
+        const stored = sessionStorage.getItem('pulsecare_pending_hotspot');
+        if (stored) { hotspotKey = stored; sessionStorage.removeItem('pulsecare_pending_hotspot'); }
+      } catch { /* sessionStorage fallback */ }
+    }
+    const resolved = resolveSpotKey(hotspotKey);
+    if (resolved && SPOT_INTAKE_PRESETS[resolved]) return SPOT_INTAKE_PRESETS[resolved];
+    let complaintText = searchParams.get('complaint') || '';
+    if (!complaintText) {
+      try {
+        const stored = sessionStorage.getItem('pulsecare_pending_complaint');
+        if (stored) { complaintText = stored; sessionStorage.removeItem('pulsecare_pending_complaint'); }
+      } catch { /* sessionStorage fallback */ }
+    }
+    if (complaintText) return inferPresetFromComplaint(complaintText);
+    return DEFAULT_PRESET;
+  }, [searchParams]);
+
+  // Overall steps: 1 = intake, 2 = AI review, 3 = pick doctor & time (shortcut lands on 3)
+  const [step, setStep] = useState<1 | 2 | 3>(shortcutSpecialty ? 3 : 1);
+  const [subStep, setSubStep] = useState<number>(0);
+  const [shortcutIntake, setShortcutIntake] = useState('');
+  const [shortcutIntakeError, setShortcutIntakeError] = useState(false);
+
+  // Step 1 micro-intake fields
   const [chiefComplaint, setChiefComplaint] = useState(initialPreset.chiefComplaint);
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>(initialPreset.selectedSymptoms);
-  const [durationDays, setDurationDays] = useState(initialPreset.durationDays);
-  const [painLevel, setPainLevel] = useState(initialPreset.painLevel);
-  const [fever, setFever] = useState(initialPreset.fever);
-  const [chestPain, setChestPain] = useState(initialPreset.chestPain);
-  const [shortnessOfBreath, setShortnessOfBreath] = useState(initialPreset.shortnessOfBreath);
-  const [prefillLabel] = useState(initialPreset.label);
-  const [complaintError, setComplaintError] = useState(false);
-
-  // Attachments (inline in Step 1, q6)
+  const [durationDays, setDurationDays] = useState<number>(initialPreset.durationDays);
+  const [painLevel, setPainLevel] = useState<number>(initialPreset.painLevel);
+  const [fever, setFever] = useState<boolean>(initialPreset.fever);
+  const [chestPain, setChestPain] = useState<boolean>(initialPreset.chestPain);
+  const [shortnessOfBreath, setShortnessOfBreath] = useState<boolean>(initialPreset.shortnessOfBreath);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploadCategory, setUploadCategory] = useState<UploadCategory>('SYMPTOM_IMAGE');
   const [uploading, setUploading] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [complaintError, setComplaintError] = useState(false);
 
-  // Step 2
+  // Step 2 triage assessment
   const [assessment, setAssessment] = useState<TriageAssessment | null>(null);
   const [assessing, setAssessing] = useState(false);
   const [triageError, setTriageError] = useState<string | null>(null);
 
-  // Step 3
+  // Step 3 doctor & scheduling
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [doctorsLoading, setDoctorsLoading] = useState(false);
   const [doctorsError, setDoctorsError] = useState<string | null>(null);
-  const [selectedDoctorId, setSelectedDoctorId] = useState('');
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
+  const [selectedSlotId, setSelectedSlotId] = useState<string>('');
   const [doctorSlots, setDoctorSlots] = useState<Slot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [selectedDayISO, setSelectedDayISO] = useState('');
-  const [selectedSlotId, setSelectedSlotId] = useState('');
   const [consultationType, setConsultationType] = useState<ConsultationType>('VIDEO');
   const [booking, setBooking] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
@@ -326,39 +340,136 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   /** Which doctor card has its details panel expanded (bio, experience, languages, fee). */
   const [expandedDoctorId, setExpandedDoctorId] = useState('');
 
-  const toggleSymptom = (s: string) =>
-    setSelectedSymptoms(p => (p.includes(s) ? p.filter(x => x !== s) : [...p, s]));
+  // Payment Gateway states
+  const [paymentInfo, setPaymentInfo] = useState<{
+    orderId: string;
+    paymentId: string;
+    amountPaise: number;
+    status: string;
+    pdfUrl: string;
+  } | null>(null);
+  const [patientPhone, setPatientPhone] = useState<string>(currentUser?.phone || '+919876543210');
 
-  /* ----------------------- attachments ----------------------- */
-  const processFiles = async (files: FileList | File[]) => {
+  // Redis 2-phase hold states
+  const [holdSecondsRemaining, setHoldSecondsRemaining] = useState<number | null>(null);
+  const [reservingSlot, setReservingSlot] = useState<boolean>(false);
+  const [slotReservationMessage, setSlotReservationMessage] = useState<string | null>(null);
+
+  // Coupon state
+  const [couponInput, setCouponInput] = useState<string>('');
+  const [appliedCoupon, setAppliedCoupon] = useState<DiscountCoupon | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [couponSuccess, setCouponSuccess] = useState<string | null>(null);
+  const [couponSuccessModal, setCouponSuccessModal] = useState<CouponSuccessData | null>(null);
+  const [couponErrorModal, setCouponErrorModal] = useState<CouponErrorData | null>(null);
+
+  const calculatePayablePaise = (coupon: DiscountCoupon | null): { payablePaise: number; discountPaise: number } => {
+    if (!coupon) return { payablePaise: 50000, discountPaise: 0 };
+    if (coupon.type === 'PERCENT') {
+      if (coupon.value >= 100) return { payablePaise: 0, discountPaise: 50000 };
+      const discount = Math.round(50000 * (coupon.value / 100));
+      return { payablePaise: Math.max(100, 50000 - discount), discountPaise: discount };
+    }
+    if (coupon.type === 'FLAT') {
+      const discount = coupon.value * 100;
+      return { payablePaise: Math.max(100, 50000 - discount), discountPaise: discount };
+    }
+    if (coupon.type === 'FIXED') {
+      const payable = coupon.value * 100;
+      return { payablePaise: payable, discountPaise: Math.max(0, 50000 - payable) };
+    }
+    return { payablePaise: 50000, discountPaise: 0 };
+  };
+
+  const { payablePaise, discountPaise } = calculatePayablePaise(appliedCoupon);
+
+  const handleApplyCoupon = (codeToApply?: string) => {
+    const code = (codeToApply !== undefined ? codeToApply : couponInput).trim().toUpperCase();
+    if (!code) {
+      setCouponError('Please enter a coupon code.');
+      setCouponSuccess(null);
+      return;
+    }
+    const found = TEST_COUPONS.find(c => c.code.toUpperCase() === code);
+    if (!found) {
+      setCouponError(`Coupon '${code}' is invalid or expired.`);
+      setCouponSuccess(null);
+      setCouponErrorModal({
+        attemptedCode: code,
+        message: 'This coupon code was not found in the active pulse promotions database.',
+      });
+      return;
+    }
+    setAppliedCoupon(found);
+    setCouponInput(found.code);
+    setCouponError(null);
+    const { payablePaise: newPayable, discountPaise: newDisc } = calculatePayablePaise(found);
+    const msg = `Coupon '${found.code}' applied! You save ₹${(newDisc / 100).toFixed(2)}.`;
+    setCouponSuccess(msg);
+    setCouponSuccessModal({
+      coupon: found,
+      discountPaise: newDisc,
+      payablePaise: newPayable,
+    });
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponInput('');
+    setCouponError(null);
+    setCouponSuccess(null);
+  };
+
+  const toggleSymptom = (s: string) => {
+    setSelectedSymptoms(cur => (cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]));
+  };
+
+  /* Attachments upload */
+  const handleFileUpload = async (files: FileList | null) => {
     if (!files || !files.length) return;
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
-        if (file.size > 10 * 1024 * 1024) throw new Error(`${file.name} exceeds 10MB`);
-        const uploaded = await filesApi.upload(file, uploadCategory);
-        setAttachments(p => [...p, uploaded]);
+        const att = await filesApi.upload(file, uploadCategory);
+        setAttachments(cur => [...cur, att]);
       }
+    } catch (err: any) {
+      alert(err.message || 'File upload failed');
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
-  const removeAttachment = (id: string) => setAttachments(p => p.filter(a => a.id !== id));
 
-  /* ----------------------- triage ----------------------- */
+  const removeAttachment = (id: string) => {
+    setAttachments(cur => cur.filter(a => a.id !== id));
+  };
+
+  /* Step 2 AI assessment */
   const handleAssess = async () => {
-    if (!chiefComplaint.trim()) { setComplaintError(true); setSubStep(0); return; }
-    setAssessing(true); setTriageError(null);
+    if (!chiefComplaint.trim()) {
+      setComplaintError(true);
+      setSubStep(0);
+      return;
+    }
+    setAssessing(true);
+    setTriageError(null);
     try {
-      const result = await triageApi.assess({
-        chiefComplaint, symptoms: selectedSymptoms, durationDays, painLevel,
-        fever, chestPain, shortnessOfBreath,
+      const res = await triageApi.assess({
+        chiefComplaint: chiefComplaint.trim(),
+        symptoms: selectedSymptoms,
+        durationDays,
+        painLevel,
+        fever,
+        chestPain,
+        shortnessOfBreath,
       });
-      setAssessment(result); setStep(2);
+      setAssessment(res);
+      setStep(2);
     } catch (err: any) {
-      setTriageError(err.message || 'Triage service is unavailable');
-    } finally { setAssessing(false); }
+      setTriageError(err.message || 'Triage service unavailable. Please retry.');
+    } finally {
+      setAssessing(false);
+    }
   };
 
   /* Effective specialty for step 3 — comes from either the triage result or the
@@ -366,54 +477,45 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const effectiveSpecialty = assessment?.suggestedSpecialty ?? shortcutSpecialty ?? null;
   const isShortcut = !!shortcutSpecialty && !assessment;
 
-  /* -------------------- doctors (on entering step 3) -------------------- */
+  /* Fetch doctors for specialty — triggered by either triage result or shortcut URL */
   useEffect(() => {
-    if (step !== 3) return;
-    setDoctorsLoading(true); setDoctorsError(null);
-    doctorsApi.list(effectiveSpecialty ?? undefined)
-      .then(list => (list.length === 0 && effectiveSpecialty ? doctorsApi.list() : list))
-      .then(list => { setDoctors(list); if (list.length) setSelectedDoctorId(list[0].id); })
-      .catch(err => setDoctorsError(err.message || 'Failed to load doctors'))
+    if (!effectiveSpecialty) return;
+    setDoctorsLoading(true);
+    setDoctorsError(null);
+    doctorsApi.list(effectiveSpecialty)
+      .then(docs => {
+        setDoctors(docs);
+        if (docs.length > 0) setSelectedDoctorId(docs[0].id);
+      })
+      .catch(err => setDoctorsError(err.message || 'Could not load doctors.'))
       .finally(() => setDoctorsLoading(false));
-  }, [step, effectiveSpecialty]);
+  }, [effectiveSpecialty]);
 
-  const selectedDoctor = useMemo(
-    () => doctors.find(d => d.id === selectedDoctorId) || null,
-    [doctors, selectedDoctorId],
-  );
-
-  /* -------------------- slots for selected doctor -------------------- */
+  /* Fetch slots for selected doctor */
   useEffect(() => {
     if (!selectedDoctorId) { setDoctorSlots([]); return; }
     setSlotsLoading(true);
     doctorsApi.slots(selectedDoctorId)
-      .then(slots => setDoctorSlots(Array.isArray(slots) ? slots : []))
+      .then(setDoctorSlots)
       .catch(() => setDoctorSlots([]))
       .finally(() => setSlotsLoading(false));
   }, [selectedDoctorId]);
 
-  // Open, future, weekday-only slots (weekends are holidays).
+  /* Build schedule day columns */
   const availableSlots = useMemo(() => {
-    const now = new Date();
-    return doctorSlots.filter(s => {
-      if (s.booked) return false;
-      const d = new Date(s.slotAt);
-      if (isNaN(d.getTime()) || d < now) return false;
-      const dow = d.getDay();
-      return dow !== 0 && dow !== 6;
-    });
+    return doctorSlots.filter(s => !s.booked);
   }, [doctorSlots]);
 
-  // Rolling 7-day schedule grouped by day.
   const scheduleDays = useMemo(() => {
     const map = new Map<string, { dateISO: string; dayName: string; dateFormatted: string; weekday: string; isWeekend: boolean; slots: Slot[] }>();
-    const today = new Date();
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today); d.setDate(today.getDate() + i);
+    const base = new Date();
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
       const iso = getSlotDateISO(d);
       map.set(iso, {
         dateISO: iso,
-        dayName: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'short' }),
+        dayName: i === 0 ? 'Today' : i === 1 ? 'Tmrw' : d.toLocaleDateString(undefined, { weekday: 'short' }),
         dateFormatted: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
         weekday: d.toLocaleDateString(undefined, { weekday: 'long' }),
         isWeekend: d.getDay() === 0 || d.getDay() === 6,
@@ -428,39 +530,112 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     return Array.from(map.values()).sort((a, b) => a.dateISO.localeCompare(b.dateISO));
   }, [availableSlots]);
 
-  // Auto-pick first day with slots.
+  // Auto-pick first day with slots
   useEffect(() => {
     if (!scheduleDays.length) return;
     const cur = scheduleDays.find(d => d.dateISO === selectedDayISO);
     if (!cur) {
       const first = scheduleDays.find(d => d.slots.length) || scheduleDays[0];
       setSelectedDayISO(first.dateISO);
-      setSelectedSlotId(first.slots[0]?.id ?? '');
-    } else if (!cur.slots.some(s => s.id === selectedSlotId)) {
-      setSelectedSlotId(cur.slots[0]?.id ?? '');
     }
-  }, [scheduleDays, selectedDayISO, selectedSlotId]);
+  }, [scheduleDays, selectedDayISO]);
+
+  // Redis 2-phase hold countdown timer
+  useEffect(() => {
+    if (holdSecondsRemaining === null || holdSecondsRemaining <= 0) return;
+    const interval = setInterval(() => {
+      setHoldSecondsRemaining(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          setSelectedSlotId('');
+          setSlotReservationMessage('Your 10-minute slot reservation has expired. Please select a time slot again.');
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [holdSecondsRemaining]);
+
+  // Release hold if user navigates away or unmounts
+  useEffect(() => {
+    return () => {
+      if (selectedSlotId) {
+        slotsApi.release(selectedSlotId).catch(() => {});
+      }
+    };
+  }, [selectedSlotId]);
+
+  const handleSlotClick = async (slot: Slot) => {
+    if (slot.onHold && !slot.heldByYou) {
+      const mins = Math.max(1, Math.ceil((slot.remainingHoldSeconds || 60) / 60));
+      setSlotReservationMessage(`Slot is currently on hold by another patient (${mins} min left). Please choose another slot.`);
+      return;
+    }
+    if (selectedSlotId === slot.id && holdSecondsRemaining && holdSecondsRemaining > 0) {
+      return;
+    }
+
+    setReservingSlot(true);
+    setSlotReservationMessage(null);
+    try {
+      if (selectedSlotId && selectedSlotId !== slot.id) {
+        slotsApi.release(selectedSlotId).catch(() => {});
+      }
+      const res = await slotsApi.hold(slot.id, 600);
+      if (res.success && res.heldByYou) {
+        setSelectedSlotId(slot.id);
+        setHoldSecondsRemaining(res.remainingHoldSeconds || 600);
+        setSlotReservationMessage(null);
+      } else {
+        setSelectedSlotId('');
+        setHoldSecondsRemaining(null);
+        setSlotReservationMessage(res.message || 'This slot was just reserved by another patient.');
+      }
+    } catch {
+      // Local fallback in case Redis is bypassed
+      setSelectedSlotId(slot.id);
+      setHoldSecondsRemaining(600);
+    } finally {
+      setReservingSlot(false);
+    }
+  };
 
   const currentDay = scheduleDays.find(d => d.dateISO === selectedDayISO);
   const currentDaySlots = currentDay?.slots ?? [];
+  const selectedDoctor = doctors.find(d => d.id === selectedDoctorId) || null;
   const selectedSlot = availableSlots.find(s => s.id === selectedSlotId) || null;
 
-  /* ----------------------- book ----------------------- */
-  const handleBook = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedDoctorId || !selectedSlotId) { setBookingError('Pick a doctor and a time first.'); return; }
-    if (isShortcut && !shortcutIntake.trim()) {
-      setShortcutIntakeError(true);
-      setBookingError('Please tell us briefly why you are seeing a ' + effectiveSpecialty + ' today.');
-      return;
-    }
-    setBooking(true); setBookingError(null);
+  /* Load Razorpay script dynamically */
+  const loadRazorpayScript = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if ((window as any).Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  /* Finalize booking after payment verify */
+  const finalizePaymentAndBooking = async (orderId: string, paymentId: string, signature: string) => {
     try {
+      const verifyRes = await paymentsApi.verify({
+        razorpayOrderId: orderId,
+        razorpayPaymentId: paymentId,
+        razorpaySignature: signature,
+      });
+
       /* Shortcut path: synthesise a minimal triage record from the one-line intake
        * so the appointment still carries context. If the triage call fails we fall
        * through and book without an assessmentId — the backend allows that. */
       let assessmentId = assessment?.id;
-      if (isShortcut) {
+      if (isShortcut && shortcutIntake.trim()) {
         try {
           const mini = await triageApi.assess({
             chiefComplaint: shortcutIntake.trim(),
@@ -470,20 +645,165 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
           assessmentId = mini.id;
         } catch { /* keep assessmentId undefined and continue */ }
       }
+
       const booked = await appointmentsApi.book({
-        doctorId: selectedDoctorId, slotId: selectedSlotId,
-        assessmentId, consultationType,
+        doctorId: selectedDoctorId,
+        slotId: selectedSlotId,
+        assessmentId,
+        consultationType,
         attachmentIds: attachments.map(a => a.id),
       });
+
+      setPaymentInfo({
+        orderId,
+        paymentId,
+        amountPaise: payablePaise,
+        status: verifyRes.status || 'PAID',
+        pdfUrl: paymentsApi.receiptPdfUrl(orderId),
+      });
+
       setConfirmed(booked);
     } catch (err: any) {
-      setBookingError(err.message || 'Could not book this slot. Try another.');
-    } finally { setBooking(false); }
+      setBookingError(err.message || 'Payment verification or booking finalization failed. Please contact clinic support.');
+    } finally {
+      setBooking(false);
+    }
+  };
+
+  /* Live Razorpay Checkout flow */
+  const handleLivePaymentBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDoctorId || !selectedSlotId) {
+      setBookingError('Pick a doctor and a time first.');
+      return;
+    }
+    if (isShortcut && !shortcutIntake.trim()) {
+      setShortcutIntakeError(true);
+      setBookingError('Please tell us briefly why you are seeing a ' + effectiveSpecialty + ' today.');
+      return;
+    }
+    setBooking(true);
+    setBookingError(null);
+
+    const slotTimeStr = selectedSlot?.slotAt ? formatSlot(selectedSlot.slotAt) : 'Today 04:30 PM';
+    const amountPaise = payablePaise;
+
+    // Free Consultation Bypass (100% OFF)
+    if (amountPaise === 0) {
+      const freeOrderId = 'order_free_' + Math.random().toString(36).substring(2, 12);
+      await finalizePaymentAndBooking(freeOrderId, 'pay_free_voucher', 'sandbox_signature');
+      return;
+    }
+
+    try {
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) {
+        throw new Error('Could not load Razorpay SDK. Please check your internet connection.');
+      }
+
+      const order = await paymentsApi.createOrder({
+        amountPaise,
+        patientName: currentUser?.fullName || 'PulseCare Patient',
+        patientEmail: currentUser?.email || 'patient@pulsecare.com',
+        patientPhone: patientPhone,
+        doctorId: selectedDoctorId,
+        slotTime: slotTimeStr,
+      });
+
+      if (!order || !order.razorpayOrderId) {
+        throw new Error('Failed to create payment order. Try instant test booking.');
+      }
+
+      const options = {
+        key: order.keyId || 'rzp_test_placeholder',
+        amount: order.amountPaise,
+        currency: order.currency || 'INR',
+        name: 'PulseCare Health Systems',
+        description: `Consultation with ${selectedDoctor?.fullName || 'Specialist'}`,
+        order_id: order.razorpayOrderId,
+        prefill: {
+          name: currentUser?.fullName || 'PulseCare Patient',
+          email: currentUser?.email || 'patient@pulsecare.com',
+          contact: patientPhone,
+        },
+        theme: {
+          color: '#0f766e',
+        },
+        modal: {
+          ondismiss: function () {
+            setBooking(false);
+          },
+        },
+        handler: async function (resp: any) {
+          await finalizePaymentAndBooking(
+            resp.razorpay_order_id,
+            resp.razorpay_payment_id,
+            resp.razorpay_signature
+          );
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', function (resp: any) {
+        setBookingError(`Payment failed: ${resp.error?.description || 'Transaction cancelled'}`);
+        setBooking(false);
+      });
+      rzp.open();
+    } catch (err: any) {
+      setBookingError(err.message || 'Failed to initialize Razorpay checkout gateway.');
+      setBooking(false);
+    }
+  };
+
+  /* Instant Test Booking flow */
+  const handleTestBooking = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!selectedDoctorId || !selectedSlotId) {
+      setBookingError('Choose a doctor and a slot before confirming.');
+      return;
+    }
+    if (isShortcut && !shortcutIntake.trim()) {
+      setShortcutIntakeError(true);
+      setBookingError('Please tell us briefly why you are seeing a ' + effectiveSpecialty + ' today.');
+      return;
+    }
+    setBooking(true);
+    setBookingError(null);
+
+    const slotTimeStr = selectedSlot?.slotAt ? formatSlot(selectedSlot.slotAt) : 'Today 04:30 PM';
+    const amountPaise = payablePaise;
+
+    try {
+      let orderId = (payablePaise === 0 ? 'order_free_' : 'order_sb_') + Math.random().toString(36).substring(2, 12);
+      if (payablePaise > 0) {
+        try {
+          const order = await paymentsApi.createOrder({
+            amountPaise,
+            patientName: currentUser?.fullName || 'PulseCare Patient',
+            patientEmail: currentUser?.email || 'patient@pulsecare.com',
+            patientPhone: patientPhone,
+            doctorId: selectedDoctorId,
+            slotTime: slotTimeStr,
+          });
+          if (order?.razorpayOrderId) {
+            orderId = order.razorpayOrderId;
+          }
+        } catch {
+          // Continuous testing fallback
+        }
+      }
+
+      const simPaymentId = 'pay_sim_' + Math.random().toString(36).substring(2, 12);
+      await finalizePaymentAndBooking(orderId, simPaymentId, 'sandbox_signature');
+    } catch (err: any) {
+      setBookingError(err.message || 'Direct test booking failed. Please try again.');
+      setBooking(false);
+    }
   };
 
   /* =========================== styles =========================== */
   const card: React.CSSProperties = {
-    maxWidth: 560, margin: '0 auto', background: '#fff', border: '1px solid var(--border)',
+    maxWidth: 620, margin: '0 auto', background: '#fff', border: '1px solid var(--border)',
     borderRadius: 16, boxShadow: '0 2px 8px rgba(11,63,58,.04)', padding: 36,
   };
   const h2: React.CSSProperties = { font: `700 24px/1.2 ${FONT}`, color: 'var(--ink)', letterSpacing: '-.02em', margin: '0 0 6px' };
@@ -502,42 +822,40 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   /* =========================== confirmation =========================== */
   if (confirmed) {
     return (
-      <PageTransition>
-        <div style={{ maxWidth: 880, margin: '48px auto', padding: '0 24px' }}>
-          <div style={{ ...card, position: 'relative', overflow: 'hidden', textAlign: 'center', padding: '48px 36px' }}>
-            {Array.from({ length: 18 }).map((_, i) => (
-              <span key={i} style={{
-                position: 'absolute', top: -10, left: `${4 + i * 5.3}%`, width: 8,
-                height: 8 + (i % 3) * 4, borderRadius: 2,
-                background: ['#0f766e', '#d97706', '#059669', '#ff6b5b', '#0b3f3a'][i % 5],
-                opacity: 0, animation: `bv-confetti ${2.4 + (i % 4) * 0.3}s ease-in ${i * 0.08}s infinite`,
-              }} />
-            ))}
-            <div style={{ position: 'relative' }}>
-              <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#e3f1ed', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-                <CheckCircle2 size={34} />
-              </div>
-              <h1 style={{ font: `700 26px/1.2 ${FONT}`, color: 'var(--ink)', letterSpacing: '-.02em', margin: '0 0 10px' }}>You're booked.</h1>
-              <p style={{ font: `400 15px/1.6 ${FONT}`, color: 'var(--muted)', margin: '0 auto 26px', maxWidth: 380 }}>
-                Your intake is attached to the record for <strong>{confirmed.doctorName}</strong>. We've sent the details to your phone.
-              </p>
-              <div style={{ textAlign: 'left', background: 'var(--canvas)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, display: 'grid', gap: 9, font: `500 13px ${FONT}`, color: 'var(--muted)', marginBottom: 24 }}>
-                <div><strong style={{ color: 'var(--ink)' }}>Doctor</strong> · {confirmed.doctorName} · {confirmed.doctorHospital}</div>
-                <div><strong style={{ color: 'var(--ink)' }}>When</strong> · {confirmed.slotAt ? formatSlot(confirmed.slotAt) : 'TBA'}</div>
-                <div><strong style={{ color: 'var(--ink)' }}>How</strong> · {confirmed.consultationType === 'VIDEO' ? 'Video call' : 'In person'}</div>
-                <div><strong style={{ color: 'var(--ink)' }}>Specialty</strong> · {confirmed.doctorSpecialty}</div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <button onClick={() => navigate('/appointments')} style={btnGhost}>View appointments</button>
-                <button onClick={() => navigate('/patient')} style={btnPrimary}>Back to dashboard</button>
-              </div>
-              <div style={{ marginTop: 20, font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}>
-                A real doctor reviews every booking — a guide, not a diagnosis.
-              </div>
-            </div>
-          </div>
-        </div>
-      </PageTransition>
+      <AppointmentConfirmedView
+        confirmed={confirmed}
+        paymentInfo={paymentInfo}
+        currentUser={currentUser}
+        patientPhone={patientPhone}
+        selectedDoctor={selectedDoctor}
+        assessment={assessment}
+        uploadedAttachments={attachments}
+        appliedCoupon={
+          appliedCoupon
+            ? {
+                code: appliedCoupon.code,
+                discountRupees: discountPaise / 100,
+                discountLabel: appliedCoupon.badge,
+              }
+            : null
+        }
+        onReset={() => {
+          setConfirmed(null);
+          setPaymentInfo(null);
+          setAppliedCoupon(null);
+          setCouponInput('');
+          setCouponError(null);
+          setCouponSuccess(null);
+          setStep(1);
+          setSubStep(0);
+          setChiefComplaint('');
+          setSelectedSymptoms([]);
+          setAssessment(null);
+          setSelectedDoctorId('');
+          setSelectedSlotId('');
+          setAttachments([]);
+        }}
+      />
     );
   }
 
@@ -561,203 +879,192 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
             background: '#f8fbfa', resize: 'vertical', outline: 'none',
           }}
         />
-        {complaintError && <div style={{ marginTop: 8, font: `500 13px ${FONT}`, color: 'var(--danger)' }}>Tell us a little about what's wrong first.</div>}
+        {complaintError && <p style={{ font: `500 12px ${FONT}`, color: 'var(--danger)', margin: '6px 0 0' }}>Please describe your symptoms to continue.</p>}
       </div>
     ),
-    // 1 — duration
+    // 1 — symptoms
     (
       <div key="q1">
-        <div style={kicker}>About you · 2 of 6</div>
-        <h2 style={h2}>How long has this been going on?</h2>
-        <p style={sub}>Roughly — a best guess is fine.</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <input
-            type="number" min={0} max={90} value={durationDays}
-            onChange={e => setDurationDays(Math.max(0, Number(e.target.value) || 0))}
-            style={{ width: 96, padding: '14px 16px', border: '1.5px solid var(--border)', borderRadius: 10, font: `600 18px ${FONT}`, color: 'var(--ink)', background: '#f8fbfa', outline: 'none', textAlign: 'center' }}
-          />
-          <span style={{ font: `500 15px ${FONT}`, color: 'var(--muted)' }}>{durationDays === 1 ? 'day' : 'days'}</span>
-        </div>
-      </div>
-    ),
-    // 2 — symptoms
-    (
-      <div key="q2">
-        <div style={kicker}>About you · 3 of 6</div>
-        <h2 style={h2}>Any of these feel familiar?</h2>
-        <p style={sub}>Tap anything that fits — or skip it.</p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9 }}>
+        <div style={kicker}>Symptoms · 2 of 6</div>
+        <h2 style={h2}>Anything specific you're noticing?</h2>
+        <p style={sub}>Tap any that apply — or skip if none fit.</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {COMMON_SYMPTOMS.map(s => {
             const on = selectedSymptoms.includes(s);
             return (
               <button key={s} type="button" onClick={() => toggleSymptom(s)} style={{
-                padding: '10px 17px', borderRadius: 9999, font: `${on ? 600 : 500} 13px ${FONT}`, cursor: 'pointer',
-                border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border)'}`,
-                background: on ? '#e3f1ed' : '#f8fbfa', color: on ? 'var(--primary)' : 'var(--muted)',
-              }}>{on ? '✓ ' : ''}{s}</button>
+                padding: '9px 16px', borderRadius: 9999, border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border)'}`,
+                background: on ? 'var(--primary)' : '#fff', color: on ? '#fff' : 'var(--ink)',
+                font: `500 13px ${FONT}`, cursor: 'pointer', transition: 'all .12s',
+              }}>{s}</button>
             );
           })}
         </div>
       </div>
     ),
-    // 3 — red flags
+    // 2 — duration
+    (
+      <div key="q2">
+        <div style={kicker}>Timeline · 3 of 6</div>
+        <h2 style={h2}>How long has this been going on?</h2>
+        <p style={sub}>An estimate is fine.</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { d: 1, l: 'Started today' },
+            { d: 3, l: 'A few days' },
+            { d: 7, l: 'About a week' },
+            { d: 14, l: 'Over a week' },
+          ].map(opt => {
+            const on = durationDays === opt.d;
+            return (
+              <button key={opt.d} type="button" onClick={() => setDurationDays(opt.d)} style={{
+                flex: '1 1 calc(50% - 6px)', padding: '14px 16px', borderRadius: 12,
+                border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border)'}`,
+                background: on ? '#e3f1ed' : '#fff', color: on ? 'var(--primary)' : 'var(--ink)',
+                font: `600 14px ${FONT}`, cursor: 'pointer', textAlign: 'left',
+              }}>{opt.l}</button>
+            );
+          })}
+        </div>
+      </div>
+    ),
+    // 3 — pain
     (
       <div key="q3">
-        <div style={kicker}>About you · 4 of 6</div>
-        <h2 style={h2}>Any of these happening right now?</h2>
-        <p style={sub}>Only tick what's true — it helps us know how fast to act.</p>
-        <div style={{ borderLeft: '3px solid #c0392b', paddingLeft: 16, display: 'grid', gap: 8 }}>
-          <CustomCheckbox checked={chestPain} onChange={setChestPain} color="#c0392b" label="Chest pain or pressure (especially if it spreads to the arm)" />
-          <CustomCheckbox checked={shortnessOfBreath} onChange={setShortnessOfBreath} color="#c0392b" label="Really struggling to breathe, even while resting" />
-          <CustomCheckbox checked={fever} onChange={setFever} color="#c0392b" label="A high fever (above 101.5°F / 38.6°C)" />
+        <div style={kicker}>Discomfort · 4 of 6</div>
+        <h2 style={h2}>How much does it hurt?</h2>
+        <p style={sub}>0 is none, 10 is the worst pain you can imagine.</p>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+          <span style={{ font: `700 36px ${FONT}`, color: 'var(--primary)' }}>{painLevel}</span>
+          <span style={{ font: `600 15px ${FONT}`, color: 'var(--muted)' }}>{painWord(painLevel)}</span>
         </div>
+        <input type="range" min={0} max={10} value={painLevel} onChange={e => setPainLevel(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--primary)' }} />
       </div>
     ),
-    // 4 — pain
+    // 4 — red flags
     (
       <div key="q4">
-        <div style={kicker}>About you · 5 of 6</div>
-        <h2 style={h2}>How bad is the pain?</h2>
-        <p style={sub}>Slide to roughly where it sits today.</p>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-          <span style={{ font: `700 34px ${FONT}`, color: painLevel >= 8 ? 'var(--danger)' : 'var(--primary)', letterSpacing: '-.02em' }}>
-            {painLevel}<span style={{ fontSize: 17, color: 'var(--ink-muted)' }}>/10</span>
-          </span>
-          <span style={{ font: `600 15px ${FONT}`, color: painLevel >= 8 ? 'var(--danger)' : 'var(--muted)' }}>{painWord(painLevel)}</span>
-        </div>
-        <input type="range" min={0} max={10} value={painLevel} onChange={e => setPainLevel(Number(e.target.value))}
-          style={{ width: '100%', cursor: 'pointer', accentColor: painLevel >= 8 ? 'var(--danger)' : 'var(--primary)' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, font: `500 11px ${FONT}`, color: '#b2c4bf' }}>
-          <span>None</span><span>Moderate</span><span>Unbearable</span>
+        <div style={kicker}>Safety · 5 of 6</div>
+        <h2 style={h2}>Any of these right now?</h2>
+        <p style={sub}>Helps us know if you need to be seen immediately.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[
+            { checked: fever, set: setFever, l: 'Fever or chills' },
+            { checked: chestPain, set: setChestPain, l: 'Chest tightness, pain, or pressure' },
+            { checked: shortnessOfBreath, set: setShortnessOfBreath, l: 'Trouble catching your breath' },
+          ].map(it => (
+            <label key={it.l} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 12,
+              border: `1.5px solid ${it.checked ? 'var(--primary)' : 'var(--border)'}`,
+              background: it.checked ? '#e3f1ed' : '#fff', cursor: 'pointer', font: `500 14px ${FONT}`, color: 'var(--ink)',
+            }}>
+              <input type="checkbox" checked={it.checked} onChange={e => it.set(e.target.checked)} style={{ width: 17, height: 17, accentColor: 'var(--primary)' }} />
+              <span>{it.l}</span>
+            </label>
+          ))}
         </div>
       </div>
     ),
-    // 5 — attachments
+    // 5 — files
     (
       <div key="q5">
-        <div style={kicker}>About you · 6 of 6</div>
-        <h2 style={h2}>Add anything helpful</h2>
-        <p style={sub}>Photos, an old prescription, a lab report. Optional.</p>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-          {([['SYMPTOM_IMAGE', 'Photo'], ['PRIOR_PRESCRIPTION', 'Prescription'], ['LAB_REPORT', 'Report']] as const).map(([id, label]) => (
-            <button key={id} type="button" onClick={() => setUploadCategory(id)} style={{
-              padding: '4px 11px', borderRadius: 9999, font: `${uploadCategory === id ? 600 : 500} 11px ${FONT}`, cursor: 'pointer',
-              border: `1px solid ${uploadCategory === id ? 'var(--primary)' : 'var(--border)'}`,
-              background: uploadCategory === id ? 'var(--primary)' : 'transparent',
-              color: uploadCategory === id ? '#fff' : 'var(--muted)',
+        <div style={kicker}>Optional · 6 of 6</div>
+        <h2 style={h2}>Have a photo or report to share?</h2>
+        <p style={sub}>A rash photo, lab report, or previous prescription helps the doctor prepare.</p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {([['SYMPTOM_IMAGE', 'Photo'], ['PRIOR_PRESCRIPTION', 'Prescription'], ['LAB_REPORT', 'Lab report']] as const).map(([cat, label]) => (
+            <button key={cat} type="button" onClick={() => setUploadCategory(cat)} style={{
+              flex: 1, padding: '8px 10px', borderRadius: 8,
+              border: `1px solid ${uploadCategory === cat ? 'var(--primary)' : 'var(--border)'}`,
+              background: uploadCategory === cat ? '#e3f1ed' : '#fff', color: uploadCategory === cat ? 'var(--primary)' : 'var(--muted)',
+              font: `600 12px ${FONT}`, cursor: 'pointer',
             }}>{label}</button>
           ))}
         </div>
-        <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf" style={{ display: 'none' }}
-          onChange={e => e.target.files && processFiles(e.target.files)} />
-        <div
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={e => { e.preventDefault(); setIsDragging(false); }}
-          onDrop={e => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files.length) processFiles(e.dataTransfer.files); }}
-          style={{
-            border: `1.5px dashed ${isDragging ? 'var(--primary)' : '#9cc3ba'}`, borderRadius: 12,
-            background: isDragging ? '#e8f4f0' : '#f4faf8', padding: '26px 16px', textAlign: 'center',
-            cursor: uploading ? 'wait' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7,
-          }}
-        >
-          {uploading ? <Loader2 size={24} className="animate-spin" color="#0f766e" /> : <Upload size={24} color="#0f766e" />}
-          <span style={{ font: `600 13px ${FONT}`, color: 'var(--ink)' }}>
-            {uploading ? 'Uploading…' : isDragging ? 'Drop to upload' : 'Drag & drop, or tap to add'}
-          </span>
-          <span style={{ font: `500 11px ${FONT}`, color: 'var(--ink-muted)' }}>JPEG, PNG or PDF · up to 10MB</span>
-        </div>
-        {attachments.map(a => (
-          <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 10, background: '#fff' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 9, font: `600 12px ${FONT}`, color: 'var(--ink)', overflow: 'hidden' }}>
-              <FileText size={16} color="#0f766e" />
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>{a.fileName}</span>
-            </span>
-            <button type="button" onClick={() => removeAttachment(a.id)} style={{ background: 'none', border: 'none', color: '#8aa39d', cursor: 'pointer', display: 'flex' }}><Trash2 size={14} /></button>
+        <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => handleFileUpload(e.target.files)} />
+        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{
+          width: '100%', padding: '24px 16px', borderRadius: 12, border: '1.5px dashed #cfe0da',
+          background: '#f8fbfa', cursor: 'pointer', font: `500 13px ${FONT}`, color: 'var(--muted)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+        }}>
+          {uploading ? <Loader2 size={20} className="animate-spin" color="var(--primary)" /> : <Upload size={20} color="var(--primary)" />}
+          <span>{uploading ? 'Uploading…' : 'Tap to choose file (JPG, PNG, PDF up to 10 MB)'}</span>
+        </button>
+        {attachments.length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {attachments.map(a => (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#e3f1ed', borderRadius: 8, font: `500 12px ${FONT}` }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--primary)' }}><FileText size={14} />{a.fileName}</span>
+                <button type="button" onClick={() => removeAttachment(a.id)} style={{ background: 'none', border: 'none', color: '#8aa39d', cursor: 'pointer', display: 'flex' }}><Trash2 size={14} /></button>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
     ),
   ];
 
   return (
     <PageTransition>
-      <style>{`
-        @keyframes bv-confetti{0%{opacity:0;transform:translateY(-10px) rotate(0)}10%{opacity:1}100%{opacity:0;transform:translateY(320px) rotate(540deg)}}
-        @keyframes bv-qin{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-        @media (prefers-reduced-motion: reduce){.bv-q{animation:none!important}}
-      `}</style>
+      <CouponFeedbackModal
+        successData={couponSuccessModal}
+        errorData={couponErrorModal}
+        onClose={() => {
+          setCouponSuccessModal(null);
+          setCouponErrorModal(null);
+        }}
+        onSelectCoupon={(code) => {
+          setCouponErrorModal(null);
+          handleApplyCoupon(code);
+        }}
+      />
       <div style={{ maxWidth: 880, margin: '48px auto', padding: '0 24px' }}>
-
-        {/* progress line (hidden in shortcut mode — steps 1 & 2 were bypassed) */}
+        {/* Step Indicator Header (hidden in shortcut mode — steps 1 & 2 were bypassed) */}
         {!isShortcut && (
-        <div style={{ maxWidth: 560, margin: '0 auto 40px' }} aria-hidden>
-          <div style={{ font: `600 10px ${FONT}`, letterSpacing: '.16em', color: 'var(--ink-muted)', textTransform: 'uppercase', textAlign: 'center', marginBottom: 18 }}>Book a visit</div>
-          <div style={{ position: 'relative', height: 24 }}>
-            <div style={{ position: 'absolute', top: 11, left: 12, right: 12, height: 2, background: '#d6e2db', borderRadius: 2 }} />
-            <div style={{ position: 'absolute', top: 11, left: 12, height: 2, background: 'var(--primary)', borderRadius: 2, width: `calc((100% - 24px) * ${stepIdx / 2})`, transition: 'width 340ms cubic-bezier(.2,.65,.3,.9)' }} />
-            {[1, 2, 3].map(n => {
-              const done = n - 1 < stepIdx, cur = n - 1 === stepIdx;
-              return (
-                <button key={n} type="button" disabled={n - 1 >= stepIdx} onClick={() => n < step && setStep(n as 1 | 2 | 3)} style={{
-                  position: 'absolute', top: 0, left: n === 1 ? 0 : n === 2 ? 'calc(50% - 12px)' : 'calc(100% - 24px)',
-                  width: 24, height: 24, borderRadius: '50%', font: `700 11px ${FONT}`, padding: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: n < step ? 'pointer' : 'default',
-                  border: cur ? '2px solid var(--primary)' : done ? 'none' : '1px solid #d6e2db',
-                  background: done ? 'var(--primary)' : '#fff', color: done ? '#fff' : cur ? 'var(--primary)' : '#9aa89f',
-                }}>{n}</button>
-              );
-            })}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, font: `500 12px ${FONT}` }}>
-            {['Your symptoms', 'Recommendation', 'Pick a time'].map((l, i) => (
-              <span key={l} style={{ color: stepIdx >= i ? 'var(--ink)' : 'var(--ink-muted)', fontWeight: stepIdx === i ? 600 : 400 }}>{l}</span>
-            ))}
-          </div>
-        </div>
-        )}
-
-        {/* STEP 1 */}
-        {step === 1 && (
-          <div style={{ ...card, padding: '36px 36px 30px', minHeight: 400, display: 'flex', flexDirection: 'column' }}>
-            {prefillLabel && (
-              <div style={{ borderLeft: '2px solid var(--primary)', paddingLeft: 12, marginBottom: 22, font: `500 12px/1.5 ${FONT}`, color: 'var(--muted)' }}>
-                Pre-filled for <strong style={{ color: 'var(--ink)' }}>{prefillLabel}</strong>. Change anything that doesn't fit.
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 5, marginBottom: 26 }}>
-              {[0, 1, 2, 3, 4, 5].map(i => (
-                <div key={i} style={{ height: 4, borderRadius: 2, transition: 'all 240ms ease', flex: i === subStep ? 2 : 1, background: i === subStep ? 'var(--primary)' : i < subStep ? '#9fcabf' : '#e3ece9' }} />
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 20, font: `600 13px ${FONT}`, color: 'var(--muted)' }}>
+              {['1. Intake', '2. Review', '3. Book & Pay'].map((l, i) => (
+                <span key={l} style={{ color: stepIdx >= i ? 'var(--primary)' : 'var(--ink-muted)', fontWeight: stepIdx === i ? 700 : 500 }}>
+                  {l}
+                </span>
               ))}
             </div>
+          </div>
+        )}
 
-            <div style={{ flex: 1 }}>
-              <div className="bv-q" key={subStep} style={{ animation: 'bv-qin 260ms ease both' }}>
-                {subQuestions[subStep]}
-              </div>
+        {/* STEP 1: Micro-Questions */}
+        {step === 1 && (
+          <div style={card}>
+            <div style={{ height: 4, background: '#eef5f3', borderRadius: 2, overflow: 'hidden', marginBottom: 28 }}>
+              <div style={{ height: '100%', width: `${((subStep + 1) / 6) * 100}%`, background: 'var(--primary)', transition: 'width .2s ease' }} />
             </div>
 
-            {triageError && (
-              <div style={{ marginTop: 20, padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.25)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{triageError}</div>
-            )}
+            {subQuestions[subStep]}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 30, paddingTop: 22, borderTop: '1px solid #eef5f3' }}>
-              <button type="button" disabled={subStep === 0} onClick={() => setSubStep(s => Math.max(0, s - 1))}
-                style={{ ...btnGhost, color: subStep === 0 ? '#c3d0cc' : 'var(--muted)', borderColor: subStep === 0 ? '#eef5f3' : '#cfe0da', cursor: subStep === 0 ? 'default' : 'pointer' }}>
+              <button
+                type="button"
+                disabled={subStep === 0}
+                onClick={() => setSubStep(s => Math.max(0, s - 1))}
+                style={{ ...btnGhost, color: subStep === 0 ? '#c3d0cc' : 'var(--muted)', borderColor: subStep === 0 ? '#eef5f3' : '#cfe0da', cursor: subStep === 0 ? 'default' : 'pointer' }}
+              >
                 <ArrowLeft size={15} /> Back
               </button>
               {subStep < 5 ? (
-                <button type="button" onClick={() => setSubStep(s => Math.min(5, s + 1))} style={btnPrimary}>Next <ArrowRight size={16} /></button>
+                <button type="button" onClick={() => setSubStep(s => Math.min(5, s + 1))} style={btnPrimary}>
+                  Next <ArrowRight size={16} />
+                </button>
               ) : (
                 <button type="button" onClick={handleAssess} disabled={assessing} style={btnPrimary}>
-                  {assessing ? <><Loader2 size={15} className="animate-spin" /> Checking…</> : <>Get my recommendation <ArrowRight size={16} /></>}
+                  {assessing ? <><Loader2 size={15} className="animate-spin" /> Checking…</> : <>Get recommendation <ArrowRight size={16} /></>}
                 </button>
               )}
             </div>
+            {triageError && <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{triageError}</div>}
           </div>
         )}
 
-        {/* STEP 2 */}
+        {/* STEP 2: Urgency Review */}
         {step === 2 && assessment && (
           <div style={card}>
             <div style={{ font: `600 11px ${FONT}`, letterSpacing: '.09em', textTransform: 'uppercase', color: urgencyColor(assessment.urgency), marginBottom: 8 }}>
@@ -788,31 +1095,31 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
 
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
               <button type="button" onClick={() => { setStep(1); setSubStep(5); }} style={btnGhost}><ArrowLeft size={15} /> Back</button>
-              <button type="button" onClick={() => setStep(3)} style={btnPrimary}>Pick a doctor & time <ArrowRight size={16} /></button>
+              <button type="button" onClick={() => setStep(3)} style={btnPrimary}>Pick doctor & payment <ArrowRight size={16} /></button>
             </div>
           </div>
         )}
 
-        {/* STEP 3 */}
+        {/* STEP 3: Doctor, Time, Coupons, and Razorpay Gateway */}
         {step === 3 && (assessment || isShortcut) && (
-          <form onSubmit={handleBook} style={card}>
+          <form onSubmit={handleLivePaymentBooking} style={card}>
             {isShortcut ? (
               <>
                 <div style={{ display: 'inline-block', font: `600 10px ${FONT}`, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--primary)', background: '#e3f1ed', padding: '4px 10px', borderRadius: 9999, marginBottom: 12 }}>
                   Fast lane · {effectiveSpecialty}
                 </div>
-                <h2 style={h2}>Pick your doctor & time</h2>
+                <h2 style={h2}>Pick your doctor, time & checkout</h2>
                 <p style={sub}>
                   You skipped the symptom check because you already know what you need.{' '}
-                  <button type="button" onClick={() => navigate('/book')} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', font: `inherit`, textDecoration: 'underline', cursor: 'pointer' }}>
+                  <a href="/book" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>
                     Answer symptom questions instead
-                  </button>
+                  </a>
                 </p>
 
                 {/* EMERGENCY disclaimer — short, calm, not alarming unless needed */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', marginBottom: 20, borderRadius: 10, background: 'rgba(217,119,6,.08)', border: '1px solid rgba(217,119,6,.22)', color: '#92400e', font: `500 12.5px/1.4 ${FONT}` }}>
                   <span style={{ font: `700 14px ${FONT}`, marginTop: 1 }}>!</span>
-                  <span>If this feels urgent — chest pain, trouble breathing, heavy bleeding, confusion — call <strong>108</strong> now, or <button type="button" onClick={() => navigate('/book')} style={{ background: 'none', border: 'none', padding: 0, color: '#92400e', font: `inherit`, textDecoration: 'underline', cursor: 'pointer' }}>run a quick symptom check</button> first.</span>
+                  <span>If this feels urgent — chest pain, trouble breathing, heavy bleeding, confusion — call <strong>108</strong> now, or <a href="/book" style={{ color: '#92400e', textDecoration: 'underline' }}>run a quick symptom check</a> first.</span>
                 </div>
 
                 {/* Required one-line intake */}
@@ -839,12 +1146,12 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
               </>
             ) : (
               <>
-                <h2 style={h2}>Pick your doctor & time</h2>
-                <p style={sub}>Almost done.</p>
+                <h2 style={h2}>Pick your doctor, time & checkout</h2>
+                <p style={sub}>Select your specialist, reserve a slot with 2-phase lock, and complete booking.</p>
               </>
             )}
 
-            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 9 }}>How would you like to meet?</div>
+            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 9 }}>Consultation Mode</div>
             <div style={{ display: 'inline-flex', padding: 4, borderRadius: 9999, background: '#eef4f0', border: '1px solid var(--border)', gap: 2, marginBottom: 24 }}>
               {([['VIDEO', 'Video call', <Video size={14} />], ['IN_PERSON', 'In person', <MapPin size={14} />]] as const).map(([v, label, icon]) => {
                 const on = consultationType === v;
@@ -858,8 +1165,8 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
               })}
             </div>
 
-            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 10 }}>Doctors for {effectiveSpecialty}</div>
-            {doctorsLoading && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} className="animate-spin" /> Loading doctors…</div>}
+            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 10 }}>Specialists in {effectiveSpecialty}</div>
+            {doctorsLoading && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} className="animate-spin" /> Loading specialists…</div>}
             {doctorsError && <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{doctorsError}</div>}
             {!doctorsLoading && !doctorsError && !doctors.length && <div style={{ padding: 16, color: 'var(--muted)' }}>No doctors available right now.</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -870,7 +1177,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                  * At a minimum every seeded doctor has a bio; profile extras (experience,
                  * languages, fee) appear when the doctor record has them set. */
                 const hasExtra = !!(doc.bio || doc.yearsExperience || doc.consultationFee || doc.languages || (doc.reviewCount ?? 0) > 0);
-                /* "Dr. Robert Chen, FACC" → "Dr. Robert Chen" (first name + first surname, strip credentials) */
+                /* "Dr. Robert Chen, FACC" → "Dr. Robert Chen" (strip credentials after the comma) */
                 const shortName = doc.fullName.replace(/,.*$/, '').trim();
                 return (
                   <div key={doc.id} style={{
@@ -948,12 +1255,12 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
               })}
             </div>
 
-            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', margin: '24px 0 10px' }}>Pick a day</div>
+            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', margin: '24px 0 10px' }}>Pick Consultation Day</div>
             <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, scrollSnapType: 'x mandatory' }}>
               {scheduleDays.map(day => {
                 const on = selectedDayISO === day.dateISO, has = day.slots.length > 0;
                 return (
-                  <button key={day.dateISO} type="button" onClick={() => { setSelectedDayISO(day.dateISO); setSelectedSlotId(day.slots[0]?.id ?? ''); }} style={{
+                  <button key={day.dateISO} type="button" onClick={() => setSelectedDayISO(day.dateISO)} style={{
                     flex: '0 0 auto', minWidth: 92, padding: '11px 12px', borderRadius: 14, cursor: 'pointer', textAlign: 'center', scrollSnapAlign: 'start',
                     border: on ? '2px solid var(--primary)' : '1px solid var(--border)', background: on ? '#e3f1ed' : '#fff',
                   }}>
@@ -969,10 +1276,17 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
               })}
             </div>
 
+            {/* Time Slot Picker with Redis 2-Phase Concurrency Hold */}
             <div style={{ marginTop: 14, padding: 18, borderRadius: 14, background: 'var(--canvas)', border: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 12 }}>
                 <span>Open times — {currentDay ? `${currentDay.weekday}, ${currentDay.dateFormatted}` : ''}</span>
-                {slotsLoading && <span style={{ font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}><Loader2 size={12} className="animate-spin" /> Updating…</span>}
+                {reservingSlot ? (
+                  <span style={{ font: `500 12px ${FONT}`, color: '#0f766e', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Loader2 size={12} className="animate-spin" /> Reserving soft hold…
+                  </span>
+                ) : slotsLoading ? (
+                  <span style={{ font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}><Loader2 size={12} className="animate-spin" /> Updating…</span>
+                ) : null}
               </div>
               {currentDaySlots.length === 0 ? (
                 <div style={{ padding: 16, border: '1px dashed #cbddd7', borderRadius: 10, background: '#fff', textAlign: 'center' }}>
@@ -985,35 +1299,183 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9 }}>
                   {currentDaySlots.map(slot => {
                     const on = selectedSlotId === slot.id;
+                    const isHeldByOther = slot.onHold && !slot.heldByYou;
                     return (
-                      <button key={slot.id} type="button" onClick={() => setSelectedSlotId(slot.id)} style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 9999, font: `600 13px ${FONT}`, cursor: 'pointer',
-                        border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border)'}`, background: on ? 'var(--primary)' : '#fff', color: on ? '#fff' : 'var(--ink)',
-                      }}><Clock size={13} color={on ? '#fff' : '#0f766e'} />{normalizeSlotTime(new Date(slot.slotAt))}</button>
+                      <button
+                        key={slot.id}
+                        type="button"
+                        onClick={() => handleSlotClick(slot)}
+                        disabled={isHeldByOther || reservingSlot}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 9999,
+                          font: `600 13px ${FONT}`, cursor: isHeldByOther ? 'not-allowed' : 'pointer',
+                          border: `1.5px solid ${on ? 'var(--primary)' : isHeldByOther ? '#fca5a5' : 'var(--border)'}`,
+                          background: on ? 'var(--primary)' : isHeldByOther ? '#fef2f2' : '#fff',
+                          color: on ? '#fff' : isHeldByOther ? '#dc2626' : 'var(--ink)',
+                          opacity: isHeldByOther ? 0.7 : 1,
+                        }}
+                      >
+                        <Clock size={13} color={on ? '#fff' : isHeldByOther ? '#dc2626' : '#0f766e'} />
+                        {normalizeSlotTime(new Date(slot.slotAt))}
+                        {isHeldByOther && <span style={{ fontSize: 10, fontWeight: 700 }}>(Hold)</span>}
+                      </button>
                     );
                   })}
                 </div>
               )}
+
+              {/* Slot Reservation Timer Notice */}
+              {selectedSlot && holdSecondsRemaining !== null && holdSecondsRemaining > 0 && (
+                <div style={{
+                  marginTop: 14, padding: '10px 14px', borderRadius: 10,
+                  backgroundColor: '#f0fdf9', border: '1px solid #a7f3d0',
+                  color: '#065f46', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    <Lock size={14} color="#059669" /> Slot exclusively reserved for you
+                  </span>
+                  <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 14 }}>
+                    {Math.floor(holdSecondsRemaining / 60)}:{String(holdSecondsRemaining % 60).padStart(2, '0')}
+                  </span>
+                </div>
+              )}
+
+              {slotReservationMessage && (
+                <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#b45309', fontSize: 13 }}>
+                  {slotReservationMessage}
+                </div>
+              )}
             </div>
 
-            <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid var(--border)', font: `500 13px ${FONT}`, color: 'var(--muted)' }}>
+            {/* Discount Coupon & Pricing Engine */}
+            <div style={{ marginTop: 20, padding: 18, borderRadius: 14, background: '#f8faf9', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ font: `600 13px ${FONT}`, color: 'var(--ink)' }}>Consultation Fee</span>
+                <span style={{ font: `700 15px ${FONT}`, color: 'var(--ink)' }}>₹500.00</span>
+              </div>
+
+              {/* Coupon Row */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input
+                  type="text"
+                  placeholder="Promo code (e.g. PULSE50, HEALTH1)"
+                  value={couponInput}
+                  onChange={e => setCouponInput(e.target.value.toUpperCase())}
+                  style={{
+                    flex: 1, padding: '9px 12px', borderRadius: 10, border: '1px solid #cfe0da',
+                    fontSize: 13, fontFamily: FONT, outline: 'none',
+                  }}
+                />
+                {appliedCoupon ? (
+                  <button type="button" onClick={handleRemoveCoupon} style={{ ...btnGhost, padding: '8px 14px', minHeight: 38, fontSize: 12 }}>
+                    Remove
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => handleApplyCoupon()} style={{ ...btnPrimary, padding: '8px 16px', minHeight: 38, fontSize: 12 }}>
+                    <Tag size={13} /> Apply
+                  </button>
+                )}
+              </div>
+
+              {couponSuccess && <div style={{ fontSize: 12, color: '#059669', fontWeight: 600, marginTop: 6 }}>{couponSuccess}</div>}
+              {couponError && <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, marginTop: 6 }}>{couponError}</div>}
+
+              {/* Demo Coupon Pill Shortcuts */}
+              <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, alignSelf: 'center' }}>Demo:</span>
+                {TEST_COUPONS.slice(0, 4).map(c => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => handleApplyCoupon(c.code)}
+                    style={{
+                      border: '1px dashed #0f766e', background: '#f0fdf9', color: '#0f766e',
+                      padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    {c.code} ({c.badge})
+                  </button>
+                ))}
+              </div>
+
+              {/* Final Payable */}
+              <div style={{ borderTop: '1px solid #e2ece8', marginTop: 14, paddingTop: 12, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <div>
+                  <span style={{ font: `700 14px ${FONT}`, color: 'var(--ink)' }}>Total Payable</span>
+                  {discountPaise > 0 && <span style={{ fontSize: 12, color: '#059669', marginLeft: 8 }}>(Saved ₹{(discountPaise / 100).toFixed(2)})</span>}
+                </div>
+                <span style={{ font: `800 24px ${FONT}`, color: '#0f766e' }}>
+                  ₹{(payablePaise / 100).toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Patient Phone Verification Input */}
+            <div style={{ marginTop: 16 }}>
+              <label style={{ display: 'block', font: `600 12px ${FONT}`, color: 'var(--ink)', marginBottom: 6 }}>
+                Mobile Number for WhatsApp & SMS Receipt
+              </label>
+              <input
+                type="tel"
+                value={patientPhone}
+                onChange={e => setPatientPhone(e.target.value)}
+                placeholder="+919876543210"
+                style={{
+                  width: '100%', padding: '10px 14px', borderRadius: 10, border: '1px solid #cfe0da',
+                  font: `500 14px ${FONT}`, outline: 'none', background: '#f8faf9',
+                }}
+              />
+            </div>
+
+            {/* Summary Line */}
+            <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)', font: `500 13px ${FONT}`, color: 'var(--muted)' }}>
               {selectedDoctor && selectedSlot
                 ? `${effectiveSpecialty} · ${selectedDoctor.fullName} · ${formatSlot(selectedSlot.slotAt)} · ${consultationType === 'VIDEO' ? 'Video call' : 'In person'}`
-                : 'Pick a day and time to see your appointment summary.'}
+                : 'Pick a specialist, day, and time slot to finalize.'}
             </div>
 
             {bookingError && <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{bookingError}</div>}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 24 }}>
-              {isShortcut ? (
-                <button type="button" onClick={() => navigate('/')} style={btnGhost}><ArrowLeft size={15} /> Choose a different specialty</button>
-              ) : (
-                <button type="button" onClick={() => setStep(2)} style={btnGhost}><ArrowLeft size={15} /> Back</button>
-              )}
-              <button type="submit" disabled={booking || !selectedDoctorId || !selectedSlotId || (isShortcut && !shortcutIntake.trim())}
-                style={{ ...btnPrimary, background: booking || !selectedSlotId || (isShortcut && !shortcutIntake.trim()) ? '#9fc3bd' : 'var(--primary)', cursor: booking || !selectedSlotId || (isShortcut && !shortcutIntake.trim()) ? 'not-allowed' : 'pointer' }}>
-                {booking ? <><Loader2 size={15} className="animate-spin" /> Booking…</> : <>Book appointment <ArrowRight size={16} /></>}
-              </button>
+            {/* Dual Action Buttons: Live Razorpay & Instant Test */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => setStep(2)} style={btnGhost}><ArrowLeft size={15} /> Back</button>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {/* Instant Test Mode Button */}
+                <button
+                  type="button"
+                  onClick={handleTestBooking}
+                  disabled={booking || !selectedDoctorId || !selectedSlotId}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 18px',
+                    borderRadius: 12, border: '1.5px solid #0f766e', color: '#0f766e', background: '#f0fdf9',
+                    font: `600 13px ${FONT}`, cursor: (booking || !selectedSlotId) ? 'not-allowed' : 'pointer', minHeight: 46,
+                  }}
+                  title="Bypass Razorpay checkout modal and confirm immediately for fast testing"
+                >
+                  {booking ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} color="#0f766e" />}
+                  <span>Instant Test (₹{(payablePaise / 100).toFixed(2)})</span>
+                </button>
+
+                {/* Live Razorpay Gateway Button */}
+                <button
+                  type="submit"
+                  disabled={booking || !selectedDoctorId || !selectedSlotId}
+                  style={{
+                    ...btnPrimary,
+                    background: (booking || !selectedSlotId) ? '#9fc3bd' : 'var(--primary)',
+                    cursor: (booking || !selectedSlotId) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {booking ? (
+                    <><Loader2 size={16} className="animate-spin" /> Processing…</>
+                  ) : payablePaise === 0 ? (
+                    <><Check size={16} /> Confirm Free Consultation</>
+                  ) : (
+                    <><CreditCard size={16} /> Pay ₹{(payablePaise / 100).toFixed(2)} via Razorpay</>
+                  )}
+                </button>
+              </div>
             </div>
           </form>
         )}
