@@ -101,7 +101,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, [userDropdownOpen]);
 
   // Section-anchor active state tracking (Scroll Spy for Guest Landing)
-  const [activeSection, setActiveSection] = useState<'home' | 'find-care' | 'specialties' | 'how-it-works' | 'for-hospitals'>('home');
+  const [activeSection, setActiveSection] = useState<'home' | 'find-care' | 'specialties' | 'for-hospitals'>('home');
 
   useEffect(() => {
     if (currentUser || (location.pathname !== '/' && location.pathname !== '')) {
@@ -113,21 +113,17 @@ export const Header: React.FC<HeaderProps> = ({
       const offset = 140; // Offset for header + margin
 
       const findCareEl = document.getElementById('find-care') || document.getElementById('find-doctors');
-      const howItWorksEl = document.getElementById('how-it-works');
-      const specialtiesEl = document.getElementById('specialties');
+            const specialtiesEl = document.getElementById('specialties');
       const forHospitalsEl = document.getElementById('for-hospitals');
 
       const findCareTop = findCareEl ? findCareEl.offsetTop - offset : 400;
-      const howItWorksTop = howItWorksEl ? howItWorksEl.offsetTop - offset : 1100;
-      const specialtiesTop = specialtiesEl ? specialtiesEl.offsetTop - offset : 1800;
+            const specialtiesTop = specialtiesEl ? specialtiesEl.offsetTop - offset : 1800;
       const forHospitalsTop = forHospitalsEl ? forHospitalsEl.offsetTop - offset : 2400;
 
       if (scrollY >= forHospitalsTop) {
         setActiveSection('for-hospitals');
       } else if (scrollY >= specialtiesTop) {
         setActiveSection('specialties');
-      } else if (scrollY >= howItWorksTop) {
-        setActiveSection('how-it-works');
       } else if (scrollY >= findCareTop) {
         setActiveSection('find-care');
       } else {
@@ -196,19 +192,7 @@ export const Header: React.FC<HeaderProps> = ({
       },
       isActive: activeSection === 'specialties',
     },
-    {
-      id: 'how-it-works',
-      label: 'How it works',
-      href: '#how-it-works',
-      onClick: (e: React.MouseEvent) => {
-        e.preventDefault();
-        const el = document.getElementById('how-it-works');
-        if (el) el.scrollIntoView({ behavior: 'smooth' });
-        setActiveSection('how-it-works');
-      },
-      isActive: activeSection === 'how-it-works',
-    },
-    {
+        {
       id: 'for-hospitals',
       label: 'For Hospitals',
       href: '#for-hospitals',
