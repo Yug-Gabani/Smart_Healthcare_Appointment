@@ -159,6 +159,9 @@ public class DoctorService {
                 d.getRating(),
                 d.getReviewCount() != null ? d.getReviewCount() : 0,
                 d.getBio(),
+                d.getYearsExperience(),
+                d.getConsultationFee(),
+                d.getLanguages(),
                 previews,
                 previews.size()
         );

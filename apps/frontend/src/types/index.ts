@@ -33,6 +33,9 @@ export interface Doctor {
   rating: number;
   reviewCount?: number;
   bio?: string;
+  yearsExperience?: number;
+  consultationFee?: number;
+  languages?: string;
   nextSlots: SlotSummary[];
   openSlotCount: number;
   /** Legacy field retained so the old booking modal still compiles until it is retired. */
