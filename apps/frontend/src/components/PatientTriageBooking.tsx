@@ -1,39 +1,23 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Activity,
-  AlertTriangle,
-  Calendar,
-  CheckCircle2,
-  HeartPulse,
-  Info,
   MapPin,
-  Sparkles,
   Video,
-  ChevronRight,
-  ShieldAlert,
   ArrowRight,
+  ArrowLeft,
   Loader2,
   Clock,
   Upload,
   FileText,
   Trash2,
-  Paperclip,
   CreditCard,
   Lock,
   Zap,
   Tag,
-  Ticket,
   Check,
 } from 'lucide-react';
 import type {
-  Appointment,
-  Attachment,
-  ConsultationType,
-  Doctor,
-  Slot,
-  TriageAssessment,
-  User,
+  Appointment, Attachment, ConsultationType, Doctor, Slot, TriageAssessment, User,
 } from '../types';
 import {
   appointmentsApi,
@@ -44,9 +28,14 @@ import {
   slotsApi,
 } from '../services/api';
 import { PageTransition } from '../motion/PageTransition';
-import { CustomCheckbox } from './CustomCheckbox';
 import { AppointmentConfirmedView } from './AppointmentConfirmedView';
 import { CouponFeedbackModal, type CouponSuccessData, type CouponErrorData } from './CouponFeedbackModal';
+
+/* ------------------------------------------------------------------ *
+ * "Book a Visit" — One-at-a-Time Triage + Razorpay Payment Gateway.
+ * Combines designer one-at-a-time triage flow with atomic Redis 2-phase
+ * slot holds, discount coupons, and Razorpay checkout modal.
+ * ------------------------------------------------------------------ */
 
 interface PatientTriageBookingProps {
   currentUser: User | null;
@@ -68,37 +57,50 @@ export const TEST_COUPONS: DiscountCoupon[] = [
   { code: 'FREECONSULT', description: '100% Free Consultation', type: 'PERCENT', value: 100, badge: '100% FREE' },
 ];
 
+/* Patient-friendly symptom chips */
 const COMMON_SYMPTOMS = [
-  'Fever / Chills',
-  'Chest Tightness / Pain',
-  'Shortness of Breath',
-  'Severe Headache / Migraine',
-  'Abdominal Cramping / Pain',
-  'Persistent Cough',
-  'Dizziness / Fainting',
-  'Skin Rash / Allergic Reaction',
-  'Joint Swelling',
-  'Sore Throat',
+  'Fever', 'Cough', 'Headache', 'Chest tightness', 'Stomach pain',
+  'Rash', 'Dizziness', 'Joint swelling', 'Sore throat', 'Trouble breathing',
 ];
 
-function urgencyColor(score: TriageAssessment['urgency']): string {
-  if (score === 'EMERGENCY') return '#dc2626';
-  if (score === 'URGENT') return '#d97706';
+const FONT = "'Space Grotesk', sans-serif";
+
+/* ----------------------------- helpers ---------------------------- */
+
+function urgencyColor(u: TriageAssessment['urgency']): string {
+  if (u === 'EMERGENCY') return '#dc2626';
+  if (u === 'URGENT') return '#d97706';
   return '#059669';
 }
 
-function urgencyBg(score: TriageAssessment['urgency']): string {
-  if (score === 'EMERGENCY') return 'rgba(220, 38, 38, 0.08)';
-  if (score === 'URGENT') return 'rgba(217, 119, 6, 0.1)';
-  return 'rgba(5, 150, 105, 0.08)';
+function friendlyUrgency(u: TriageAssessment['urgency']): { label: string; message: string } {
+  if (u === 'EMERGENCY') return {
+    label: 'Please get seen right away',
+    message: "What you described sounds serious. Please don't wait — get to a doctor now, or call 108 / 112 if you can't travel safely.",
+  };
+  if (u === 'URGENT') return {
+    label: 'See a doctor today',
+    message: "Your symptoms shouldn't wait. We've found the right specialist below — book a same-day slot if you can.",
+  };
+  return {
+    label: 'Nothing urgent',
+    message: 'Looks manageable. Pick any slot that works for you — same-day or later this week is fine.',
+  };
+}
+
+function painWord(p: number): string {
+  if (p === 0) return 'None';
+  if (p <= 3) return 'Mild';
+  if (p <= 6) return 'Moderate';
+  if (p <= 8) return 'Severe';
+  return 'Unbearable';
 }
 
 function formatSlot(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
   const isTomorrow = d.toDateString() === tomorrow.toDateString();
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (sameDay) return `Today ${time}`;
@@ -107,452 +109,220 @@ function formatSlot(iso: string): string {
 }
 
 function normalizeSlotTime(d: Date): string {
-  let hours = d.getHours();
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  if (hours === 0) hours = 12;
-  return `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12; if (h === 0) h = 12;
+  return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
 }
 
 function getSlotDateISO(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export interface SpotIntakePreset {
-  label: string;
-  chiefComplaint: string;
-  selectedSymptoms: string[];
-  durationDays: number;
-  painLevel: number;
-  fever: boolean;
-  chestPain: boolean;
-  shortnessOfBreath: boolean;
+  label: string; chiefComplaint: string; selectedSymptoms: string[];
+  durationDays: number; painLevel: number; fever: boolean; chestPain: boolean; shortnessOfBreath: boolean;
 }
 
-export const SPOT_INTAKE_PRESETS: Record<string, SpotIntakePreset> = {
+const DEFAULT_PRESET: SpotIntakePreset = {
+  label: '', chiefComplaint: '', selectedSymptoms: [],
+  durationDays: 2, painLevel: 4, fever: false, chestPain: false, shortnessOfBreath: false,
+};
+
+function inferPresetFromComplaint(text: string): SpotIntakePreset {
+  const l = text.toLowerCase();
+  const sym: string[] = [];
+  let fever = false, chestPain = false, sob = false, pain = 4, days = 3;
+  if (/(chest|heart|cardiac|angina)/.test(l)) { sym.push('Chest tightness'); chestPain = true; pain = 6; days = 1; }
+  if (/(breath|dyspnea|suffocat)/.test(l)) { sym.push('Trouble breathing'); sob = true; pain = Math.max(pain, 6); }
+  if (/(head|migraine)/.test(l)) { sym.push('Headache'); pain = Math.max(pain, 5); }
+  if (/(fever|chill|temperature)/.test(l)) { sym.push('Fever'); fever = true; }
+  if (/cough/.test(l)) sym.push('Cough');
+  if (/(stomach|abdom|cramp|belly|nausea|bloat)/.test(l)) { sym.push('Stomach pain'); pain = Math.max(pain, 5); }
+  if (/(dizzy|faint|vertigo|lighthead)/.test(l)) sym.push('Dizziness');
+  if (/(rash|allerg|hive|itch|skin)/.test(l)) sym.push('Rash');
+  if (/(joint|swell|knee|ankle|back|neck)/.test(l)) sym.push('Joint swelling');
+  if (/throat/.test(l)) sym.push('Sore throat');
+  return {
+    label: text.length > 30 ? text.slice(0, 28) + '…' : text,
+    chiefComplaint: text, selectedSymptoms: sym.length ? sym : [],
+    durationDays: days, painLevel: pain, fever, chestPain, shortnessOfBreath: sob,
+  };
+}
+
+const SPOT_INTAKE_PRESETS: Record<string, SpotIntakePreset> = {
   chest: {
     label: 'Chest & Heart',
-    chiefComplaint: 'Sharp chest tightness, squeezing pressure radiating to arm, and shortness of breath upon exertion',
-    selectedSymptoms: ['Chest Tightness / Pain', 'Shortness of Breath'],
-    durationDays: 1,
-    painLevel: 6,
-    fever: false,
-    chestPain: true,
-    shortnessOfBreath: true,
+    chiefComplaint: 'Sharp chest tightness, squeezing pressure radiating to arm, and shortness of breath upon exertion.',
+    selectedSymptoms: ['Chest tightness', 'Trouble breathing'],
+    durationDays: 1, painLevel: 7, fever: false, chestPain: true, shortnessOfBreath: true,
   },
   head: {
-    label: 'Head & Neurological',
-    chiefComplaint: 'Severe throbbing migraine and persistent headache with dizziness, visual sensitivity, and nausea',
-    selectedSymptoms: ['Severe Headache / Migraine', 'Dizziness / Fainting'],
-    durationDays: 2,
-    painLevel: 6,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    label: 'Head & Face',
+    chiefComplaint: 'Severe headache with throbbing behind the eyes; sensitive to light.',
+    selectedSymptoms: ['Headache'],
+    durationDays: 2, painLevel: 7, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   mental: {
-    label: 'Mental Health',
-    chiefComplaint: 'Persistent anxiety, overwhelming emotional distress, insomnia, and difficulty concentrating',
-    selectedSymptoms: ['Dizziness / Fainting'],
-    durationDays: 7,
-    painLevel: 3,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    label: 'Mind & Mood',
+    chiefComplaint: 'Persistent low mood, poor sleep and trouble concentrating for the past two weeks.',
+    selectedSymptoms: ['Dizziness'],
+    durationDays: 14, painLevel: 3, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   abdomen: {
-    label: 'Stomach & Digestion',
-    chiefComplaint: 'Persistent abdominal cramping, severe burning sensation in stomach, and nausea after meals',
-    selectedSymptoms: ['Abdominal Cramping / Pain'],
-    durationDays: 3,
-    painLevel: 5,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
-  },
-  joints: {
-    label: 'Bones & Joints',
-    chiefComplaint: 'Aching joint stiffness, inflammation, and reduced range of motion in shoulders and elbows',
-    selectedSymptoms: ['Joint Swelling'],
-    durationDays: 4,
-    painLevel: 5,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
-  },
-  skin: {
-    label: 'Skin & Allergies',
-    chiefComplaint: 'Spreading itchy red rash, allergic hive flare-up, and localized irritation across skin',
-    selectedSymptoms: ['Skin Rash / Allergic Reaction'],
-    durationDays: 3,
-    painLevel: 4,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
-  },
-  reproductive: {
-    label: 'Reproductive & Urinary',
-    chiefComplaint: 'Pelvic cramping, sharp lower abdominal discomfort, and painful urinary irritation for 2 days',
-    selectedSymptoms: ['Abdominal Cramping / Pain'],
-    durationDays: 2,
-    painLevel: 5,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    label: 'Stomach & Belly',
+    chiefComplaint: 'Cramping stomach pain around the belly button with nausea after meals.',
+    selectedSymptoms: ['Stomach pain'],
+    durationDays: 3, painLevel: 6, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   knee: {
-    label: 'Knees',
-    chiefComplaint: 'Acute knee joint pain, noticeable swelling, and tenderness with difficulty bending or bearing weight',
-    selectedSymptoms: ['Joint Swelling'],
-    durationDays: 2,
-    painLevel: 6,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    label: 'Knee & Joint',
+    chiefComplaint: 'Swollen right knee with stiff aching pain after walking or climbing stairs.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 5, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   ankle: {
-    label: 'Ankles & Feet',
-    chiefComplaint: 'Twisted ankle injury with sharp throbbing pain, localized swelling, and difficulty walking',
-    selectedSymptoms: ['Joint Swelling'],
-    durationDays: 1,
-    painLevel: 6,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
-  },
-  neck_back: {
-    label: 'Neck & Upper Spine',
-    chiefComplaint: 'Stiff neck, sharp radiating muscular spasm when rotating head, and tension headache',
-    selectedSymptoms: ['Severe Headache / Migraine', 'Joint Swelling'],
-    durationDays: 3,
-    painLevel: 5,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    label: 'Ankle & Foot',
+    chiefComplaint: 'Twisted ankle with tenderness on the outer side and mild swelling.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 2, painLevel: 6, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   upper_back: {
     label: 'Upper Back & Shoulders',
-    chiefComplaint: 'Severe upper back tightness, postural aching between shoulder blades, and muscular stiffness',
-    selectedSymptoms: ['Joint Swelling'],
-    durationDays: 4,
-    painLevel: 5,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    chiefComplaint: 'Persistent tension knots and aching between the shoulder blades from desk posture.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 7, painLevel: 4, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   lower_back: {
-    label: 'Lower Back & Spine',
-    chiefComplaint: 'Acute lower back strain, stiffness, and lumbar pain radiating down hip while sitting or bending',
-    selectedSymptoms: ['Joint Swelling'],
-    durationDays: 3,
-    painLevel: 6,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    label: 'Lower Back & Lumbar',
+    chiefComplaint: 'Sharp shooting pain across lower back when bending forward or standing up.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 4, painLevel: 7, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   hips_back: {
-    label: 'Hips & Glutes',
-    chiefComplaint: 'Deep hip joint discomfort, pelvic muscle stiffness, and mobility ache while standing or walking',
-    selectedSymptoms: ['Joint Swelling'],
-    durationDays: 4,
-    painLevel: 5,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    label: 'Hips & Pelvis',
+    chiefComplaint: 'Deep hip aching with stiffness during morning movements.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 10, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  neck_back: {
+    label: 'Neck & Cervical',
+    chiefComplaint: 'Stiff neck with limited rotation and pain radiating towards upper shoulders.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 3, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
   },
   calf: {
-    label: 'Calves & Hamstrings',
-    chiefComplaint: 'Sudden calf muscle cramping, tenderness, and hamstring tightness after physical activity',
-    selectedSymptoms: ['Joint Swelling'],
-    durationDays: 2,
-    painLevel: 5,
-    fever: false,
-    chestPain: false,
-    shortnessOfBreath: false,
+    label: 'Calf & Lower Leg',
+    chiefComplaint: 'Sudden calf cramping with tightness during evening walks.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 2, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  joints: {
+    label: 'Joints & Arthritis',
+    chiefComplaint: 'Multiple aching joints with stiffness and mild morning swelling.',
+    selectedSymptoms: ['Joint swelling'],
+    durationDays: 14, painLevel: 6, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  skin: {
+    label: 'Skin & Dermatology',
+    chiefComplaint: 'Itchy reddish rash across forearms with mild flaking and irritation.',
+    selectedSymptoms: ['Rash'],
+    durationDays: 4, painLevel: 3, fever: false, chestPain: false, shortnessOfBreath: false,
+  },
+  reproductive: {
+    label: 'Reproductive & Pelvic',
+    chiefComplaint: 'Lower abdominal pelvic dull ache with burning sensation during urination.',
+    selectedSymptoms: ['Stomach pain'],
+    durationDays: 3, painLevel: 5, fever: false, chestPain: false, shortnessOfBreath: false,
   },
 };
 
-const DEFAULT_PRESET: SpotIntakePreset = {
-  label: '',
-  chiefComplaint: 'Persistent high fever and dry cough for 3 days',
-  selectedSymptoms: ['Fever / Chills', 'Persistent Cough'],
-  durationDays: 3,
-  painLevel: 4,
-  fever: true,
-  chestPain: false,
-  shortnessOfBreath: false,
-};
-
-function resolveSpotKey(input: string): string | null {
-  if (!input) return null;
-  const clean = input.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
-  if (SPOT_INTAKE_PRESETS[clean]) return clean;
-  if (clean.includes('chest') || clean.includes('heart') || clean.includes('cardiac')) return 'chest';
-  if (clean.includes('head') || clean.includes('migraine') || clean.includes('neuro')) return 'head';
-  if (clean.includes('mental') || clean.includes('anxiety') || clean.includes('psych')) return 'mental';
-  if (clean.includes('stomach') || clean.includes('abdom') || clean.includes('digest')) return 'abdomen';
-  if (clean.includes('joint') || clean.includes('bone')) return 'joints';
-  if (clean.includes('skin') || clean.includes('rash') || clean.includes('allergy')) return 'skin';
-  if (clean.includes('reproductive') || clean.includes('urinary') || clean.includes('pelvic')) return 'reproductive';
-  if (clean.includes('knee')) return 'knee';
-  if (clean.includes('ankle') || clean.includes('foot') || clean.includes('feet')) return 'ankle';
-  if (clean.includes('neck')) return 'neck_back';
-  if (clean.includes('upperback') || clean.includes('shoulder')) return 'upper_back';
-  if (clean.includes('lowerback') || clean.includes('lumbar') || clean.includes('sciatica')) return 'lower_back';
-  if (clean.includes('hip') || clean.includes('glute')) return 'hips_back';
-  if (clean.includes('calf') || clean.includes('calves') || clean.includes('hamstring')) return 'calf';
+function resolveSpotKey(raw: string | null): string | null {
+  if (!raw) return null;
+  const k = raw.toLowerCase().trim();
+  if (SPOT_INTAKE_PRESETS[k]) return k;
+  if (/(chest|heart|cardiac|angina)/.test(k)) return 'chest';
+  if (/(head|migraine|brain|cranial)/.test(k)) return 'head';
+  if (/(mental|mood|depress|anxiety)/.test(k)) return 'mental';
+  if (/(abdom|stomach|belly|gut|liver)/.test(k)) return 'abdomen';
+  if (/(knee)/.test(k)) return 'knee';
+  if (/(ankle|foot)/.test(k)) return 'ankle';
+  if (/(upper.?back)/.test(k)) return 'upper_back';
+  if (/(lower.?back|lumbar)/.test(k)) return 'lower_back';
+  if (/(hip)/.test(k)) return 'hips_back';
+  if (/(neck|cervical)/.test(k)) return 'neck_back';
+  if (/(calf|shin)/.test(k)) return 'calf';
+  if (/(joint|arthrit)/.test(k)) return 'joints';
+  if (/(skin|rash|derm)/.test(k)) return 'skin';
+  if (/(reprod|urinary|pelv|uter|bladder)/.test(k)) return 'reproductive';
   return null;
 }
 
-function inferPresetFromComplaint(text: string): SpotIntakePreset {
-  const lower = text.toLowerCase();
-  const symptoms: string[] = [];
-  let fever = false;
-  let chestPain = false;
-  let shortnessOfBreath = false;
-  let painLevel = 4;
-  let durationDays = 3;
-
-  if (lower.includes('chest') || lower.includes('heart') || lower.includes('cardiac') || lower.includes('angina')) {
-    symptoms.push('Chest Tightness / Pain');
-    chestPain = true;
-    painLevel = 6;
-    durationDays = 1;
-  }
-  if (lower.includes('breath') || lower.includes('dyspnea') || lower.includes('suffocat')) {
-    symptoms.push('Shortness of Breath');
-    shortnessOfBreath = true;
-    painLevel = Math.max(painLevel, 6);
-  }
-  if (lower.includes('head') || lower.includes('migraine')) {
-    symptoms.push('Severe Headache / Migraine');
-    painLevel = Math.max(painLevel, 5);
-  }
-  if (lower.includes('fever') || lower.includes('chill') || lower.includes('temperature')) {
-    symptoms.push('Fever / Chills');
-    fever = true;
-  }
-  if (lower.includes('cough')) {
-    symptoms.push('Persistent Cough');
-  }
-  if (lower.includes('stomach') || lower.includes('abdom') || lower.includes('cramp') || lower.includes('belly') || lower.includes('nausea') || lower.includes('digest') || lower.includes('bloat')) {
-    symptoms.push('Abdominal Cramping / Pain');
-    painLevel = Math.max(painLevel, 5);
-  }
-  if (lower.includes('dizzy') || lower.includes('faint') || lower.includes('vertigo') || lower.includes('lighthead') || lower.includes('fatigue') || lower.includes('weakness') || lower.includes('insomnia') || lower.includes('sleep')) {
-    symptoms.push('Dizziness / Fainting');
-  }
-  if (lower.includes('rash') || lower.includes('allergy') || lower.includes('allergic') || lower.includes('hive') || lower.includes('itch') || lower.includes('skin')) {
-    symptoms.push('Skin Rash / Allergic Reaction');
-  }
-  if (lower.includes('joint') || lower.includes('swell') || lower.includes('knee') || lower.includes('ankle') || lower.includes('back') || lower.includes('neck') || lower.includes('muscle')) {
-    symptoms.push('Joint Swelling');
-  }
-  if (lower.includes('throat')) {
-    symptoms.push('Sore Throat');
-  }
-
-  return {
-    label: text.length > 30 ? text.substring(0, 28) + '...' : text,
-    chiefComplaint: text,
-    selectedSymptoms: symptoms.length > 0 ? symptoms : ['Fever / Chills'],
-    durationDays,
-    painLevel,
-    fever,
-    chestPain,
-    shortnessOfBreath,
-  };
-}
+type UploadCategory = 'SYMPTOM_IMAGE' | 'PRIOR_PRESCRIPTION' | 'LAB_REPORT';
 
 export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ currentUser }) => {
   const [searchParams] = useSearchParams();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  const resolveInitialPreset = (): SpotIntakePreset => {
-    let hotspotKey = searchParams.get('hotspot') || '';
-    let complaintText = searchParams.get('complaint') || '';
-
-    try {
-      if (!hotspotKey) {
-        const storedSpot = sessionStorage.getItem('pulsecare_pending_hotspot');
-        if (storedSpot) {
-          hotspotKey = storedSpot;
-          sessionStorage.removeItem('pulsecare_pending_hotspot');
-        }
-      }
-      if (!complaintText) {
-        const storedComplaint = sessionStorage.getItem('pulsecare_pending_complaint');
-        if (storedComplaint) {
-          complaintText = storedComplaint;
-          sessionStorage.removeItem('pulsecare_pending_complaint');
-        }
-      }
-    } catch {}
-
+  const initialPreset = useMemo<SpotIntakePreset>(() => {
+    let hotspotKey = searchParams.get('hotspot') || searchParams.get('focus') || '';
+    if (!hotspotKey) {
+      try {
+        const stored = sessionStorage.getItem('pulsecare_pending_hotspot');
+        if (stored) { hotspotKey = stored; sessionStorage.removeItem('pulsecare_pending_hotspot'); }
+      } catch { /* sessionStorage fallback */ }
+    }
     const resolved = resolveSpotKey(hotspotKey);
-    if (resolved && SPOT_INTAKE_PRESETS[resolved]) {
-      return SPOT_INTAKE_PRESETS[resolved];
+    if (resolved && SPOT_INTAKE_PRESETS[resolved]) return SPOT_INTAKE_PRESETS[resolved];
+    let complaintText = searchParams.get('complaint') || '';
+    if (!complaintText) {
+      try {
+        const stored = sessionStorage.getItem('pulsecare_pending_complaint');
+        if (stored) { complaintText = stored; sessionStorage.removeItem('pulsecare_pending_complaint'); }
+      } catch { /* sessionStorage fallback */ }
     }
-    if (complaintText) {
-      return inferPresetFromComplaint(complaintText);
-    }
+    if (complaintText) return inferPresetFromComplaint(complaintText);
     return DEFAULT_PRESET;
-  };
+  }, [searchParams]);
 
-  const initialPreset = useMemo(resolveInitialPreset, []);
+  // Overall steps: 1 = intake, 2 = AI review, 3 = pick doctor & time
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [subStep, setSubStep] = useState<number>(0);
 
-  // Step 1 — intake
-  const [activePresetLabel, setActivePresetLabel] = useState<string>(initialPreset.label);
-  const [chiefComplaint, setChiefComplaint] = useState<string>(initialPreset.chiefComplaint);
+  // Step 1 micro-intake fields
+  const [chiefComplaint, setChiefComplaint] = useState(initialPreset.chiefComplaint);
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>(initialPreset.selectedSymptoms);
   const [durationDays, setDurationDays] = useState<number>(initialPreset.durationDays);
   const [painLevel, setPainLevel] = useState<number>(initialPreset.painLevel);
   const [fever, setFever] = useState<boolean>(initialPreset.fever);
   const [chestPain, setChestPain] = useState<boolean>(initialPreset.chestPain);
   const [shortnessOfBreath, setShortnessOfBreath] = useState<boolean>(initialPreset.shortnessOfBreath);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploadCategory, setUploadCategory] = useState<UploadCategory>('SYMPTOM_IMAGE');
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [complaintError, setComplaintError] = useState(false);
 
-  // Step 1 Attachments (symptom images, prior prescriptions)
-  const [uploadedAttachments, setUploadedAttachments] = useState<Attachment[]>([]);
-  const [uploadCategory, setUploadCategory] = useState<'SYMPTOM_IMAGE' | 'PRIOR_PRESCRIPTION' | 'LAB_REPORT'>('SYMPTOM_IMAGE');
-  const [uploadingFile, setUploadingFile] = useState<boolean>(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const processFiles = async (files: FileList | File[]) => {
-    if (!files || files.length === 0) return;
-    setUploadingFile(true);
-    setUploadError(null);
-    try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (file.size > 10 * 1024 * 1024) {
-          throw new Error(`File ${file.name} exceeds 10MB limit.`);
-        }
-        const uploaded = await filesApi.upload(file, uploadCategory);
-        setUploadedAttachments(prev => [...prev, uploaded]);
-      }
-    } catch (err: any) {
-      setUploadError(err.message || 'Failed to upload attachment');
-    } finally {
-      setUploadingFile(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      processFiles(e.target.files);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFiles(e.dataTransfer.files);
-    }
-  };
-
-  const removeAttachment = (id: string) => {
-    setUploadedAttachments(prev => prev.filter(a => a.id !== id));
-  };
-
-  useEffect(() => {
-    const rawSpot = searchParams.get('hotspot');
-    const rawComplaint = searchParams.get('complaint');
-    if (rawSpot) {
-      const resolved = resolveSpotKey(rawSpot);
-      if (resolved && SPOT_INTAKE_PRESETS[resolved]) {
-        const p = SPOT_INTAKE_PRESETS[resolved];
-        setActivePresetLabel(p.label);
-        setChiefComplaint(p.chiefComplaint);
-        setSelectedSymptoms(p.selectedSymptoms);
-        setDurationDays(p.durationDays);
-        setPainLevel(p.painLevel);
-        setFever(p.fever);
-        setChestPain(p.chestPain);
-        setShortnessOfBreath(p.shortnessOfBreath);
-        return;
-      }
-    }
-    if (rawComplaint) {
-      const p = inferPresetFromComplaint(rawComplaint);
-      setActivePresetLabel(p.label);
-      setChiefComplaint(p.chiefComplaint);
-      setSelectedSymptoms(p.selectedSymptoms);
-      setDurationDays(p.durationDays);
-      setPainLevel(p.painLevel);
-      setFever(p.fever);
-      setChestPain(p.chestPain);
-      setShortnessOfBreath(p.shortnessOfBreath);
-    }
-  }, [searchParams]);
-
-  // Step 2 — triage result (from backend)
+  // Step 2 triage assessment
   const [assessment, setAssessment] = useState<TriageAssessment | null>(null);
-  const [assessing, setAssessing] = useState<boolean>(false);
+  const [assessing, setAssessing] = useState(false);
   const [triageError, setTriageError] = useState<string | null>(null);
 
-  // Step 3 — doctor + slot
+  // Step 3 doctor & scheduling
   const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [doctorsLoading, setDoctorsLoading] = useState<boolean>(false);
+  const [doctorsLoading, setDoctorsLoading] = useState(false);
   const [doctorsError, setDoctorsError] = useState<string | null>(null);
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>('');
   const [selectedSlotId, setSelectedSlotId] = useState<string>('');
-  const [holdSecondsRemaining, setHoldSecondsRemaining] = useState<number | null>(null);
-  const [reservingSlot, setReservingSlot] = useState<boolean>(false);
-  const [slotReservationMessage, setSlotReservationMessage] = useState<string | null>(null);
   const [doctorSlots, setDoctorSlots] = useState<Slot[]>([]);
-  const [slotsLoading, setSlotsLoading] = useState<boolean>(false);
-  const [selectedDayISO, setSelectedDayISO] = useState<string>('');
-  const [slotOverrides, setSlotOverrides] = useState<Record<string, 'OPEN' | 'CLOSED'>>(() => {
-    try {
-      const saved = localStorage.getItem('pulsecare_doctor_slots_overrides');
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return {};
-  });
-
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'pulsecare_doctor_slots_overrides') {
-        try {
-          setSlotOverrides(e.newValue ? JSON.parse(e.newValue) : {});
-        } catch {}
-      }
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
-
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [selectedDayISO, setSelectedDayISO] = useState('');
   const [consultationType, setConsultationType] = useState<ConsultationType>('VIDEO');
-  const [booking, setBooking] = useState<boolean>(false);
+  const [booking, setBooking] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<Appointment | null>(null);
+
+  // Payment Gateway states
   const [paymentInfo, setPaymentInfo] = useState<{
     orderId: string;
     paymentId: string;
@@ -561,6 +331,11 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     pdfUrl: string;
   } | null>(null);
   const [patientPhone, setPatientPhone] = useState<string>(currentUser?.phone || '+919876543210');
+
+  // Redis 2-phase hold states
+  const [holdSecondsRemaining, setHoldSecondsRemaining] = useState<number | null>(null);
+  const [reservingSlot, setReservingSlot] = useState<boolean>(false);
+  const [slotReservationMessage, setSlotReservationMessage] = useState<string | null>(null);
 
   // Coupon state
   const [couponInput, setCouponInput] = useState<string>('');
@@ -591,25 +366,19 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const { payablePaise, discountPaise } = calculatePayablePaise(appliedCoupon);
 
   const handleApplyCoupon = (codeToApply?: string) => {
-    const raw = (codeToApply || couponInput).trim().toUpperCase();
-    if (!raw) {
-      const errMsg = 'Please enter a coupon code before clicking Apply.';
-      setCouponError(errMsg);
+    const code = (codeToApply !== undefined ? codeToApply : couponInput).trim().toUpperCase();
+    if (!code) {
+      setCouponError('Please enter a coupon code.');
       setCouponSuccess(null);
-      setCouponErrorModal({
-        attemptedCode: '',
-        message: errMsg,
-      });
       return;
     }
-    const found = TEST_COUPONS.find((c) => c.code.toUpperCase() === raw);
+    const found = TEST_COUPONS.find(c => c.code.toUpperCase() === code);
     if (!found) {
-      const errMsg = `Invalid coupon code '${raw}'. It is not recognized or may have expired.`;
-      setCouponError(errMsg);
+      setCouponError(`Coupon '${code}' is invalid or expired.`);
       setCouponSuccess(null);
       setCouponErrorModal({
-        attemptedCode: raw,
-        message: errMsg,
+        attemptedCode: code,
+        message: 'This coupon code was not found in the active pulse promotions database.',
       });
       return;
     }
@@ -619,7 +388,6 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     const { payablePaise: newPayable, discountPaise: newDisc } = calculatePayablePaise(found);
     const msg = `Coupon '${found.code}' applied! You save ₹${(newDisc / 100).toFixed(2)}.`;
     setCouponSuccess(msg);
-    setCouponErrorModal(null);
     setCouponSuccessModal({
       coupon: found,
       discountPaise: newDisc,
@@ -632,189 +400,124 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     setCouponInput('');
     setCouponError(null);
     setCouponSuccess(null);
-    setCouponSuccessModal(null);
-    setCouponErrorModal(null);
   };
 
-  const toggleSymptom = (symptom: string) =>
-    setSelectedSymptoms(prev =>
-      prev.includes(symptom) ? prev.filter(s => s !== symptom) : [...prev, symptom]
-    );
+  const toggleSymptom = (s: string) => {
+    setSelectedSymptoms(cur => (cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]));
+  };
 
-  // Fetch doctors (filtered by suggested specialty if present) when we enter step 3.
-  useEffect(() => {
-    if (step !== 3) return;
-    setDoctorsLoading(true);
-    setDoctorsError(null);
-    const specialty = assessment?.suggestedSpecialty;
-    doctorsApi
-      .list(specialty)
-      .then(list => {
-        // If specialty filter returns nothing, fall back to the full list.
-        if (list.length === 0 && specialty) {
-          return doctorsApi.list();
-        }
-        return list;
-      })
-      .then(list => {
-        setDoctors(list);
-        if (list.length > 0) {
-          const first = list[0];
-          setSelectedDoctorId(first.id);
-        }
-      })
-      .catch(err => setDoctorsError(err.message || 'Failed to load doctors'))
-      .finally(() => setDoctorsLoading(false));
-  }, [step, assessment?.suggestedSpecialty]);
+  /* Attachments upload */
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const att = await filesApi.upload(file, uploadCategory);
+        setAttachments(cur => [...cur, att]);
+      }
+    } catch (err: any) {
+      alert(err.message || 'File upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
-  const selectedDoctor = useMemo(
-    () => doctors.find(d => d.id === selectedDoctorId) || null,
-    [doctors, selectedDoctorId]
-  );
+  const removeAttachment = (id: string) => {
+    setAttachments(cur => cur.filter(a => a.id !== id));
+  };
 
-  // Fetch all open forward slots for the selected doctor
-  useEffect(() => {
-    if (!selectedDoctorId) {
-      setDoctorSlots([]);
+  /* Step 2 AI assessment */
+  const handleAssess = async () => {
+    if (!chiefComplaint.trim()) {
+      setComplaintError(true);
+      setSubStep(0);
       return;
     }
+    setAssessing(true);
+    setTriageError(null);
+    try {
+      const res = await triageApi.assess({
+        chiefComplaint: chiefComplaint.trim(),
+        symptoms: selectedSymptoms,
+        durationDays,
+        painLevel,
+        fever,
+        chestPain,
+        shortnessOfBreath,
+      });
+      setAssessment(res);
+      setStep(2);
+    } catch (err: any) {
+      setTriageError(err.message || 'Triage service unavailable. Please retry.');
+    } finally {
+      setAssessing(false);
+    }
+  };
+
+  /* Fetch doctors for specialty when assessment is ready */
+  useEffect(() => {
+    if (!assessment) return;
+    setDoctorsLoading(true);
+    setDoctorsError(null);
+    doctorsApi.list(assessment.suggestedSpecialty)
+      .then(docs => {
+        setDoctors(docs);
+        if (docs.length > 0) setSelectedDoctorId(docs[0].id);
+      })
+      .catch(err => setDoctorsError(err.message || 'Could not load doctors.'))
+      .finally(() => setDoctorsLoading(false));
+  }, [assessment]);
+
+  /* Fetch slots for selected doctor */
+  useEffect(() => {
+    if (!selectedDoctorId) { setDoctorSlots([]); return; }
     setSlotsLoading(true);
     doctorsApi.slots(selectedDoctorId)
-      .then(slots => {
-        if (Array.isArray(slots) && slots.length > 0) {
-          setDoctorSlots(slots);
-        } else {
-          const doc = doctors.find(d => d.id === selectedDoctorId);
-          if (doc?.nextSlots && doc.nextSlots.length > 0) {
-            setDoctorSlots(doc.nextSlots.map(s => ({
-              id: s.id,
-              doctorId: selectedDoctorId,
-              slotAt: s.slotAt,
-              booked: false,
-            })));
-          } else {
-            setDoctorSlots([]);
-          }
-        }
-      })
-      .catch(() => {
-        const doc = doctors.find(d => d.id === selectedDoctorId);
-        if (doc?.nextSlots) {
-          setDoctorSlots(doc.nextSlots.map(s => ({
-            id: s.id,
-            doctorId: selectedDoctorId,
-            slotAt: s.slotAt,
-            booked: false,
-          })));
-        } else {
-          setDoctorSlots([]);
-        }
-      })
+      .then(setDoctorSlots)
+      .catch(() => setDoctorSlots([]))
       .finally(() => setSlotsLoading(false));
-  }, [selectedDoctorId, doctors]);
+  }, [selectedDoctorId]);
 
-  // Strictly filter out booked, past, doctor-closed, or weekend holiday slots so patient NEVER sees closed slots
+  /* Build schedule day columns */
   const availableSlots = useMemo(() => {
-    const now = new Date();
-    return doctorSlots.filter(slot => {
-      if (slot.booked) return false;
-      const d = new Date(slot.slotAt);
-      if (isNaN(d.getTime()) || d < now) return false;
+    return doctorSlots.filter(s => !s.booked);
+  }, [doctorSlots]);
 
-      const dateISO = getSlotDateISO(d);
-      const timeStr = normalizeSlotTime(d);
-      let hours = d.getHours();
-      const minutes = String(d.getMinutes()).padStart(2, '0');
-      const ampm = hours >= 12 ? 'PM' : 'AM';
-      hours = hours % 12;
-      if (hours === 0) hours = 12;
-      const unpaddedTime = `${hours}:${minutes} ${ampm}`;
-
-      const dayOfWeek = d.getDay(); // 0 is Sunday, 6 is Saturday
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-
-      const hasExplicitOpen =
-        slotOverrides[`${dateISO}_${timeStr}`] === 'OPEN' ||
-        slotOverrides[`${dateISO}_${unpaddedTime}`] === 'OPEN' ||
-        slotOverrides[`${slot.doctorId}_${dateISO}_${timeStr}`] === 'OPEN' ||
-        slotOverrides[`${slot.doctorId}_${dateISO}_${unpaddedTime}`] === 'OPEN' ||
-        slotOverrides[`${selectedDoctorId}_${dateISO}_${timeStr}`] === 'OPEN' ||
-        slotOverrides[`${selectedDoctorId}_${dateISO}_${unpaddedTime}`] === 'OPEN';
-
-      const hasExplicitClosed =
-        slotOverrides[`${dateISO}_${timeStr}`] === 'CLOSED' ||
-        slotOverrides[`${dateISO}_${unpaddedTime}`] === 'CLOSED' ||
-        slotOverrides[`${slot.doctorId}_${dateISO}_${timeStr}`] === 'CLOSED' ||
-        slotOverrides[`${slot.doctorId}_${dateISO}_${unpaddedTime}`] === 'CLOSED' ||
-        slotOverrides[`${selectedDoctorId}_${dateISO}_${timeStr}`] === 'CLOSED' ||
-        slotOverrides[`${selectedDoctorId}_${dateISO}_${unpaddedTime}`] === 'CLOSED';
-
-      if (hasExplicitClosed) return false;
-      if (hasExplicitOpen) return true;
-
-      // By default: Saturday & Sunday are holidays (closed)
-      if (isWeekend) return false;
-
-      return true;
-    });
-  }, [doctorSlots, slotOverrides, selectedDoctorId]);
-
-  // Group open slots across the rolling 7-day schedule (and any additional days)
   const scheduleDays = useMemo(() => {
-    const daysMap = new Map<string, {
-      dateISO: string;
-      dayName: string;
-      dateFormatted: string;
-      weekday: string;
-      isWeekend: boolean;
-      slots: Slot[];
-    }>();
-
-    const today = new Date();
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + i);
-      const dateISO = getSlotDateISO(d);
-      const dayName = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'short' });
-      const dateFormatted = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      const weekday = d.toLocaleDateString(undefined, { weekday: 'long' });
-      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-      daysMap.set(dateISO, {
-        dateISO,
-        dayName,
-        dateFormatted,
-        weekday,
-        isWeekend,
+    const map = new Map<string, { dateISO: string; dayName: string; dateFormatted: string; weekday: string; isWeekend: boolean; slots: Slot[] }>();
+    const base = new Date();
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      const iso = getSlotDateISO(d);
+      map.set(iso, {
+        dateISO: iso,
+        dayName: i === 0 ? 'Today' : i === 1 ? 'Tmrw' : d.toLocaleDateString(undefined, { weekday: 'short' }),
+        dateFormatted: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        weekday: d.toLocaleDateString(undefined, { weekday: 'long' }),
+        isWeekend: d.getDay() === 0 || d.getDay() === 6,
         slots: [],
       });
     }
-
-    availableSlots.forEach(slot => {
-      const d = new Date(slot.slotAt);
-      const dateISO = getSlotDateISO(d);
-      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-      if (!daysMap.has(dateISO)) {
-        daysMap.set(dateISO, {
-          dateISO,
-          dayName: d.toLocaleDateString(undefined, { weekday: 'short' }),
-          dateFormatted: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-          weekday: d.toLocaleDateString(undefined, { weekday: 'long' }),
-          isWeekend,
-          slots: [slot],
-        });
-      } else {
-        daysMap.get(dateISO)!.slots.push(slot);
-      }
+    availableSlots.forEach(s => {
+      const iso = getSlotDateISO(new Date(s.slotAt));
+      if (map.has(iso)) map.get(iso)!.slots.push(s);
     });
-
-    daysMap.forEach(dayObj => {
-      dayObj.slots.sort((a, b) => new Date(a.slotAt).getTime() - new Date(b.slotAt).getTime());
-    });
-
-    return Array.from(daysMap.values()).sort((a, b) => a.dateISO.localeCompare(b.dateISO));
+    map.forEach(day => day.slots.sort((a, b) => +new Date(a.slotAt) - +new Date(b.slotAt)));
+    return Array.from(map.values()).sort((a, b) => a.dateISO.localeCompare(b.dateISO));
   }, [availableSlots]);
 
-  // Countdown timer for Redis 2-Phase reservation hold
+  // Auto-pick first day with slots
+  useEffect(() => {
+    if (!scheduleDays.length) return;
+    const cur = scheduleDays.find(d => d.dateISO === selectedDayISO);
+    if (!cur) {
+      const first = scheduleDays.find(d => d.slots.length) || scheduleDays[0];
+      setSelectedDayISO(first.dateISO);
+    }
+  }, [scheduleDays, selectedDayISO]);
+
+  // Redis 2-phase hold countdown timer
   useEffect(() => {
     if (holdSecondsRemaining === null || holdSecondsRemaining <= 0) return;
     const interval = setInterval(() => {
@@ -839,28 +542,6 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
       }
     };
   }, [selectedSlotId]);
-
-  // Auto-select first available day when schedule changes
-  useEffect(() => {
-    if (scheduleDays.length === 0) return;
-    const currentDayObj = scheduleDays.find(d => d.dateISO === selectedDayISO);
-    if (!selectedDayISO || !currentDayObj || currentDayObj.slots.length === 0) {
-      const firstWithSlots = scheduleDays.find(d => d.slots.length > 0) || scheduleDays[0];
-      if (firstWithSlots) {
-        setSelectedDayISO(firstWithSlots.dateISO);
-      }
-    }
-  }, [scheduleDays, selectedDayISO]);
-
-  const handleDayClick = (dayISO: string) => {
-    if (selectedSlotId) {
-      slotsApi.release(selectedSlotId).catch(() => {});
-      setSelectedSlotId('');
-      setHoldSecondsRemaining(null);
-      setSlotReservationMessage(null);
-    }
-    setSelectedDayISO(dayISO);
-  };
 
   const handleSlotClick = async (slot: Slot) => {
     if (slot.onHold && !slot.heldByYou) {
@@ -888,7 +569,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
         setHoldSecondsRemaining(null);
         setSlotReservationMessage(res.message || 'This slot was just reserved by another patient.');
       }
-    } catch (err: any) {
+    } catch {
       // Local fallback in case Redis is bypassed
       setSelectedSlotId(slot.id);
       setHoldSecondsRemaining(600);
@@ -897,36 +578,12 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     }
   };
 
-  const currentDaySlots = useMemo(() => {
-    return scheduleDays.find(d => d.dateISO === selectedDayISO)?.slots ?? [];
-  }, [scheduleDays, selectedDayISO]);
+  const currentDay = scheduleDays.find(d => d.dateISO === selectedDayISO);
+  const currentDaySlots = currentDay?.slots ?? [];
+  const selectedDoctor = doctors.find(d => d.id === selectedDoctorId) || null;
+  const selectedSlot = availableSlots.find(s => s.id === selectedSlotId) || null;
 
-  const selectedSlot = useMemo(() => {
-    return availableSlots.find(s => s.id === selectedSlotId) || null;
-  }, [availableSlots, selectedSlotId]);
-
-  const handleAssess = async () => {
-    setAssessing(true);
-    setTriageError(null);
-    try {
-      const result = await triageApi.assess({
-        chiefComplaint,
-        symptoms: selectedSymptoms,
-        durationDays,
-        painLevel,
-        fever,
-        chestPain,
-        shortnessOfBreath,
-      });
-      setAssessment(result);
-      setStep(2);
-    } catch (err: any) {
-      setTriageError(err.message || 'Triage service is unavailable');
-    } finally {
-      setAssessing(false);
-    }
-  };
-
+  /* Load Razorpay script dynamically */
   const loadRazorpayScript = (): Promise<boolean> => {
     return new Promise((resolve) => {
       if ((window as any).Razorpay) {
@@ -942,50 +599,44 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     });
   };
 
-  const finalizePaymentAndBooking = async (
-    orderId: string,
-    paymentId: string,
-    signature: string
-  ) => {
-    setBooking(true);
-    setBookingError(null);
+  /* Finalize booking after payment verify */
+  const finalizePaymentAndBooking = async (orderId: string, paymentId: string, signature: string) => {
     try {
-      // 1. Verify Payment & trigger Apache Kafka event streaming pipeline
-      const verifyResp = await paymentsApi.verify({
+      const verifyRes = await paymentsApi.verify({
         razorpayOrderId: orderId,
         razorpayPaymentId: paymentId,
         razorpaySignature: signature,
       });
 
-      // 2. Book appointment in clinical service
       const booked = await appointmentsApi.book({
         doctorId: selectedDoctorId,
         slotId: selectedSlotId,
         assessmentId: assessment?.id,
         consultationType,
-        attachmentIds: uploadedAttachments.map((a) => a.id),
+        attachmentIds: attachments.map(a => a.id),
       });
 
-      // 3. Save confirmed states with verified payment and PDF URL
       setPaymentInfo({
         orderId,
         paymentId,
         amountPaise: payablePaise,
-        status: verifyResp.status,
+        status: verifyRes.status || 'PAID',
         pdfUrl: paymentsApi.receiptPdfUrl(orderId),
       });
+
       setConfirmed(booked);
     } catch (err: any) {
-      setBookingError(err.message || 'Payment verification or booking failed. Please try again.');
+      setBookingError(err.message || 'Payment verification or booking finalization failed. Please contact clinic support.');
     } finally {
       setBooking(false);
     }
   };
 
-  const handleBook = async (e: React.FormEvent) => {
+  /* Live Razorpay Checkout flow */
+  const handleLivePaymentBooking = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoctorId || !selectedSlotId) {
-      setBookingError('Choose a doctor and a slot before confirming.');
+      setBookingError('Pick a doctor and a time first.');
       return;
     }
     setBooking(true);
@@ -994,54 +645,55 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     const slotTimeStr = selectedSlot?.slotAt ? formatSlot(selectedSlot.slotAt) : 'Today 04:30 PM';
     const amountPaise = payablePaise;
 
-    // If 100% discount, bypass Razorpay modal and book for free directly
+    // Free Consultation Bypass (100% OFF)
     if (amountPaise === 0) {
       const freeOrderId = 'order_free_' + Math.random().toString(36).substring(2, 12);
-      const freePayId = 'pay_free_' + Math.random().toString(36).substring(2, 12);
-      await finalizePaymentAndBooking(freeOrderId, freePayId, 'sandbox_signature');
+      await finalizePaymentAndBooking(freeOrderId, 'pay_free_voucher', 'sandbox_signature');
       return;
     }
 
     try {
-      // 1. Create official Razorpay Order in backend
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) {
+        throw new Error('Could not load Razorpay SDK. Please check your internet connection.');
+      }
+
       const order = await paymentsApi.createOrder({
         amountPaise,
         patientName: currentUser?.fullName || 'PulseCare Patient',
-        patientEmail: currentUser?.email || 'abhibrata.sarkar2020@gmail.com',
+        patientEmail: currentUser?.email || 'patient@pulsecare.com',
         patientPhone: patientPhone,
         doctorId: selectedDoctorId,
         slotTime: slotTimeStr,
       });
 
-      // 2. Ensure official Razorpay Checkout SDK is ready
-      const razorpayLoaded = await loadRazorpayScript();
-      if (!razorpayLoaded || !(window as any).Razorpay) {
-        throw new Error('Razorpay Checkout SDK could not be loaded. Please disable adblockers or check your connection.');
+      if (!order || !order.razorpayOrderId) {
+        throw new Error('Failed to create payment order. Try instant test booking.');
       }
 
-      // 3. Open official Razorpay Checkout modal
       const options = {
-        key: order.keyId,
+        key: order.keyId || 'rzp_test_placeholder',
         amount: order.amountPaise,
         currency: order.currency || 'INR',
         name: 'PulseCare Health Systems',
-        description: `Consultation Fee with ${selectedDoctor?.fullName || 'Doctor'}`,
-        image: 'https://cdn-icons-png.flaticon.com/512/2966/2966327.png',
+        description: `Consultation with ${selectedDoctor?.fullName || 'Specialist'}`,
         order_id: order.razorpayOrderId,
         prefill: {
           name: currentUser?.fullName || 'PulseCare Patient',
-          email: currentUser?.email || 'abhibrata.sarkar2020@gmail.com',
+          email: currentUser?.email || 'patient@pulsecare.com',
           contact: patientPhone,
         },
-        theme: { color: '#0f766e' },
+        theme: {
+          color: '#0f766e',
+        },
         modal: {
-          ondismiss: () => {
+          ondismiss: function () {
             setBooking(false);
           },
         },
-        handler: async (resp: any) => {
+        handler: async function (resp: any) {
           await finalizePaymentAndBooking(
-            resp.razorpay_order_id || order.razorpayOrderId,
+            resp.razorpay_order_id,
             resp.razorpay_payment_id,
             resp.razorpay_signature
           );
@@ -1060,6 +712,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     }
   };
 
+  /* Instant Test Booking flow */
   const handleTestBooking = async (e: React.MouseEvent) => {
     e.preventDefault();
     if (!selectedDoctorId || !selectedSlotId) {
@@ -1079,7 +732,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
           const order = await paymentsApi.createOrder({
             amountPaise,
             patientName: currentUser?.fullName || 'PulseCare Patient',
-            patientEmail: currentUser?.email || 'abhibrata.sarkar2020@gmail.com',
+            patientEmail: currentUser?.email || 'patient@pulsecare.com',
             patientPhone: patientPhone,
             doctorId: selectedDoctorId,
             slotTime: slotTimeStr,
@@ -1087,8 +740,8 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
           if (order?.razorpayOrderId) {
             orderId = order.razorpayOrderId;
           }
-        } catch (orderErr) {
-          console.warn('Backend order creation in test mode had exception, continuing with simulated order:', orderErr);
+        } catch {
+          // Continuous testing fallback
         }
       }
 
@@ -1100,6 +753,25 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     }
   };
 
+  /* =========================== styles =========================== */
+  const card: React.CSSProperties = {
+    maxWidth: 620, margin: '0 auto', background: '#fff', border: '1px solid var(--border)',
+    borderRadius: 16, boxShadow: '0 2px 8px rgba(11,63,58,.04)', padding: 36,
+  };
+  const h2: React.CSSProperties = { font: `700 24px/1.2 ${FONT}`, color: 'var(--ink)', letterSpacing: '-.02em', margin: '0 0 6px' };
+  const sub: React.CSSProperties = { font: `400 14px/1.5 ${FONT}`, color: 'var(--ink-muted)', margin: '0 0 22px' };
+  const kicker: React.CSSProperties = { font: `600 10px ${FONT}`, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-muted)', marginBottom: 10 };
+  const btnPrimary: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+    padding: '12px 22px', background: 'var(--primary)', color: '#fff', border: 'none',
+    borderRadius: 12, font: `600 14px ${FONT}`, cursor: 'pointer', minHeight: 46,
+  };
+  const btnGhost: React.CSSProperties = {
+    padding: '12px 20px', background: 'transparent', color: 'var(--muted)',
+    border: '1.5px solid #cfe0da', borderRadius: 12, font: `600 14px ${FONT}`, cursor: 'pointer', minHeight: 46,
+  };
+
+  /* =========================== confirmation =========================== */
   if (confirmed) {
     return (
       <AppointmentConfirmedView
@@ -1109,7 +781,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
         patientPhone={patientPhone}
         selectedDoctor={selectedDoctor}
         assessment={assessment}
-        uploadedAttachments={uploadedAttachments}
+        uploadedAttachments={attachments}
         appliedCoupon={
           appliedCoupon
             ? {
@@ -1127,16 +799,162 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
           setCouponError(null);
           setCouponSuccess(null);
           setStep(1);
+          setSubStep(0);
           setChiefComplaint('');
           setSelectedSymptoms([]);
           setAssessment(null);
           setSelectedDoctorId('');
           setSelectedSlotId('');
-          setUploadedAttachments([]);
+          setAttachments([]);
         }}
       />
     );
   }
+
+  /* =========================== step 1 sub-questions =========================== */
+  const stepIdx = step - 1;
+  const subQuestions = [
+    // 0 — complaint
+    (
+      <div key="q0">
+        <div style={kicker}>About you · 1 of 6</div>
+        <h2 style={h2}>What's bothering you?</h2>
+        <p style={sub}>In your own words — a sentence is plenty.</p>
+        <textarea
+          value={chiefComplaint}
+          onChange={e => { setChiefComplaint(e.target.value); setComplaintError(false); }}
+          placeholder="e.g. I've had a bad headache and felt dizzy since yesterday"
+          style={{
+            width: '100%', minHeight: 118, padding: '14px 16px',
+            border: `1.5px solid ${complaintError ? 'var(--danger)' : 'var(--border)'}`,
+            borderRadius: 10, font: `400 15px/1.5 ${FONT}`, color: 'var(--ink)',
+            background: '#f8fbfa', resize: 'vertical', outline: 'none',
+          }}
+        />
+        {complaintError && <p style={{ font: `500 12px ${FONT}`, color: 'var(--danger)', margin: '6px 0 0' }}>Please describe your symptoms to continue.</p>}
+      </div>
+    ),
+    // 1 — symptoms
+    (
+      <div key="q1">
+        <div style={kicker}>Symptoms · 2 of 6</div>
+        <h2 style={h2}>Anything specific you're noticing?</h2>
+        <p style={sub}>Tap any that apply — or skip if none fit.</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {COMMON_SYMPTOMS.map(s => {
+            const on = selectedSymptoms.includes(s);
+            return (
+              <button key={s} type="button" onClick={() => toggleSymptom(s)} style={{
+                padding: '9px 16px', borderRadius: 9999, border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border)'}`,
+                background: on ? 'var(--primary)' : '#fff', color: on ? '#fff' : 'var(--ink)',
+                font: `500 13px ${FONT}`, cursor: 'pointer', transition: 'all .12s',
+              }}>{s}</button>
+            );
+          })}
+        </div>
+      </div>
+    ),
+    // 2 — duration
+    (
+      <div key="q2">
+        <div style={kicker}>Timeline · 3 of 6</div>
+        <h2 style={h2}>How long has this been going on?</h2>
+        <p style={sub}>An estimate is fine.</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[
+            { d: 1, l: 'Started today' },
+            { d: 3, l: 'A few days' },
+            { d: 7, l: 'About a week' },
+            { d: 14, l: 'Over a week' },
+          ].map(opt => {
+            const on = durationDays === opt.d;
+            return (
+              <button key={opt.d} type="button" onClick={() => setDurationDays(opt.d)} style={{
+                flex: '1 1 calc(50% - 6px)', padding: '14px 16px', borderRadius: 12,
+                border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border)'}`,
+                background: on ? '#e3f1ed' : '#fff', color: on ? 'var(--primary)' : 'var(--ink)',
+                font: `600 14px ${FONT}`, cursor: 'pointer', textAlign: 'left',
+              }}>{opt.l}</button>
+            );
+          })}
+        </div>
+      </div>
+    ),
+    // 3 — pain
+    (
+      <div key="q3">
+        <div style={kicker}>Discomfort · 4 of 6</div>
+        <h2 style={h2}>How much does it hurt?</h2>
+        <p style={sub}>0 is none, 10 is the worst pain you can imagine.</p>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 }}>
+          <span style={{ font: `700 36px ${FONT}`, color: 'var(--primary)' }}>{painLevel}</span>
+          <span style={{ font: `600 15px ${FONT}`, color: 'var(--muted)' }}>{painWord(painLevel)}</span>
+        </div>
+        <input type="range" min={0} max={10} value={painLevel} onChange={e => setPainLevel(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--primary)' }} />
+      </div>
+    ),
+    // 4 — red flags
+    (
+      <div key="q4">
+        <div style={kicker}>Safety · 5 of 6</div>
+        <h2 style={h2}>Any of these right now?</h2>
+        <p style={sub}>Helps us know if you need to be seen immediately.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {[
+            { checked: fever, set: setFever, l: 'Fever or chills' },
+            { checked: chestPain, set: setChestPain, l: 'Chest tightness, pain, or pressure' },
+            { checked: shortnessOfBreath, set: setShortnessOfBreath, l: 'Trouble catching your breath' },
+          ].map(it => (
+            <label key={it.l} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderRadius: 12,
+              border: `1.5px solid ${it.checked ? 'var(--primary)' : 'var(--border)'}`,
+              background: it.checked ? '#e3f1ed' : '#fff', cursor: 'pointer', font: `500 14px ${FONT}`, color: 'var(--ink)',
+            }}>
+              <input type="checkbox" checked={it.checked} onChange={e => it.set(e.target.checked)} style={{ width: 17, height: 17, accentColor: 'var(--primary)' }} />
+              <span>{it.l}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    ),
+    // 5 — files
+    (
+      <div key="q5">
+        <div style={kicker}>Optional · 6 of 6</div>
+        <h2 style={h2}>Have a photo or report to share?</h2>
+        <p style={sub}>A rash photo, lab report, or previous prescription helps the doctor prepare.</p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {([['SYMPTOM_IMAGE', 'Photo'], ['PRIOR_PRESCRIPTION', 'Prescription'], ['LAB_REPORT', 'Lab report']] as const).map(([cat, label]) => (
+            <button key={cat} type="button" onClick={() => setUploadCategory(cat)} style={{
+              flex: 1, padding: '8px 10px', borderRadius: 8,
+              border: `1px solid ${uploadCategory === cat ? 'var(--primary)' : 'var(--border)'}`,
+              background: uploadCategory === cat ? '#e3f1ed' : '#fff', color: uploadCategory === cat ? 'var(--primary)' : 'var(--muted)',
+              font: `600 12px ${FONT}`, cursor: 'pointer',
+            }}>{label}</button>
+          ))}
+        </div>
+        <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => handleFileUpload(e.target.files)} />
+        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{
+          width: '100%', padding: '24px 16px', borderRadius: 12, border: '1.5px dashed #cfe0da',
+          background: '#f8fbfa', cursor: 'pointer', font: `500 13px ${FONT}`, color: 'var(--muted)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+        }}>
+          {uploading ? <Loader2 size={20} className="animate-spin" color="var(--primary)" /> : <Upload size={20} color="var(--primary)" />}
+          <span>{uploading ? 'Uploading…' : 'Tap to choose file (JPG, PNG, PDF up to 10 MB)'}</span>
+        </button>
+        {attachments.length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {attachments.map(a => (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#e3f1ed', borderRadius: 8, font: `500 12px ${FONT}` }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--primary)' }}><FileText size={14} />{a.fileName}</span>
+                <button type="button" onClick={() => removeAttachment(a.id)} style={{ background: 'none', border: 'none', color: '#8aa39d', cursor: 'pointer', display: 'flex' }}><Trash2 size={14} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    ),
+  ];
 
   return (
     <PageTransition>
@@ -1152,1380 +970,362 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
           handleApplyCoupon(code);
         }}
       />
-      <div style={{ maxWidth: '1160px', margin: '48px auto', padding: '0 24px' }}>
-        <section style={{ maxWidth: '840px', margin: '0 auto 48px', textAlign: 'center' }}>
-        <span className="badge-ai-warm" style={{ marginBottom: '24px' }}>
-          <Sparkles size={14} />
-          AI-assisted · reviewed by doctors
-        </span>
-        <h1 className="font-serif text-display" style={{ color: 'var(--ink)', margin: '16px 0 20px' }}>
-          Care that starts
-          <br />
-          before the appointment.
-        </h1>
-        <p className="text-subheading" style={{ maxWidth: '580px', margin: '0 auto' }}>
-          Describe your symptoms, let us classify urgency, then pick a doctor — all before you leave your home.
-        </p>
-      </section>
-
-      {/* Stepper */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        gap: '10px', marginBottom: '36px', flexWrap: 'wrap',
-      }}>
-        {[
-          { n: 1, label: '1. Symptoms & Intake' },
-          { n: 2, label: '2. AI Urgency Review' },
-          { n: 3, label: '3. Doctor & Schedule' },
-        ].map((s, idx) => (
-          <React.Fragment key={s.n}>
-            <button
-              type="button"
-              onClick={() => s.n < step && setStep(s.n as 1 | 2 | 3)}
-              disabled={s.n > step}
-              className={`btn ${step === s.n ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ padding: '8px 20px', fontSize: '13px', minHeight: '38px', opacity: s.n > step ? 0.6 : 1 }}
-            >
-              {s.label}
-            </button>
-            {idx < 2 && <ChevronRight size={15} color="var(--muted)" />}
-          </React.Fragment>
-        ))}
-      </div>
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(0, 1.8fr) minmax(0, 1.2fr)',
-        gap: '32px',
-        alignItems: 'start',
-      }}>
-        <div className="card" style={{ padding: '36px' }}>
-          {step === 1 && (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
-                <div style={{
-                  width: '38px', height: '38px', borderRadius: '50%',
-                  backgroundColor: 'var(--info)', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <HeartPulse size={20} color="var(--primary)" />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '20px', fontWeight: 600 }}>Describe Your Condition</h2>
-                  <div style={{ fontSize: '13px', color: 'var(--muted)' }}>Step 1 of 3 · Pre-visit intake</div>
-                </div>
-              </div>
-
-              {activePresetLabel && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '9px 14px',
-                  borderRadius: '12px',
-                  backgroundColor: '#eaf6f2',
-                  border: '1px solid #d9ece7',
-                  color: '#0f766e',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  marginBottom: '20px',
-                }}>
-                  <Sparkles size={16} color="#0f766e" style={{ flexShrink: 0 }} />
-                  <span>
-                    Auto-filled for <strong>{activePresetLabel}</strong> based on your selection. You can customize symptoms anytime.
-                  </span>
-                </div>
-              )}
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div className="form-group">
-                  <label className="form-label">Duration (Days)</label>
-                  <input
-                    type="number" min={0} max={60}
-                    className="form-input"
-                    value={durationDays}
-                    onChange={e => setDurationDays(Number(e.target.value))}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Patient</label>
-                  <input
-                    type="text" className="form-input" value={currentUser?.fullName ?? 'Guest'} disabled
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Primary Concern / Chief Complaint</label>
-                <textarea
-                  className="form-textarea"
-                  value={chiefComplaint}
-                  onChange={e => setChiefComplaint(e.target.value)}
-                  placeholder="Describe your symptoms in your own words..."
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Select Symptoms Experienced</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
-                  {COMMON_SYMPTOMS.map(s => {
-                    const active = selectedSymptoms.includes(s);
-                    return (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => toggleSymptom(s)}
-                        className="chip"
-                        style={{
-                          padding: '8px 18px', borderRadius: '9999px', fontSize: '13px',
-                          fontFamily: 'var(--font-sans)', fontWeight: active ? 600 : 400,
-                          cursor: 'pointer',
-                          border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
-                          backgroundColor: active ? 'var(--info)' : 'var(--canvas)',
-                          color: active ? 'var(--primary)' : 'var(--ink)',
-                        }}
-                      >
-                        {active ? '✓ ' : '+ '}{s}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div style={{
-                marginTop: '24px', padding: '20px', borderRadius: '16px',
-                backgroundColor: 'rgba(255, 109, 57, 0.08)',
-                border: '1px solid rgba(255, 109, 57, 0.2)',
-              }}>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  fontWeight: 600, fontSize: '14px', color: 'var(--accent-warm)', marginBottom: '12px',
-                }}>
-                  <AlertTriangle size={18} />
-                  <span>Critical Safety Markers</span>
-                </div>
-                <div style={{ display: 'grid', gap: '12px', fontSize: '13px' }}>
-                  <CustomCheckbox
-                    checked={chestPain}
-                    onChange={setChestPain}
-                    label="Acute chest pain, pressure, or tightness radiating to arm"
-                    color="#dc2626"
-                  />
-                  <CustomCheckbox
-                    checked={shortnessOfBreath}
-                    onChange={setShortnessOfBreath}
-                    label="Severe difficulty breathing or resting breathlessness"
-                    color="#dc2626"
-                  />
-                  <CustomCheckbox
-                    checked={fever}
-                    onChange={setFever}
-                    label="Body temperature elevated above 101.5°F"
-                    color="#dc2626"
-                  />
-                </div>
-              </div>
-
-              <div style={{ marginTop: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <label className="form-label">Pain Severity: <strong>{painLevel} / 10</strong></label>
-                  <span style={{
-                    fontSize: '13px', fontWeight: 600,
-                    color: painLevel >= 8 ? 'var(--danger)' : 'var(--muted)',
-                  }}>
-                    {painLevel === 0 && 'No Pain'}
-                    {painLevel >= 1 && painLevel <= 3 && 'Mild Discomfort'}
-                    {painLevel >= 4 && painLevel <= 6 && 'Moderate Pain'}
-                    {painLevel >= 7 && painLevel <= 8 && 'Severe Pain'}
-                    {painLevel >= 9 && 'Emergency'}
-                  </span>
-                </div>
-                <input
-                  type="range" min={0} max={10} value={painLevel}
-                  onChange={e => setPainLevel(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    accentColor: painLevel >= 8 ? 'var(--danger)' : 'var(--primary)',
-                    cursor: 'pointer',
-                  }}
-                />
-              </div>
-
-              {triageError && (
-                <div style={{
-                  marginTop: '20px', padding: '12px 16px', borderRadius: '12px',
-                  backgroundColor: 'rgba(220, 38, 38, 0.08)',
-                  border: '1px solid rgba(220, 38, 38, 0.25)',
-                  color: '#dc2626', fontSize: '13px',
-                }}>
-                  {triageError}
-                </div>
-              )}
-
-              <div style={{ marginTop: '32px', display: 'flex', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={handleAssess}
-                  disabled={assessing || !chiefComplaint.trim()}
-                  className="btn btn-primary hover-lift"
-                >
-                  {assessing ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" /> Running Triage...
-                    </>
-                  ) : (
-                    <>
-                      Run Advisory Triage <ArrowRight size={16} />
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {step === 2 && assessment && (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
-                <div style={{
-                  width: '38px', height: '38px', borderRadius: '50%',
-                  backgroundColor: 'var(--info)', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Sparkles size={20} color="var(--primary)" />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '20px', fontWeight: 600 }}>Automated Urgency Assessment</h2>
-                  <div style={{ fontSize: '13px', color: 'var(--muted)' }}>Step 2 of 3 · Server-side rule engine</div>
-                </div>
-              </div>
-
-              <div style={{
-                padding: '24px', borderRadius: '16px',
-                backgroundColor: urgencyBg(assessment.urgency),
-                border: `1px solid ${urgencyColor(assessment.urgency)}25`,
-                marginBottom: '24px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 600 }}>Triage Status:</span>
-                    <span style={{
-                      padding: '3px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: 700,
-                      color: urgencyColor(assessment.urgency),
-                      backgroundColor: '#ffffff',
-                    }}>{assessment.urgency}</span>
-                  </div>
-                  <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
-                    Suggested specialty: <strong>{assessment.suggestedSpecialty}</strong>
-                  </span>
-                </div>
-                <p style={{
-                  fontSize: '15px', lineHeight: '1.6',
-                  color: urgencyColor(assessment.urgency),
-                }}>
-                  {assessment.rationale}
-                </p>
-              </div>
-
-              <div style={{
-                backgroundColor: 'var(--canvas)', borderRadius: '16px', padding: '20px',
-                marginBottom: '28px', fontSize: '14px', border: '1px solid var(--border)',
-              }}>
-                <div style={{ fontWeight: 600, marginBottom: '10px' }}>Reported Clinical Summary:</div>
-                <ul style={{ paddingLeft: '20px', color: 'var(--muted)', lineHeight: '1.8' }}>
-                  <li>Primary concern: <em>"{assessment.chiefComplaint}"</em></li>
-                  <li>Symptoms flagged: {assessment.symptoms.join(', ') || 'None selected'}</li>
-                  <li>Pain index: {assessment.painLevel} / 10 | Duration: {assessment.durationDays} day(s)</li>
-                  <li>Cardiopulmonary alert: {assessment.chestPain || assessment.shortnessOfBreath ? 'POSITIVE' : 'Negative'}</li>
-                </ul>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px' }}>
-                <button type="button" onClick={() => setStep(1)} className="btn btn-secondary hover-lift">
-                  Back to Symptoms
-                </button>
-                <button type="button" onClick={() => setStep(3)} className="btn btn-primary hover-lift">
-                  Select Doctor & Slot <ArrowRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {step === 3 && assessment && (
-            <form onSubmit={handleBook}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
-                <div style={{
-                  width: '38px', height: '38px', borderRadius: '50%',
-                  backgroundColor: 'var(--info)', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Calendar size={20} color="var(--primary)" />
-                </div>
-                <div>
-                  <h2 style={{ fontSize: '20px', fontWeight: 600 }}>Select Doctor & Consultation Mode</h2>
-                  <div style={{ fontSize: '13px', color: 'var(--muted)' }}>Step 3 of 3 · Finalize Booking</div>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Consultation Mode</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '4px' }}>
-                  <button
-                    type="button" onClick={() => setConsultationType('VIDEO')}
-                    style={{
-                      padding: '16px 20px', borderRadius: '16px',
-                      border: consultationType === 'VIDEO' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                      backgroundColor: consultationType === 'VIDEO' ? 'var(--info)' : 'var(--surface)',
-                      display: 'flex', alignItems: 'center', gap: '14px',
-                      cursor: 'pointer', textAlign: 'left',
-                    }}
-                  >
-                    <Video size={24} color={consultationType === 'VIDEO' ? 'var(--primary)' : 'var(--muted)'} />
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>Telehealth Video</div>
-                      <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Encrypted video call</div>
-                    </div>
-                  </button>
-                  <button
-                    type="button" onClick={() => setConsultationType('IN_PERSON')}
-                    style={{
-                      padding: '16px 20px', borderRadius: '16px',
-                      border: consultationType === 'IN_PERSON' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                      backgroundColor: consultationType === 'IN_PERSON' ? 'var(--info)' : 'var(--surface)',
-                      display: 'flex', alignItems: 'center', gap: '14px',
-                      cursor: 'pointer', textAlign: 'left',
-                    }}
-                  >
-                    <MapPin size={24} color={consultationType === 'IN_PERSON' ? 'var(--primary)' : 'var(--muted)'} />
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>In-Person Clinic</div>
-                      <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Hospital facility visit</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
-              <div className="form-group" style={{ marginTop: '20px' }}>
-                <label className="form-label">
-                  Clinicians specialising in {assessment.suggestedSpecialty}
-                </label>
-                {doctorsLoading && (
-                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--muted)' }}>
-                    <Loader2 size={20} className="animate-spin" style={{ display: 'inline', marginRight: 8 }} />
-                    Loading doctors…
-                  </div>
-                )}
-                {doctorsError && (
-                  <div style={{
-                    padding: '12px 16px', borderRadius: '12px',
-                    backgroundColor: 'rgba(220, 38, 38, 0.08)',
-                    border: '1px solid rgba(220, 38, 38, 0.25)',
-                    color: '#dc2626', fontSize: '13px',
-                  }}>
-                    {doctorsError}
-                  </div>
-                )}
-                {!doctorsLoading && !doctorsError && doctors.length === 0 && (
-                  <div style={{ padding: '16px', color: 'var(--muted)' }}>No doctors available right now.</div>
-                )}
-                <div style={{ display: 'grid', gap: '12px', marginTop: '6px' }}>
-                  {doctors.map(doc => {
-                    const active = selectedDoctorId === doc.id;
-                    return (
-                      <div
-                        key={doc.id}
-                        onClick={() => {
-                          setSelectedDoctorId(doc.id);
-                        }}
-                        className="card-hover"
-                        style={{
-                          padding: '16px 20px', borderRadius: '16px',
-                          border: active ? '2px solid var(--primary)' : '1px solid var(--border)',
-                          backgroundColor: active ? 'var(--info)' : 'var(--surface)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                          {doc.avatarUrl ? (
-                            <img
-                              src={doc.avatarUrl}
-                              alt={doc.fullName}
-                              style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }}
-                            />
-                          ) : (
-                            <div style={{
-                              width: '48px', height: '48px', borderRadius: '50%',
-                              backgroundColor: 'var(--canvas)', display: 'flex',
-                              alignItems: 'center', justifyContent: 'center',
-                              color: 'var(--primary)', fontWeight: 700,
-                            }}>
-                              {doc.fullName.split(' ').map(s => s[0]).join('').slice(0, 2)}
-                            </div>
-                          )}
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: '15px', color: 'var(--ink)' }}>{doc.fullName}</div>
-                            <div style={{ fontSize: '13px', color: 'var(--muted)' }}>
-                              {doc.specialty} · {doc.hospital}
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', fontSize: '13px' }}>
-                          <div style={{ color: '#f59e0b', fontWeight: 600 }}>★ {Number(doc.rating).toFixed(2)}</div>
-                          <div style={{ color: 'var(--muted)', fontSize: '12px' }}>
-                            {active ? `${availableSlots.length} available slot${availableSlots.length === 1 ? '' : 's'}` : `${doc.openSlotCount} open slot${doc.openSlotCount === 1 ? '' : 's'}`}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Day & Slot Selection Section */}
-              <div className="form-group" style={{ marginTop: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
-                  <label className="form-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Calendar size={16} color="var(--primary)" />
-                    <span>Select Appointment Date & Time</span>
-                  </label>
-                  <span style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <CheckCircle2 size={13} /> Only open available slots displayed
-                  </span>
-                </div>
-
-                {/* Day Selector Pill Bar (Flexible booking on any day) */}
-                <div style={{
-                  display: 'flex',
-                  gap: '8px',
-                  overflowX: 'auto',
-                  padding: '6px 2px 10px',
-                  scrollbarWidth: 'thin',
-                }}>
-                  {scheduleDays.map(day => {
-                    const isSelected = selectedDayISO === day.dateISO;
-                    const hasSlots = day.slots.length > 0;
-                    return (
-                      <button
-                        key={day.dateISO}
-                        type="button"
-                        onClick={() => handleDayClick(day.dateISO)}
-                        style={{
-                          flex: '0 0 auto',
-                          minWidth: '108px',
-                          padding: '10px 14px',
-                          borderRadius: '14px',
-                          border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
-                          backgroundColor: isSelected ? 'var(--info)' : 'var(--surface)',
-                          cursor: 'pointer',
-                          textAlign: 'center',
-                          transition: 'all 0.15s ease',
-                          boxShadow: isSelected ? '0 2px 8px rgba(15, 118, 110, 0.12)' : 'none',
-                        }}
-                      >
-                        <div style={{
-                          fontSize: '12px',
-                          fontWeight: 700,
-                          color: isSelected ? 'var(--primary)' : 'var(--ink)',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.04em',
-                        }}>
-                          {day.dayName}
-                        </div>
-                        <div style={{
-                          fontSize: '13px',
-                          fontWeight: 600,
-                          color: isSelected ? 'var(--primary)' : 'var(--muted)',
-                          marginTop: '2px',
-                        }}>
-                          {day.dateFormatted}
-                        </div>
-                        <div style={{
-                          marginTop: '6px',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          display: 'inline-block',
-                          padding: '2px 8px',
-                          borderRadius: '9999px',
-                          backgroundColor: hasSlots
-                            ? (isSelected ? 'var(--primary)' : 'rgba(15, 118, 110, 0.1)')
-                            : day.isWeekend
-                              ? 'rgba(239, 68, 68, 0.12)'
-                              : 'rgba(148, 163, 184, 0.15)',
-                          color: hasSlots
-                            ? (isSelected ? '#ffffff' : 'var(--primary)')
-                            : day.isWeekend
-                              ? '#dc2626'
-                              : 'var(--muted)',
-                        }}>
-                          {hasSlots ? `${day.slots.length} open` : day.isWeekend ? 'Holiday' : 'No slots'}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Available Slots for the Selected Day */}
-                <div style={{
-                  marginTop: '10px',
-                  padding: '16px 20px',
-                  borderRadius: '16px',
-                  backgroundColor: 'var(--canvas)',
-                  border: '1px solid var(--border)',
-                }}>
-                  <div style={{
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--ink)',
-                    marginBottom: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}>
-                    <span>
-                      Available slots for{' '}
-                      <strong style={{ color: 'var(--primary)' }}>
-                        {scheduleDays.find(d => d.dateISO === selectedDayISO)?.weekday ?? 'Selected Date'},{' '}
-                        {scheduleDays.find(d => d.dateISO === selectedDayISO)?.dateFormatted}
-                      </strong>
-                    </span>
-                    {slotsLoading && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--muted)', fontSize: '12px' }}>
-                        <Loader2 size={12} className="animate-spin" /> Updating slots…
-                      </span>
-                    )}
-                  </div>
-
-                  {currentDaySlots.length === 0 ? (
-                    <div style={{
-                      padding: '22px 16px',
-                      borderRadius: '12px',
-                      backgroundColor: 'var(--surface)',
-                      border: '1px dashed var(--border)',
-                      textAlign: 'center',
-                      color: 'var(--muted)',
-                      fontSize: '13px',
-                    }}>
-                      {scheduleDays.find(d => d.dateISO === selectedDayISO)?.isWeekend ? (
-                        <>
-                          <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: '4px', fontSize: '14px' }}>
-                            Weekend Clinic Holiday
-                          </div>
-                          Clinics are closed on Saturdays and Sundays. All regular appointment slots are closed on weekends.
-                          <div style={{ marginTop: '8px', color: 'var(--primary)', fontWeight: 600 }}>
-                            Please select a weekday (Monday to Friday) from the calendar above to view available appointments.
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          No available slots on this day. The doctor is currently unavailable or all slots are booked/closed.
-                          <div style={{ marginTop: '6px', color: 'var(--primary)', fontWeight: 600 }}>
-                            Please select another date from the schedule above.
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                      {currentDaySlots.map(slot => {
-                        const active = selectedSlotId === slot.id;
-                        const isHeldByOther = slot.onHold && !slot.heldByYou && !active;
-                        const slotDate = new Date(slot.slotAt);
-                        const timeStr = normalizeSlotTime(slotDate);
-                        return (
-                          <button
-                            key={slot.id}
-                            type="button"
-                            onClick={() => handleSlotClick(slot)}
-                            disabled={isHeldByOther || reservingSlot}
-                            className="chip"
-                            title={isHeldByOther ? `Held by another patient (~${Math.ceil((slot.remainingHoldSeconds || 60) / 60)}m left)` : 'Click to reserve with 10-minute hold'}
-                            style={{
-                              padding: '9px 18px',
-                              borderRadius: '9999px',
-                              border: isHeldByOther
-                                ? '1px dashed #f59e0b'
-                                : active
-                                ? '1px solid var(--primary)'
-                                : '1px solid var(--border)',
-                              backgroundColor: isHeldByOther
-                                ? 'rgba(245, 158, 11, 0.08)'
-                                : active
-                                ? 'var(--primary)'
-                                : 'var(--surface)',
-                              color: isHeldByOther
-                                ? '#b45309'
-                                : active
-                                ? '#ffffff'
-                                : 'var(--ink)',
-                              fontWeight: active ? 600 : 500,
-                              fontSize: '13px',
-                              cursor: isHeldByOther ? 'not-allowed' : 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              opacity: isHeldByOther ? 0.75 : 1,
-                              transition: 'all 0.15s ease',
-                              boxShadow: active ? '0 2px 6px rgba(15, 118, 110, 0.25)' : 'none',
-                            }}
-                          >
-                            <Clock size={13} color={isHeldByOther ? '#b45309' : active ? '#ffffff' : 'var(--primary)'} />
-                            <span>{timeStr}</span>
-                            {active && <CheckCircle2 size={13} color="#ffffff" style={{ marginLeft: 2 }} />}
-                            {isHeldByOther && (
-                              <span style={{
-                                fontSize: '10px',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.04em',
-                                backgroundColor: 'rgba(245, 158, 11, 0.18)',
-                                color: '#92400e',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                fontWeight: 700,
-                                marginLeft: '2px',
-                              }}>
-                                Held
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Redis 2-Phase Soft Hold Active Indicator */}
-                  {selectedSlot && holdSecondsRemaining !== null && holdSecondsRemaining > 0 && (
-                    <div style={{
-                      marginTop: '14px',
-                      padding: '10px 14px',
-                      borderRadius: '10px',
-                      backgroundColor: '#f0fdf4',
-                      border: '1px solid #bbf7d0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      fontSize: '12.5px',
-                      color: '#166534',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Lock size={15} color="#16a34a" />
-                        <span>
-                          <strong>Redis Soft Hold Active:</strong> Slot locked exclusively for your checkout.
-                        </span>
-                      </div>
-                      <div style={{
-                        fontWeight: 700,
-                        fontFamily: 'monospace',
-                        fontSize: '13px',
-                        backgroundColor: '#dcfce7',
-                        padding: '2px 8px',
-                        borderRadius: '6px',
-                        color: '#15803d',
-                      }}>
-                        ⏱️ {Math.floor(holdSecondsRemaining / 60)}:{String(holdSecondsRemaining % 60).padStart(2, '0')}
-                      </div>
-                    </div>
-                  )}
-
-                  {slotReservationMessage && (
-                    <div style={{
-                      marginTop: '12px',
-                      padding: '10px 14px',
-                      borderRadius: '10px',
-                      backgroundColor: '#fffbeb',
-                      border: '1px solid #fde68a',
-                      color: '#92400e',
-                      fontSize: '12.5px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                    }}>
-                      <AlertTriangle size={15} color="#d97706" />
-                      <span>{slotReservationMessage}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {bookingError && (
-                <div style={{
-                  marginTop: '20px', padding: '12px 16px', borderRadius: '12px',
-                  backgroundColor: 'rgba(220, 38, 38, 0.08)',
-                  border: '1px solid rgba(220, 38, 38, 0.25)',
-                  color: '#dc2626', fontSize: '13px',
-                }}>
-                  {bookingError}
-                </div>
-              )}
-
-              {/* Consultation Fee & Razorpay Payment Banner */}
-              <div style={{
-                marginTop: '28px',
-                padding: '24px',
-                borderRadius: '16px',
-                backgroundColor: 'rgba(15, 118, 110, 0.04)',
-                border: '1px solid rgba(15, 118, 110, 0.2)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '18px',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-                  <div>
-                    <div style={{ fontSize: '13px', color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Consultation & Facility Fee
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginTop: '4px' }}>
-                      <span style={{ fontSize: '28px', fontWeight: 800, color: '#0f766e', letterSpacing: '-0.02em' }}>
-                        ₹{(payablePaise / 100).toFixed(2)}
-                      </span>
-                      {discountPaise > 0 && (
-                        <>
-                          <span style={{ fontSize: '16px', color: '#94a3b8', textDecoration: 'line-through', fontWeight: 500 }}>
-                            ₹500.00
-                          </span>
-                          <span style={{
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            padding: '3px 8px',
-                            borderRadius: '6px',
-                            backgroundColor: '#dcfce7',
-                            color: '#15803d',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}>
-                            <Tag size={11} />
-                            Save ₹{(discountPaise / 100).toFixed(2)} ({appliedCoupon?.code})
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
-                      Includes Official OpenPDF Tax Invoice & Real-time Kafka Notifications
-                    </div>
-                  </div>
-                  <div style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    backgroundColor: '#ffffff',
-                    border: '1px solid rgba(15, 118, 110, 0.25)',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    color: '#0f766e',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-                  }}>
-                    <Lock size={13} />
-                    <span>Razorpay 256-Bit SSL Encrypted</span>
-                  </div>
-                </div>
-
-                {/* Promo / Discount Coupon Section */}
-                <div style={{
-                  borderTop: '1px dashed rgba(15, 118, 110, 0.2)',
-                  paddingTop: '16px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '12px',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: 600, color: '#0f766e' }}>
-                      <Ticket size={16} />
-                      <span>Have a Discount Coupon?</span>
-                    </div>
-                    {appliedCoupon && (
-                      <button
-                        type="button"
-                        onClick={handleRemoveCoupon}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#dc2626',
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          padding: 0,
-                          textDecoration: 'underline',
-                        }}
-                      >
-                        Remove Coupon
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Input Row */}
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <div style={{ position: 'relative', flex: 1, maxWidth: '340px' }}>
-                      <Tag
-                        size={15}
-                        color="var(--muted)"
-                        style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
-                      />
-                      <input
-                        type="text"
-                        value={couponInput}
-                        onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleApplyCoupon();
-                          }
-                        }}
-                        placeholder="Enter coupon code (e.g. PULSE50)"
-                        className="form-input"
-                        style={{
-                          fontSize: '13px',
-                          padding: '9px 12px 9px 36px',
-                          width: '100%',
-                          borderRadius: '8px',
-                          fontFamily: 'monospace',
-                          textTransform: 'uppercase',
-                          fontWeight: 600,
-                          letterSpacing: '0.05em',
-                        }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleApplyCoupon()}
-                      className="btn btn-secondary"
-                      style={{
-                        padding: '9px 16px',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        borderRadius: '8px',
-                        borderColor: '#0f766e',
-                        color: '#0f766e',
-                        backgroundColor: '#ffffff',
-                      }}
-                    >
-                      {appliedCoupon?.code === couponInput.trim() ? 'Applied ✓' : 'Apply Code'}
-                    </button>
-                  </div>
-
-                  {/* Coupon feedback messages */}
-                  {couponSuccess && (
-                    <div style={{
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      backgroundColor: '#dcfce7',
-                      border: '1px solid #86efac',
-                      color: '#166534',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                    }}>
-                      <Check size={14} color="#166534" />
-                      <span>{couponSuccess}</span>
-                    </div>
-                  )}
-
-                  {couponError && (
-                    <div style={{
-                      padding: '8px 12px',
-                      borderRadius: '8px',
-                      backgroundColor: '#fee2e2',
-                      border: '1px solid #fca5a5',
-                      color: '#991b1b',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                    }}>
-                      <AlertTriangle size={14} color="#991b1b" />
-                      <span>{couponError}</span>
-                    </div>
-                  )}
-
-                  {/* Preset Test Coupon Chips */}
-                  <div style={{ marginTop: '4px' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      ⚡ Available Test Coupons (Click to apply):
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                      {TEST_COUPONS.map((coupon) => {
-                        const isSelected = appliedCoupon?.code === coupon.code;
-                        return (
-                          <button
-                            key={coupon.code}
-                            type="button"
-                            onClick={() => handleApplyCoupon(coupon.code)}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '5px 10px',
-                              borderRadius: '8px',
-                              border: isSelected ? '1.5px solid #0f766e' : '1px dashed #cbd5e1',
-                              backgroundColor: isSelected ? '#ecfdf5' : '#ffffff',
-                              color: isSelected ? '#0f766e' : '#334155',
-                              cursor: 'pointer',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              transition: 'all 0.15s ease',
-                              boxShadow: isSelected ? '0 1px 3px rgba(15, 118, 110, 0.2)' : 'none',
-                            }}
-                            title={coupon.description}
-                          >
-                            <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{coupon.code}</span>
-                            <span style={{
-                              padding: '1px 5px',
-                              borderRadius: '4px',
-                              backgroundColor: isSelected ? '#0f766e' : '#f1f5f9',
-                              color: isSelected ? '#ffffff' : '#475569',
-                              fontSize: '10px',
-                              fontWeight: 700,
-                            }}>
-                              {coupon.badge}
-                            </span>
-                            {isSelected && <Check size={12} color="#0f766e" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                {/* WhatsApp Phone Input for Instant Dispatch */}
-                <div style={{ borderTop: '1px dashed rgba(15, 118, 110, 0.15)', paddingTop: '14px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--ink)', marginBottom: '6px' }}>
-                    📱 WhatsApp Notification & Receipt Number:
-                  </label>
-                  <input
-                    type="tel"
-                    value={patientPhone}
-                    onChange={(e) => setPatientPhone(e.target.value)}
-                    placeholder="+919876543210"
-                    className="form-input"
-                    style={{ fontSize: '13px', padding: '8px 12px', maxWidth: '280px', borderRadius: '8px' }}
-                  />
-                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-                    Appointment reminders and OpenPDF receipt link will be sent to this WhatsApp number.
-                  </div>
-                </div>
-              </div>
-
-              {/* Testing Mode Helper & Options */}
-              <div
-                style={{
-                  marginTop: '16px',
-                  padding: '12px 16px',
-                  borderRadius: '12px',
-                  backgroundColor: '#f8fafc',
-                  border: '1px dashed #cbd5e1',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  fontSize: '12px',
-                  color: '#475569',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: '6px',
-                      backgroundColor: '#e0f2fe',
-                      color: '#0369a1',
-                      fontWeight: 700,
-                      fontSize: '11px',
-                    }}
-                  >
-                    TESTING OPTIONS
-                  </span>
-                  <span>Choose either <strong>Live Razorpay Modal</strong> or <strong>Instant Test Booking</strong> to bypass checkout.</span>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: '28px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '12px',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <button type="button" onClick={() => setStep(2)} className="btn btn-secondary hover-lift">
-                  Back
-                </button>
-
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  {/* Option 2: Instant Test Mode Button */}
-                  <button
-                    type="button"
-                    onClick={handleTestBooking}
-                    disabled={booking || !selectedDoctorId || !selectedSlotId}
-                    className="btn btn-secondary hover-lift"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '11px 18px',
-                      borderRadius: '12px',
-                      border: '1px solid #0f766e',
-                      color: '#0f766e',
-                      backgroundColor: '#f0fdf9',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                    }}
-                    title="Bypass Razorpay checkout modal and confirm appointment immediately for fast testing"
-                  >
-                    {booking ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <Zap size={15} color="#0f766e" />
-                    )}
-                    <span>Instant Test Booking (₹{(payablePaise / 100).toFixed(2)})</span>
-                  </button>
-
-                  {/* Option 1: Live Razorpay Gateway Button */}
-                  <button
-                    type="submit"
-                    disabled={booking || !selectedDoctorId || !selectedSlotId}
-                    className="btn btn-primary hover-lift"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '11px 22px',
-                      backgroundColor: '#0f766e',
-                      borderRadius: '12px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {booking ? (
-                      <>
-                        <Loader2 size={16} className="animate-spin" /> Processing…
-                      </>
-                    ) : payablePaise === 0 ? (
-                      <>
-                        <Check size={16} /> Confirm Free Consultation
-                      </>
-                    ) : (
-                      <>
-                        <CreditCard size={16} /> Pay ₹{(payablePaise / 100).toFixed(2)} via Razorpay
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
+      <div style={{ maxWidth: 880, margin: '48px auto', padding: '0 24px' }}>
+        {/* Step Indicator Header */}
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 20, font: `600 13px ${FONT}`, color: 'var(--muted)' }}>
+            {['1. Intake', '2. Review', '3. Book & Pay'].map((l, i) => (
+              <span key={l} style={{ color: stepIdx >= i ? 'var(--primary)' : 'var(--ink-muted)', fontWeight: stepIdx === i ? 700 : 500 }}>
+                {l}
+              </span>
+            ))}
+          </div>
         </div>
 
-        {/* Right Column: Live summary & Medical Attachments */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'sticky', top: '96px' }}>
-          {/* Triage Live Summary */}
-          <div className="card card-hover" style={{ padding: '24px' }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              borderBottom: '1px solid var(--border)', paddingBottom: '16px', marginBottom: '20px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Activity size={20} color="var(--primary)" />
-                <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>Triage Live Summary</h3>
+        {/* STEP 1: Micro-Questions */}
+        {step === 1 && (
+          <div style={card}>
+            <div style={{ height: 4, background: '#eef5f3', borderRadius: 2, overflow: 'hidden', marginBottom: 28 }}>
+              <div style={{ height: '100%', width: `${((subStep + 1) / 6) * 100}%`, background: 'var(--primary)', transition: 'width .2s ease' }} />
+            </div>
+
+            {subQuestions[subStep]}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 30, paddingTop: 22, borderTop: '1px solid #eef5f3' }}>
+              <button
+                type="button"
+                disabled={subStep === 0}
+                onClick={() => setSubStep(s => Math.max(0, s - 1))}
+                style={{ ...btnGhost, color: subStep === 0 ? '#c3d0cc' : 'var(--muted)', borderColor: subStep === 0 ? '#eef5f3' : '#cfe0da', cursor: subStep === 0 ? 'default' : 'pointer' }}
+              >
+                <ArrowLeft size={15} /> Back
+              </button>
+              {subStep < 5 ? (
+                <button type="button" onClick={() => setSubStep(s => Math.min(5, s + 1))} style={btnPrimary}>
+                  Next <ArrowRight size={16} />
+                </button>
+              ) : (
+                <button type="button" onClick={handleAssess} disabled={assessing} style={btnPrimary}>
+                  {assessing ? <><Loader2 size={15} className="animate-spin" /> Checking…</> : <>Get recommendation <ArrowRight size={16} /></>}
+                </button>
+              )}
+            </div>
+            {triageError && <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{triageError}</div>}
+          </div>
+        )}
+
+        {/* STEP 2: Urgency Review */}
+        {step === 2 && assessment && (
+          <div style={card}>
+            <div style={{ font: `600 11px ${FONT}`, letterSpacing: '.09em', textTransform: 'uppercase', color: urgencyColor(assessment.urgency), marginBottom: 8 }}>
+              {friendlyUrgency(assessment.urgency).label}
+            </div>
+            <p style={{ font: `500 17px/1.5 ${FONT}`, color: 'var(--ink)', letterSpacing: '-.005em', margin: '0 0 14px', maxWidth: 460 }}>
+              {friendlyUrgency(assessment.urgency).message}
+            </p>
+            <div style={{ font: `400 13px ${FONT}`, color: 'var(--ink-muted)' }}>
+              Recommended specialty: <strong style={{ color: 'var(--ink)' }}>{assessment.suggestedSpecialty}</strong>
+            </div>
+
+            {assessment.urgency === 'EMERGENCY' && (
+              <div style={{ borderLeft: '3px solid var(--danger)', paddingLeft: 14, marginTop: 20, font: `600 14px/1.5 ${FONT}`, color: 'var(--danger)' }}>
+                Call <strong>108 / 112</strong> now if you can't travel safely, or head to the nearest emergency room.
               </div>
-              {assessment && (
-                <span style={{
-                  padding: '3px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: 700,
-                  color: urgencyColor(assessment.urgency), backgroundColor: urgencyBg(assessment.urgency),
-                }}>{assessment.urgency}</span>
+            )}
+
+            <div style={{ borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '26px 0', padding: '20px 0' }}>
+              <div style={{ font: `600 11px ${FONT}`, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--ink)', marginBottom: 8 }}>What you told us</div>
+              <p style={{ font: `400 13px/1.7 ${FONT}`, color: 'var(--muted)', margin: 0 }}>
+                You told us: “{assessment.chiefComplaint}.”
+                {assessment.symptoms.length > 0 && <> You mentioned {assessment.symptoms.join(', ').toLowerCase()}.</>}{' '}
+                Pain {assessment.painLevel}/10, going on for {assessment.durationDays} day{assessment.durationDays === 1 ? '' : 's'}.
+                {(assessment.chestPain || assessment.shortnessOfBreath) && <> You also flagged chest or breathing trouble.</>}
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <button type="button" onClick={() => { setStep(1); setSubStep(5); }} style={btnGhost}><ArrowLeft size={15} /> Back</button>
+              <button type="button" onClick={() => setStep(3)} style={btnPrimary}>Pick doctor & payment <ArrowRight size={16} /></button>
+            </div>
+          </div>
+        )}
+
+        {/* STEP 3: Doctor, Time, Coupons, and Razorpay Gateway */}
+        {step === 3 && assessment && (
+          <form onSubmit={handleLivePaymentBooking} style={card}>
+            <h2 style={h2}>Pick your doctor, time & checkout</h2>
+            <p style={sub}>Select your specialist, reserve a slot with 2-phase lock, and complete booking.</p>
+
+            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 9 }}>Consultation Mode</div>
+            <div style={{ display: 'inline-flex', padding: 4, borderRadius: 9999, background: '#eef4f0', border: '1px solid var(--border)', gap: 2, marginBottom: 24 }}>
+              {([['VIDEO', 'Video call', <Video size={14} />], ['IN_PERSON', 'In person', <MapPin size={14} />]] as const).map(([v, label, icon]) => {
+                const on = consultationType === v;
+                return (
+                  <button key={v} type="button" onClick={() => setConsultationType(v)} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 9999, border: 'none',
+                    background: on ? '#fff' : 'transparent', color: on ? 'var(--primary)' : 'var(--ink-muted)',
+                    font: `${on ? 600 : 500} 13px ${FONT}`, cursor: 'pointer', boxShadow: on ? '0 1px 2px rgba(11,63,58,.08)' : 'none',
+                  }}>{icon} {label}</button>
+                );
+              })}
+            </div>
+
+            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 10 }}>Specialists in {assessment.suggestedSpecialty}</div>
+            {doctorsLoading && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} className="animate-spin" /> Loading specialists…</div>}
+            {doctorsError && <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{doctorsError}</div>}
+            {!doctorsLoading && !doctorsError && !doctors.length && <div style={{ padding: 16, color: 'var(--muted)' }}>No doctors available right now.</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {doctors.map(doc => {
+                const on = selectedDoctorId === doc.id;
+                return (
+                  <button key={doc.id} type="button" onClick={() => setSelectedDoctorId(doc.id)} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '14px 18px',
+                    borderRadius: 14, cursor: 'pointer', textAlign: 'left',
+                    border: on ? '2px solid var(--primary)' : '1px solid var(--border)', background: on ? '#e3f1ed' : '#fff',
+                  }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+                      {doc.avatarUrl
+                        ? <img src={doc.avatarUrl} alt={doc.fullName} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
+                        : <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#e3f1ed', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', font: `700 14px ${FONT}` }}>{doc.fullName.replace('Dr. ', '').split(' ').map(s => s[0]).join('').slice(0, 2)}</span>}
+                      <span>
+                        <span style={{ display: 'block', font: `600 15px ${FONT}`, color: 'var(--ink)' }}>{doc.fullName}</span>
+                        <span style={{ display: 'block', font: `400 13px ${FONT}`, color: 'var(--ink-muted)' }}>{doc.specialty} · {doc.hospital}</span>
+                      </span>
+                    </span>
+                    <span style={{ textAlign: 'right' }}>
+                      <span style={{ display: 'block', font: `600 13px ${FONT}`, color: '#d97706' }}>★ {Number(doc.rating).toFixed(1)}</span>
+                      <span style={{ display: 'block', font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}>{on ? `${availableSlots.length} open` : `${doc.openSlotCount} open`} slots</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', margin: '24px 0 10px' }}>Pick Consultation Day</div>
+            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, scrollSnapType: 'x mandatory' }}>
+              {scheduleDays.map(day => {
+                const on = selectedDayISO === day.dateISO, has = day.slots.length > 0;
+                return (
+                  <button key={day.dateISO} type="button" onClick={() => setSelectedDayISO(day.dateISO)} style={{
+                    flex: '0 0 auto', minWidth: 92, padding: '11px 12px', borderRadius: 14, cursor: 'pointer', textAlign: 'center', scrollSnapAlign: 'start',
+                    border: on ? '2px solid var(--primary)' : '1px solid var(--border)', background: on ? '#e3f1ed' : '#fff',
+                  }}>
+                    <span style={{ display: 'block', font: `700 12px ${FONT}`, textTransform: 'uppercase', letterSpacing: '.04em', color: on ? 'var(--primary)' : 'var(--ink)' }}>{day.dayName}</span>
+                    <span style={{ display: 'block', font: `600 12px ${FONT}`, color: on ? 'var(--primary)' : 'var(--ink-muted)', marginTop: 2 }}>{day.dateFormatted}</span>
+                    <span style={{
+                      display: 'inline-block', marginTop: 7, padding: '2px 9px', borderRadius: 9999, font: `600 11px ${FONT}`,
+                      background: has ? (on ? 'var(--primary)' : '#e3f1ed') : day.isWeekend ? 'rgba(220,38,38,.1)' : 'rgba(148,163,184,.15)',
+                      color: has ? (on ? '#fff' : 'var(--primary)') : day.isWeekend ? 'var(--danger)' : 'var(--ink-muted)',
+                    }}>{has ? `${day.slots.length} open` : day.isWeekend ? 'Holiday' : 'No slots'}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Time Slot Picker with Redis 2-Phase Concurrency Hold */}
+            <div style={{ marginTop: 14, padding: 18, borderRadius: 14, background: 'var(--canvas)', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 12 }}>
+                <span>Open times — {currentDay ? `${currentDay.weekday}, ${currentDay.dateFormatted}` : ''}</span>
+                {reservingSlot ? (
+                  <span style={{ font: `500 12px ${FONT}`, color: '#0f766e', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Loader2 size={12} className="animate-spin" /> Reserving soft hold…
+                  </span>
+                ) : slotsLoading ? (
+                  <span style={{ font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}><Loader2 size={12} className="animate-spin" /> Updating…</span>
+                ) : null}
+              </div>
+              {currentDaySlots.length === 0 ? (
+                <div style={{ padding: 16, border: '1px dashed #cbddd7', borderRadius: 10, background: '#fff', textAlign: 'center' }}>
+                  <div style={{ font: `700 14px ${FONT}`, color: 'var(--danger)', marginBottom: 4 }}>{currentDay?.isWeekend ? 'Weekend clinic holiday' : 'No open slots'}</div>
+                  <div style={{ font: `400 13px/1.5 ${FONT}`, color: 'var(--muted)' }}>
+                    {currentDay?.isWeekend ? 'Clinics are closed on weekends. Try a weekday — slots are open Mon–Fri.' : 'All times here are booked. Try another day from the strip above.'}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9 }}>
+                  {currentDaySlots.map(slot => {
+                    const on = selectedSlotId === slot.id;
+                    const isHeldByOther = slot.onHold && !slot.heldByYou;
+                    return (
+                      <button
+                        key={slot.id}
+                        type="button"
+                        onClick={() => handleSlotClick(slot)}
+                        disabled={isHeldByOther || reservingSlot}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', borderRadius: 9999,
+                          font: `600 13px ${FONT}`, cursor: isHeldByOther ? 'not-allowed' : 'pointer',
+                          border: `1.5px solid ${on ? 'var(--primary)' : isHeldByOther ? '#fca5a5' : 'var(--border)'}`,
+                          background: on ? 'var(--primary)' : isHeldByOther ? '#fef2f2' : '#fff',
+                          color: on ? '#fff' : isHeldByOther ? '#dc2626' : 'var(--ink)',
+                          opacity: isHeldByOther ? 0.7 : 1,
+                        }}
+                      >
+                        <Clock size={13} color={on ? '#fff' : isHeldByOther ? '#dc2626' : '#0f766e'} />
+                        {normalizeSlotTime(new Date(slot.slotAt))}
+                        {isHeldByOther && <span style={{ fontSize: 10, fontWeight: 700 }}>(Hold)</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Slot Reservation Timer Notice */}
+              {selectedSlot && holdSecondsRemaining !== null && holdSecondsRemaining > 0 && (
+                <div style={{
+                  marginTop: 14, padding: '10px 14px', borderRadius: 10,
+                  backgroundColor: '#f0fdf9', border: '1px solid #a7f3d0',
+                  color: '#065f46', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    <Lock size={14} color="#059669" /> Slot exclusively reserved for you
+                  </span>
+                  <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 14 }}>
+                    {Math.floor(holdSecondsRemaining / 60)}:{String(holdSecondsRemaining % 60).padStart(2, '0')}
+                  </span>
+                </div>
+              )}
+
+              {slotReservationMessage && (
+                <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#b45309', fontSize: 13 }}>
+                  {slotReservationMessage}
+                </div>
               )}
             </div>
 
-            {!assessment ? (
-              <p style={{ fontSize: '14px', color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
-                Fill out the intake on the left. Once you run advisory triage the server classifies urgency
-                and suggests a specialty for your booking.
-              </p>
-            ) : (
-              <>
-                <div style={{ marginBottom: '20px' }}>
-                  <div className="text-caption" style={{
-                    color: 'var(--muted)', textTransform: 'uppercase',
-                    letterSpacing: '0.04em', marginBottom: '6px',
-                  }}>
-                    Clinical Rationale:
-                  </div>
-                  <p style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--ink)' }}>
-                    {assessment.rationale}
-                  </p>
-                </div>
-                {assessment.urgency === 'EMERGENCY' && (
-                  <div style={{
-                    backgroundColor: 'rgba(192, 57, 43, 0.08)',
-                    border: '1px solid rgba(192, 57, 43, 0.3)',
-                    borderRadius: '12px', padding: '14px', fontSize: '13px',
-                    color: 'var(--danger)', display: 'flex', gap: '10px', marginBottom: '20px',
-                  }}>
-                    <ShieldAlert size={20} style={{ flexShrink: 0 }} />
-                    <div>
-                      <strong>High Urgency Alert:</strong> Red-flag indicators detected.
-                      Consider calling 108 / 112 or proceed immediately to the nearest emergency room.
-                    </div>
-                  </div>
+            {/* Discount Coupon & Pricing Engine */}
+            <div style={{ marginTop: 20, padding: 18, borderRadius: 14, background: '#f8faf9', border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ font: `600 13px ${FONT}`, color: 'var(--ink)' }}>Consultation Fee</span>
+                <span style={{ font: `700 15px ${FONT}`, color: 'var(--ink)' }}>₹500.00</span>
+              </div>
+
+              {/* Coupon Row */}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input
+                  type="text"
+                  placeholder="Promo code (e.g. PULSE50, HEALTH1)"
+                  value={couponInput}
+                  onChange={e => setCouponInput(e.target.value.toUpperCase())}
+                  style={{
+                    flex: 1, padding: '9px 12px', borderRadius: 10, border: '1px solid #cfe0da',
+                    fontSize: 13, fontFamily: FONT, outline: 'none',
+                  }}
+                />
+                {appliedCoupon ? (
+                  <button type="button" onClick={handleRemoveCoupon} style={{ ...btnGhost, padding: '8px 14px', minHeight: 38, fontSize: 12 }}>
+                    Remove
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => handleApplyCoupon()} style={{ ...btnPrimary, padding: '8px 16px', minHeight: 38, fontSize: 12 }}>
+                    <Tag size={13} /> Apply
+                  </button>
                 )}
-                <div style={{
-                  backgroundColor: 'var(--canvas)', borderRadius: '14px', padding: '16px',
-                  display: 'grid', gap: '10px', fontSize: '13px', border: '1px solid var(--border)',
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--muted)' }}>Suggested specialty:</span>
-                    <strong>{assessment.suggestedSpecialty}</strong>
-                  </div>
-                  {selectedDoctor && (
-                    <>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>Attending:</span>
-                        <strong>{selectedDoctor.fullName}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'var(--muted)' }}>Facility:</span>
-                        <span>{selectedDoctor.hospital}</span>
-                      </div>
-                    </>
-                  )}
-                  {selectedSlot && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ color: 'var(--muted)' }}>Selected slot:</span>
-                      <div style={{ textAlign: 'right' }}>
-                        <strong style={{ color: 'var(--primary)' }}>{formatSlot(selectedSlot.slotAt)}</strong>
-                        {holdSecondsRemaining !== null && holdSecondsRemaining > 0 && (
-                          <div style={{ fontSize: '11px', color: '#16a34a', fontWeight: 600, marginTop: '2px' }}>
-                            🔒 Reserved ({Math.floor(holdSecondsRemaining / 60)}:{String(holdSecondsRemaining % 60).padStart(2, '0')})
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--muted)' }}>Mode:</span>
-                    <span>{consultationType === 'VIDEO' ? 'Telehealth Video' : 'In-Person'}</span>
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div style={{
-              marginTop: '16px', padding: '12px 14px',
-              backgroundColor: 'var(--info)', borderRadius: '10px',
-              fontSize: '12px', color: 'var(--ink)', lineHeight: '1.5',
-              display: 'flex', gap: '10px',
-            }}>
-              <Info size={16} color="var(--primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div>
-                <strong>AI Clinical Advisory (DR-15):</strong> Scores are advisory. A doctor reviews every booking.
-              </div>
-            </div>
-          </div>
-
-          {/* Medical Attachments & Prior Records (Right Column Empty Space) */}
-          <div className="card card-hover" style={{ padding: '22px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{
-                  width: '30px', height: '30px', borderRadius: '8px',
-                  backgroundColor: '#eaf6f2', color: '#0f766e',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Paperclip size={16} />
-                </div>
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#0b3f3a' }}>
-                    Upload Medical Records
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#52736d' }}>
-                    Symptom images, prior Rx, or lab reports
-                  </div>
-                </div>
               </div>
 
-              {/* Attachment Category Switcher */}
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                {[
-                  { id: 'SYMPTOM_IMAGE', label: 'Photo' },
-                  { id: 'PRIOR_PRESCRIPTION', label: 'Prior Rx' },
-                  { id: 'LAB_REPORT', label: 'Report' },
-                ].map(cat => (
+              {couponSuccess && <div style={{ fontSize: 12, color: '#059669', fontWeight: 600, marginTop: 6 }}>{couponSuccess}</div>}
+              {couponError && <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, marginTop: 6 }}>{couponError}</div>}
+
+              {/* Demo Coupon Pill Shortcuts */}
+              <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, alignSelf: 'center' }}>Demo:</span>
+                {TEST_COUPONS.slice(0, 4).map(c => (
                   <button
-                    key={cat.id}
+                    key={c.code}
                     type="button"
-                    onClick={() => setUploadCategory(cat.id as any)}
+                    onClick={() => handleApplyCoupon(c.code)}
                     style={{
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      border: 'none',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      backgroundColor: uploadCategory === cat.id ? '#0f766e' : '#eaf6f2',
-                      color: uploadCategory === cat.id ? '#ffffff' : '#0b3f3a',
-                      transition: 'all 0.15s ease',
+                      border: '1px dashed #0f766e', background: '#f0fdf9', color: '#0f766e',
+                      padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer',
                     }}
                   >
-                    {cat.label}
+                    {c.code} ({c.badge})
                   </button>
                 ))}
               </div>
-            </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,application/pdf"
-              onChange={handleFileInputChange}
-              style={{ display: 'none' }}
-            />
-
-            {/* Drag & Drop zone */}
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={handleDragOver}
-              onDragEnter={handleDragEnter}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              style={{
-                border: isDragging ? '2px solid #0f766e' : '1.5px dashed #0f766e',
-                borderRadius: '12px',
-                padding: '20px 14px',
-                textAlign: 'center',
-                backgroundColor: isDragging ? '#d9ece7' : '#f8faf9',
-                cursor: uploadingFile ? 'wait' : 'pointer',
-                transition: 'all 0.15s ease',
-                transform: isDragging ? 'scale(1.02)' : 'none',
-                boxShadow: isDragging ? '0 4px 12px rgba(15, 118, 110, 0.15)' : 'none',
-              }}
-              onMouseEnter={e => { if (!isDragging) e.currentTarget.style.backgroundColor = '#eaf6f2'; }}
-              onMouseLeave={e => { if (!isDragging) e.currentTarget.style.backgroundColor = '#f8faf9'; }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                {uploadingFile ? (
-                  <Loader2 size={24} className="animate-spin" color="#0f766e" />
-                ) : (
-                  <Upload size={24} color="#0f766e" />
-                )}
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#0b3f3a' }}>
-                  {uploadingFile
-                    ? 'Uploading file to secure server…'
-                    : isDragging
-                      ? 'Drop file here to upload!'
-                      : 'Drag & drop file or click to browse'}
-                </span>
-                <span style={{ fontSize: '11px', color: '#52736d' }}>
-                  Supports JPEG, PNG, WebP photos & PDF (up to 10MB)
+              {/* Final Payable */}
+              <div style={{ borderTop: '1px solid #e2ece8', marginTop: 14, paddingTop: 12, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <div>
+                  <span style={{ font: `700 14px ${FONT}`, color: 'var(--ink)' }}>Total Payable</span>
+                  {discountPaise > 0 && <span style={{ fontSize: 12, color: '#059669', marginLeft: 8 }}>(Saved ₹{(discountPaise / 100).toFixed(2)})</span>}
+                </div>
+                <span style={{ font: `800 24px ${FONT}`, color: '#0f766e' }}>
+                  ₹{(payablePaise / 100).toFixed(2)}
                 </span>
               </div>
             </div>
 
-            {uploadError && (
-              <div style={{
-                marginTop: '10px', padding: '8px 12px', borderRadius: '8px',
-                backgroundColor: 'rgba(220, 38, 38, 0.08)', color: '#dc2626', fontSize: '12px',
-              }}>
-                {uploadError}
-              </div>
-            )}
+            {/* Patient Phone Verification Input */}
+            <div style={{ marginTop: 16 }}>
+              <label style={{ display: 'block', font: `600 12px ${FONT}`, color: 'var(--ink)', marginBottom: 6 }}>
+                Mobile Number for WhatsApp & SMS Receipt
+              </label>
+              <input
+                type="tel"
+                value={patientPhone}
+                onChange={e => setPatientPhone(e.target.value)}
+                placeholder="+919876543210"
+                style={{
+                  width: '100%', padding: '10px 14px', borderRadius: 10, border: '1px solid #cfe0da',
+                  font: `500 14px ${FONT}`, outline: 'none', background: '#f8faf9',
+                }}
+              />
+            </div>
 
-            {/* Uploaded attachments cards */}
-            {uploadedAttachments.length > 0 && (
-              <div style={{ marginTop: '12px', display: 'grid', gap: '8px' }}>
-                {uploadedAttachments.map(att => {
-                  const isImg = att.mimeType.startsWith('image/') || att.fileUrl.match(/\.(jpg|jpeg|png|webp)$/i);
-                  return (
-                    <div
-                      key={att.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '8px 12px',
-                        borderRadius: '10px',
-                        border: '1px solid #d9ece7',
-                        backgroundColor: '#ffffff',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                        {isImg ? (
-                          <img
-                            src={att.fileUrl}
-                            alt={att.fileName}
-                            style={{ width: '34px', height: '34px', borderRadius: '6px', objectFit: 'cover', flexShrink: 0 }}
-                          />
-                        ) : (
-                          <div style={{
-                            width: '34px', height: '34px', borderRadius: '6px',
-                            backgroundColor: '#eaf6f2', color: '#0f766e',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                          }}>
-                            <FileText size={16} />
-                          </div>
-                        )}
-                        <div style={{ overflow: 'hidden' }}>
-                          <div style={{
-                            fontSize: '12px', fontWeight: 600, color: '#0b3f3a',
-                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '170px',
-                          }} title={att.fileName}>
-                            {att.fileName}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#52736d', marginTop: '1px' }}>
-                            <span style={{
-                              backgroundColor: '#eaf6f2', color: '#0f766e',
-                              padding: '1px 5px', borderRadius: '4px', fontWeight: 600,
-                            }}>
-                              {att.fileCategory === 'SYMPTOM_IMAGE' ? 'Photo'
-                                : att.fileCategory === 'PRIOR_PRESCRIPTION' ? 'Rx'
-                                : 'Report'}
-                            </span>
-                            <span>{(att.fileSizeBytes / 1024).toFixed(0)} KB</span>
-                          </div>
-                        </div>
-                      </div>
+            {/* Summary Line */}
+            <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)', font: `500 13px ${FONT}`, color: 'var(--muted)' }}>
+              {selectedDoctor && selectedSlot
+                ? `${assessment.suggestedSpecialty} · ${selectedDoctor.fullName} · ${formatSlot(selectedSlot.slotAt)} · ${consultationType === 'VIDEO' ? 'Video call' : 'In person'}`
+                : 'Pick a specialist, day, and time slot to finalize.'}
+            </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                        <a
-                          href={att.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            fontSize: '11px', color: '#0f766e', fontWeight: 600,
-                            textDecoration: 'none', padding: '3px 6px', borderRadius: '4px',
-                            backgroundColor: '#f0f9f6',
-                          }}
-                        >
-                          View
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => removeAttachment(att.id)}
-                          style={{
-                            background: 'none', border: 'none', color: '#dc2626',
-                            cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center',
-                          }}
-                          title="Remove attachment"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+            {bookingError && <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{bookingError}</div>}
+
+            {/* Dual Action Buttons: Live Razorpay & Instant Test */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => setStep(2)} style={btnGhost}><ArrowLeft size={15} /> Back</button>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {/* Instant Test Mode Button */}
+                <button
+                  type="button"
+                  onClick={handleTestBooking}
+                  disabled={booking || !selectedDoctorId || !selectedSlotId}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 18px',
+                    borderRadius: 12, border: '1.5px solid #0f766e', color: '#0f766e', background: '#f0fdf9',
+                    font: `600 13px ${FONT}`, cursor: (booking || !selectedSlotId) ? 'not-allowed' : 'pointer', minHeight: 46,
+                  }}
+                  title="Bypass Razorpay checkout modal and confirm immediately for fast testing"
+                >
+                  {booking ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} color="#0f766e" />}
+                  <span>Instant Test (₹{(payablePaise / 100).toFixed(2)})</span>
+                </button>
+
+                {/* Live Razorpay Gateway Button */}
+                <button
+                  type="submit"
+                  disabled={booking || !selectedDoctorId || !selectedSlotId}
+                  style={{
+                    ...btnPrimary,
+                    background: (booking || !selectedSlotId) ? '#9fc3bd' : 'var(--primary)',
+                    cursor: (booking || !selectedSlotId) ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {booking ? (
+                    <><Loader2 size={16} className="animate-spin" /> Processing…</>
+                  ) : payablePaise === 0 ? (
+                    <><Check size={16} /> Confirm Free Consultation</>
+                  ) : (
+                    <><CreditCard size={16} /> Pay ₹{(payablePaise / 100).toFixed(2)} via Razorpay</>
+                  )}
+                </button>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          </form>
+        )}
       </div>
-    </div>
     </PageTransition>
   );
 };

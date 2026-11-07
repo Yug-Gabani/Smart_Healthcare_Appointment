@@ -72,7 +72,75 @@ public class ClinicSeedRunner {
             new SeedDoctor("Dr. Suresh Rao, MD", "Dermatology",
                     "Sahyadri Hospital",
                     "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&q=80&w=300",
-                    new BigDecimal("4.78"), "doctor.rao@pulse.test")
+                    new BigDecimal("4.78"), "doctor.rao@pulse.test"),
+
+            /* ----------------- new in this batch -----------------
+             * 15 additional doctors bringing coverage to >= 2 per landing-page specialty
+             * (General Medicine, Cardiology, Dermatology, Pediatrics, Orthopedics,
+             *  Neurology, Gynecology, ENT, Ophthalmology, Psychiatry). City mix is
+             *  Ahmedabad-heavy, then Mumbai / Bengaluru / Pune — matching the hospitals
+             *  present in the PMJAY `hospitals` seed (names verified via DB lookup).
+             * --------------------------------------------------- */
+            new SeedDoctor("Dr. Rina Desai, MBBS", "General Medicine",
+                    "Apollo Hospital International Ltd.",
+                    "https://i.pravatar.cc/300?u=rina-desai",
+                    new BigDecimal("4.80"), "doctor.desai@pulse.test"),
+            new SeedDoctor("Dr. Vikram Nair, DM", "Cardiology",
+                    "Adventist Wockhardt Heart Hospital",
+                    "https://i.pravatar.cc/300?u=vikram-nair",
+                    new BigDecimal("4.91"), "doctor.nair@pulse.test"),
+            new SeedDoctor("Dr. Vivek Khanna, MD", "Dermatology",
+                    "Grant Medical Foundation, Ruby Hall Clinic - Wanowarie - Pune",
+                    "https://i.pravatar.cc/300?u=vivek-khanna",
+                    new BigDecimal("4.74"), "doctor.khanna@pulse.test"),
+            new SeedDoctor("Dr. Ananya Iyer, MD", "Pediatrics",
+                    "Lilavati Hospital and Research Center",
+                    "https://i.pravatar.cc/300?u=ananya-iyer",
+                    new BigDecimal("4.87"), "doctor.iyer@pulse.test"),
+            new SeedDoctor("Dr. Arjun Thakkar, MS Ortho", "Orthopedics",
+                    "Aalok Orthocare Super Speciality Center",
+                    "https://i.pravatar.cc/300?u=arjun-thakkar",
+                    new BigDecimal("4.79"), "doctor.thakkar@pulse.test"),
+            new SeedDoctor("Dr. Rajesh Kulkarni, MS Ortho", "Orthopedics",
+                    "Kokilaben Dhirubhai Ambani Hospital",
+                    "https://i.pravatar.cc/300?u=rajesh-kulkarni",
+                    new BigDecimal("4.83"), "doctor.kulkarni@pulse.test"),
+            new SeedDoctor("Dr. Shruti Deshmukh, DM", "Neurology",
+                    "Deenanath Mangeshkar Hospital and Research Centre",
+                    "https://i.pravatar.cc/300?u=shruti-deshmukh",
+                    new BigDecimal("4.85"), "doctor.deshmukh@pulse.test"),
+            new SeedDoctor("Dr. Priya Patel, MS Gynec", "Gynecology",
+                    "Vatsalya Gynec Hospital",
+                    "https://i.pravatar.cc/300?u=priya-patel",
+                    new BigDecimal("4.89"), "doctor.priya@pulse.test"),
+            new SeedDoctor("Dr. Meera Bhatt, MS Gynec", "Gynecology",
+                    "Fortis Hiranandani Hospital",
+                    "https://i.pravatar.cc/300?u=meera-bhatt",
+                    new BigDecimal("4.81"), "doctor.bhatt@pulse.test"),
+            new SeedDoctor("Dr. Nirav Mehta, MS ENT", "ENT",
+                    "N M Virani Wockhardt Hospital",
+                    "https://i.pravatar.cc/300?u=nirav-mehta",
+                    new BigDecimal("4.76"), "doctor.mehta@pulse.test"),
+            new SeedDoctor("Dr. Karthik Rao, MS ENT", "ENT",
+                    "Manipal Northside Hospital",
+                    "https://i.pravatar.cc/300?u=karthik-rao",
+                    new BigDecimal("4.77"), "doctor.karthik@pulse.test"),
+            new SeedDoctor("Dr. Anil Joshi, MS Ophthal", "Ophthalmology",
+                    "Maneklal and Jagjivan Ujamshi Institute Of Ophthalmo",
+                    "https://i.pravatar.cc/300?u=anil-joshi",
+                    new BigDecimal("4.84"), "doctor.joshi@pulse.test"),
+            new SeedDoctor("Dr. Sneha Pillai, MS Ophthal", "Ophthalmology",
+                    "Narayana Nethralaya",
+                    "https://i.pravatar.cc/300?u=sneha-pillai",
+                    new BigDecimal("4.90"), "doctor.pillai@pulse.test"),
+            new SeedDoctor("Dr. Dhara Shah, MD Psych", "Psychiatry",
+                    "Narayana Harudayalaya Hospitals",
+                    "https://i.pravatar.cc/300?u=dhara-shah",
+                    new BigDecimal("4.78"), "doctor.dhara@pulse.test"),
+            new SeedDoctor("Dr. Aditya Krishnamurthy, MD Psych", "Psychiatry",
+                    "Apollo Rm Hospital",
+                    "https://i.pravatar.cc/300?u=aditya-krishnamurthy",
+                    new BigDecimal("4.82"), "doctor.aditya@pulse.test")
     );
 
     private static final String DEMO_DOCTOR_PASSWORD = "Password123!";
@@ -102,6 +170,8 @@ public class ClinicSeedRunner {
               UserRepository userRepository,
               HospitalRepository hospitalRepository,
               PasswordEncoder passwordEncoder) {
+        cleanupLeakedTestRows(doctorRepository);
+
         int demoUsers = 0;
         for (SeedDoctor sd : DOCTORS) {
             Hospital hospital = hospitalRepository.findFirstByNameIgnoreCase(sd.hospital())
@@ -168,6 +238,32 @@ public class ClinicSeedRunner {
         }
         log.info("Clinic seed completed: {} doctors ensured, {} demo doctor users ({}), slot window regenerated.",
                 DOCTORS.size(), demoUsers, "password: " + DEMO_DOCTOR_PASSWORD);
+    }
+
+    /**
+     * One-off cleanup for stray rows that were inserted by earlier manual tests rather than by
+     * this seeder (notably "Dr. Test Suite" with a null hospital_id, which has shown up in dev
+     * DBs since the appointment tests ran). Only removes a row when it is not referenced by any
+     * appointment or prescription — otherwise it is left alone and we log a warning.
+     */
+    private static final List<String> LEAKED_TEST_DOCTOR_NAMES = List.of("Dr. Test Suite");
+
+    private void cleanupLeakedTestRows(DoctorRepository doctorRepository) {
+        for (String name : LEAKED_TEST_DOCTOR_NAMES) {
+            doctorRepository.findAll().stream()
+                    .filter(d -> name.equalsIgnoreCase(d.getFullName()))
+                    .findFirst()
+                    .ifPresent(d -> {
+                        try {
+                            doctorRepository.delete(d); // FK CASCADE handles slots, reviews, schedule templates
+                            log.info("Removed leaked test-fixture doctor '{}' (id={}).", d.getFullName(), d.getId());
+                        } catch (Exception e) {
+                            // appointments / prescriptions have ON DELETE RESTRICT — leave the row alone if so
+                            log.warn("Could not remove leaked test doctor '{}' — likely has appointment or prescription FK: {}",
+                                    d.getFullName(), e.getMessage());
+                        }
+                    });
+        }
     }
 
     private void seedSlotsFor(Doctor doctor, DoctorSlotRepository slotRepository) {
