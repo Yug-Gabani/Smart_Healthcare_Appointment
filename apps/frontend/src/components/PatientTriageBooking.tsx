@@ -337,6 +337,12 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<Appointment | null>(null);
 
+  /* Scroll to the top of the page whenever the step flips OR the confirmation card renders.
+   * Step 3's form is tall, so clicking "Book appointment" or "Instant Test" at the bottom
+   * leaves the browser scrolled way down — when the next step or confirmation renders, the
+   * patient lands below the fold and thinks nothing happened. */
+  useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [step, confirmed]);
+
   /** Which doctor card has its details panel expanded (bio, experience, languages, fee). */
   const [expandedDoctorId, setExpandedDoctorId] = useState('');
 
@@ -477,7 +483,14 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const effectiveSpecialty = assessment?.suggestedSpecialty ?? shortcutSpecialty ?? null;
   const isShortcut = !!shortcutSpecialty && !assessment;
 
-  /* Fetch doctors for specialty — triggered by either triage result or shortcut URL */
+  /** Per-doctor slot cache. Populated once by the list-load prefetch (in parallel for all
+   *  doctors in the specialty) and read instantly on every doctor switch — so switching
+   *  back-and-forth between doctors is zero-latency instead of triggering a refetch each time. */
+  const slotsCacheRef = useRef<Record<string, Slot[]>>({});
+
+  /* Fetch doctors for specialty — triggered by either triage result or shortcut URL.
+   * As soon as the list arrives, kick off slot fetches for ALL doctors in parallel so by
+   * the time the patient clicks around, every card is already warm in the cache. */
   useEffect(() => {
     if (!effectiveSpecialty) return;
     setDoctorsLoading(true);
@@ -486,17 +499,36 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
       .then(docs => {
         setDoctors(docs);
         if (docs.length > 0) setSelectedDoctorId(docs[0].id);
+        // Prefetch every doctor's slots in parallel; result goes straight into the cache.
+        slotsCacheRef.current = {};
+        docs.forEach(d => {
+          doctorsApi.slots(d.id)
+            .then(slots => {
+              slotsCacheRef.current[d.id] = slots;
+              // If this is the currently-selected doctor, surface the slots immediately.
+              setSelectedDoctorId(curId => {
+                if (curId === d.id) setDoctorSlots(slots);
+                return curId;
+              });
+            })
+            .catch(() => { /* keep cache empty; manual fetch effect will retry on click */ });
+        });
       })
       .catch(err => setDoctorsError(err.message || 'Could not load doctors.'))
       .finally(() => setDoctorsLoading(false));
   }, [effectiveSpecialty]);
 
-  /* Fetch slots for selected doctor */
+  /* Fetch slots for selected doctor. Hits the cache first (populated by the prefetch above),
+   * only falls through to the network for a cache miss — e.g. if the prefetch is still inflight
+   * when the user clicks a different doctor, or failed for this one. */
   useEffect(() => {
     if (!selectedDoctorId) { setDoctorSlots([]); return; }
+    const cached = slotsCacheRef.current[selectedDoctorId];
+    if (cached) { setDoctorSlots(cached); setSlotsLoading(false); return; }
+    setDoctorSlots([]);
     setSlotsLoading(true);
     doctorsApi.slots(selectedDoctorId)
-      .then(setDoctorSlots)
+      .then(slots => { slotsCacheRef.current[selectedDoctorId] = slots; setDoctorSlots(slots); })
       .catch(() => setDoctorSlots([]))
       .finally(() => setSlotsLoading(false));
   }, [selectedDoctorId]);
@@ -1203,7 +1235,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                       </span>
                       <span style={{ textAlign: 'right' }}>
                         <span style={{ display: 'block', font: `600 13px ${FONT}`, color: '#d97706' }}>★ {Number(doc.rating).toFixed(1)}</span>
-                        <span style={{ display: 'block', font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}>{on ? `${availableSlots.length} open` : `${doc.openSlotCount} open`} slots</span>
+                        <span style={{ display: 'block', font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}>{on ? (slotsLoading ? '…' : `${availableSlots.length} open`) : `${doc.openSlotCount} open`} slots</span>
                       </span>
                     </button>
 

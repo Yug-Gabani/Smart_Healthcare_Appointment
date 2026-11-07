@@ -28,6 +28,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -348,7 +350,7 @@ public class RefundService {
                 .refundPercentage(calc.refundPercentage())
                 .tier(calc.tier().name())
                 .status(refundStatus)
-                .hoursBeforeSlot(calc.hoursRemaining())
+                .hoursBeforeSlot(BigDecimal.valueOf(calc.hoursRemaining()).setScale(2, RoundingMode.HALF_UP))
                 .policyMessage(calc.policyMessage())
                 .build();
         paymentRefundRepository.save(refundRecord);
