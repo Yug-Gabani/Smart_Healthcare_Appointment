@@ -790,7 +790,8 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   if (confirmed) {
     return (
       <PageTransition>
-        <div className="card card-hover" style={{ maxWidth: '680px', margin: '56px auto', padding: '40px', textAlign: 'center' }}>
+        <div style={{ maxWidth: '680px', margin: '0 auto', height: 'calc(100vh - 72px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px 20px', boxSizing: 'border-box', overflow: 'hidden' }}>
+        <div className="card" style={{ width: '100%', padding: '32px 36px', textAlign: 'center', borderRadius: '16px' }}>
           <div style={{
             width: '64px', height: '64px', borderRadius: '50%',
             backgroundColor: 'rgba(50, 138, 59, 0.12)', color: 'var(--success)',
@@ -833,75 +834,108 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
             </button>
           </div>
         </div>
+        </div>
       </PageTransition>
     );
   }
 
   return (
     <PageTransition>
-      <div style={{ maxWidth: '1160px', margin: '48px auto', padding: '0 24px' }}>
-        <section style={{ maxWidth: '840px', margin: '0 auto 48px', textAlign: 'center' }}>
-        <span className="badge-ai-warm" style={{ marginBottom: '24px' }}>
-          <Sparkles size={14} />
-          AI-assisted · reviewed by doctors
-        </span>
-        <h1 className="font-serif text-display" style={{ color: 'var(--ink)', margin: '16px 0 20px' }}>
-          Care that starts
-          <br />
-          before the appointment.
-        </h1>
-        <p className="text-subheading" style={{ maxWidth: '580px', margin: '0 auto' }}>
-          Describe your symptoms, let us classify urgency, then pick a doctor — all before you leave your home.
-        </p>
-      </section>
-
-      {/* Stepper */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        gap: '10px', marginBottom: '36px', flexWrap: 'wrap',
+        maxWidth: '1280px',
+        margin: '0 auto',
+        height: 'calc(100vh - 72px)',
+        maxHeight: 'calc(100vh - 72px)',
+        padding: '12px 20px',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}>
-        {[
-          { n: 1, label: '1. Symptoms & Intake' },
-          { n: 2, label: '2. AI Urgency Review' },
-          { n: 3, label: '3. Doctor & Schedule' },
-        ].map((s, idx) => (
-          <React.Fragment key={s.n}>
-            <button
-              type="button"
-              onClick={() => s.n < step && setStep(s.n as 1 | 2 | 3)}
-              disabled={s.n > step}
-              className={`btn ${step === s.n ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ padding: '8px 20px', fontSize: '13px', minHeight: '38px', opacity: s.n > step ? 0.6 : 1 }}
-            >
-              {s.label}
-            </button>
-            {idx < 2 && <ChevronRight size={15} color="var(--muted)" />}
-          </React.Fragment>
-        ))}
-      </div>
+        {/* Compact Header & Stepper Row */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '10px',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--ink)', margin: 0, letterSpacing: '-0.01em' }}>
+              Book an Appointment
+            </h1>
+            <span className="badge-ai-warm" style={{ fontSize: '11px', padding: '3px 10px', margin: 0 }}>
+              <Sparkles size={12} />
+              AI Advisory Triage
+            </span>
+          </div>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(0, 1.8fr) minmax(0, 1.2fr)',
-        gap: '32px',
-        alignItems: 'start',
-      }}>
-        <div className="card" style={{ padding: '36px' }}>
+          {/* Stepper */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {[
+              { n: 1, label: '1. Symptoms & Intake' },
+              { n: 2, label: '2. Urgency Review' },
+              { n: 3, label: '3. Doctor & Schedule' },
+            ].map((s, idx) => (
+              <React.Fragment key={s.n}>
+                <button
+                  type="button"
+                  onClick={() => s.n < step && setStep(s.n as 1 | 2 | 3)}
+                  disabled={s.n > step}
+                  className={`btn ${step === s.n ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{
+                    padding: '5px 14px',
+                    fontSize: '12px',
+                    minHeight: '30px',
+                    opacity: s.n > step ? 0.5 : 1,
+                    borderRadius: '8px',
+                  }}
+                >
+                  {s.label}
+                </button>
+                {idx < 2 && <ChevronRight size={13} color="var(--muted)" />}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+
+        {/* 2-Column Unscrollable Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1.65fr) minmax(0, 1fr)',
+          gap: '14px',
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+        }}>
+          <div className="card" style={{
+            padding: '16px 20px',
+            borderRadius: '14px',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0,
+            overflow: 'hidden',
+            boxSizing: 'border-box',
+          }}>
           {step === 1 && (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', flexShrink: 0 }}>
                 <div style={{
-                  width: '38px', height: '38px', borderRadius: '50%',
+                  width: '32px', height: '32px', borderRadius: '50%',
                   backgroundColor: 'var(--info)', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <HeartPulse size={20} color="var(--primary)" />
+                  <HeartPulse size={18} color="var(--primary)" />
                 </div>
                 <div>
-                  <h2 style={{ fontSize: '20px', fontWeight: 600 }}>Describe Your Condition</h2>
-                  <div style={{ fontSize: '13px', color: 'var(--muted)' }}>Step 1 of 3 · Pre-visit intake</div>
+                  <h2 style={{ fontSize: '17px', fontWeight: 600, margin: 0 }}>Describe Your Condition</h2>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Step 1 of 3 · Pre-visit intake</div>
                 </div>
               </div>
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: '8px' }}>
 
               {activePresetLabel && (
                 <div style={{
@@ -1051,20 +1085,22 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                 </div>
               )}
 
-              <div style={{ marginTop: '32px', display: 'flex', justifyContent: 'flex-end' }}>
+              </div>
+              <div style={{ flexShrink: 0, paddingTop: '10px', marginTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
                 <button
                   type="button"
                   onClick={handleAssess}
                   disabled={assessing || !chiefComplaint.trim()}
                   className="btn btn-primary hover-lift"
+                  style={{ padding: '8px 20px', fontSize: '13px', minHeight: '36px' }}
                 >
                   {assessing ? (
                     <>
-                      <Loader2 size={16} className="animate-spin" /> Running Triage...
+                      <Loader2 size={15} className="animate-spin" /> Running Triage...
                     </>
                   ) : (
                     <>
-                      Run Advisory Triage <ArrowRight size={16} />
+                      Run Advisory Triage <ArrowRight size={15} />
                     </>
                   )}
                 </button>
@@ -1073,20 +1109,21 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
           )}
 
           {step === 2 && assessment && (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', flexShrink: 0 }}>
                 <div style={{
-                  width: '38px', height: '38px', borderRadius: '50%',
+                  width: '32px', height: '32px', borderRadius: '50%',
                   backgroundColor: 'var(--info)', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <Sparkles size={20} color="var(--primary)" />
+                  <Sparkles size={18} color="var(--primary)" />
                 </div>
                 <div>
-                  <h2 style={{ fontSize: '20px', fontWeight: 600 }}>Automated Urgency Assessment</h2>
-                  <div style={{ fontSize: '13px', color: 'var(--muted)' }}>Step 2 of 3 · Server-side rule engine</div>
+                  <h2 style={{ fontSize: '17px', fontWeight: 600, margin: 0 }}>Automated Urgency Assessment</h2>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Step 2 of 3 · Server-side rule engine</div>
                 </div>
               </div>
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: '8px' }}>
 
               <div style={{
                 padding: '24px', borderRadius: '16px',
@@ -1128,32 +1165,34 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                 </ul>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px' }}>
-                <button type="button" onClick={() => setStep(1)} className="btn btn-secondary hover-lift">
+              </div>
+              <div style={{ flexShrink: 0, paddingTop: '10px', marginTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                <button type="button" onClick={() => setStep(1)} className="btn btn-secondary hover-lift" style={{ padding: '8px 18px', fontSize: '13px', minHeight: '36px' }}>
                   Back to Symptoms
                 </button>
-                <button type="button" onClick={() => setStep(3)} className="btn btn-primary hover-lift">
-                  Select Doctor & Slot <ArrowRight size={16} />
+                <button type="button" onClick={() => setStep(3)} className="btn btn-primary hover-lift" style={{ padding: '8px 20px', fontSize: '13px', minHeight: '36px' }}>
+                  Select Doctor & Slot <ArrowRight size={15} />
                 </button>
               </div>
             </div>
           )}
 
           {step === 3 && assessment && (
-            <form onSubmit={handleBook}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' }}>
+            <form onSubmit={handleBook} style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', flexShrink: 0 }}>
                 <div style={{
-                  width: '38px', height: '38px', borderRadius: '50%',
+                  width: '32px', height: '32px', borderRadius: '50%',
                   backgroundColor: 'var(--info)', display: 'flex',
                   alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <Calendar size={20} color="var(--primary)" />
+                  <Calendar size={18} color="var(--primary)" />
                 </div>
                 <div>
-                  <h2 style={{ fontSize: '20px', fontWeight: 600 }}>Select Doctor & Consultation Mode</h2>
-                  <div style={{ fontSize: '13px', color: 'var(--muted)' }}>Step 3 of 3 · Finalize Booking</div>
+                  <h2 style={{ fontSize: '17px', fontWeight: 600, margin: 0 }}>Select Doctor & Consultation Mode</h2>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Step 3 of 3 · Finalize Booking</div>
                 </div>
               </div>
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: '8px' }}>
 
               <div className="form-group">
                 <label className="form-label">Consultation Mode</label>
@@ -1463,18 +1502,20 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                 </div>
               )}
 
-              <div style={{ marginTop: '36px', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                <button type="button" onClick={() => setStep(2)} className="btn btn-secondary hover-lift">
+              </div>
+              <div style={{ flexShrink: 0, paddingTop: '10px', marginTop: '10px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                <button type="button" onClick={() => setStep(2)} className="btn btn-secondary hover-lift" style={{ padding: '8px 18px', fontSize: '13px', minHeight: '36px' }}>
                   Back
                 </button>
                 <button
                   type="submit"
                   disabled={booking || !selectedDoctorId || !selectedSlotId}
                   className="btn btn-primary hover-lift"
+                  style={{ padding: '8px 20px', fontSize: '13px', minHeight: '36px' }}
                 >
                   {booking ? (
                     <>
-                      <Loader2 size={16} className="animate-spin" /> Booking…
+                      <Loader2 size={15} className="animate-spin" /> Booking…
                     </>
                   ) : (
                     'Confirm & Schedule Visit'
@@ -1486,9 +1527,17 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
         </div>
 
         {/* Right Column: Live summary & Medical Attachments */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'sticky', top: '96px' }}>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          height: '100%',
+          minHeight: 0,
+          overflowY: 'auto',
+          paddingRight: '4px',
+        }}>
           {/* Triage Live Summary */}
-          <div className="card card-hover" style={{ padding: '24px' }}>
+          <div className="card" style={{ padding: '16px 18px', borderRadius: '14px', flexShrink: 0 }}>
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               borderBottom: '1px solid var(--border)', paddingBottom: '16px', marginBottom: '20px',
@@ -1585,7 +1634,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
           </div>
 
           {/* Medical Attachments & Prior Records (Right Column Empty Space) */}
-          <div className="card card-hover" style={{ padding: '22px' }}>
+          <div className="card" style={{ padding: '16px 18px', borderRadius: '14px', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <div style={{
@@ -1653,7 +1702,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
               style={{
                 border: isDragging ? '2px solid #0f766e' : '1.5px dashed #0f766e',
                 borderRadius: '12px',
-                padding: '20px 14px',
+                padding: '12px 10px',
                 textAlign: 'center',
                 backgroundColor: isDragging ? '#d9ece7' : '#f8faf9',
                 cursor: uploadingFile ? 'wait' : 'pointer',

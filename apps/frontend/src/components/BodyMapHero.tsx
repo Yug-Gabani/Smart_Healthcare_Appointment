@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence, useInView, useReducedMotion } from 'framer-motion';
-import { ArrowRight, AlertTriangle, HelpCircle, Search } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Search } from 'lucide-react';
 
 export type HotspotId =
   | 'head' | 'mental' | 'chest' | 'abdomen' | 'joints' | 'skin' | 'reproductive'
@@ -46,13 +46,17 @@ const HOTSPOTS: Hotspot[] = [
   { id: 'calf',         view: 'back',  label: 'Calves & hamstrings',    specialties: ['Orthopedics','Physiotherapy'],         commonConditions: ['Muscle strain','Cramps','Hamstring pull'],         triageHint: 'Calf or hamstring strain, cramps, back-of-leg pain.',      x: 240, y: 495 },
 ];
 
+/**
+ * Shortlist of plain-language complaints for the "can't find it on the figure" fallback.
+ * Kept conversational on purpose — the label is also the query we hand to the triage flow.
+ */
 const SYSTEMIC_SUGGESTIONS = [
-  'General fatigue & weakness',
-  'Fever, chills & body aches',
-  'Allergic reaction / hives',
-  'Sleep difficulty & insomnia',
-  'Inner ear & dizziness',
-  'Digestive bloating & nausea',
+  'Feeling tired a lot',
+  'Fever and chills',
+  'Trouble sleeping',
+  'Dizzy or off-balance',
+  'Rash or itching',
+  'Upset stomach',
 ];
 
 const VB_W = 420;
@@ -298,88 +302,41 @@ export default function BodyMapHero({
           </div>
         </motion.aside>
 
-        {/* BOTTOM: Didn't find the correct point? Describe the cause */}
+        {/*
+          BOTTOM: fallback for people who can't pinpoint their issue on the figure above.
+          Intentionally quieter than the body map — short heading, single search + button,
+          and plain-language suggestion chips. No decorative icon, no competing CTA, no
+          clinical jargon ("systemic concerns" removed in favour of "Try one of these").
+        */}
         <div
           style={{
             gridColumn: isWide ? '1 / -1' : 'auto',
-            borderTop: '1px solid #d9ece7',
+            marginTop: 10,
             paddingTop: 22,
-            marginTop: 8,
+            borderTop: '1px solid #d9ece7',
             display: 'flex',
             flexDirection: 'column',
             gap: 14,
-            background: 'linear-gradient(180deg, rgba(234, 246, 242, 0.45) 0%, rgba(234, 246, 242, 0.8) 100%)',
-            border: '1px solid #d9ece7',
-            borderRadius: 14,
-            padding: isWide ? '20px 24px' : '18px 16px',
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: isWide ? 'row' : 'column',
-              alignItems: isWide ? 'center' : 'flex-start',
-              justifyContent: 'space-between',
-              gap: 14,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-              <div
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 10,
-                  background: '#ffffff',
-                  border: '1px solid #d9ece7',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#0f766e',
-                  flexShrink: 0,
-                  marginTop: 2,
-                  boxShadow: '0 1px 3px rgba(20, 60, 55, 0.05)',
-                }}
-              >
-                <HelpCircle size={20} />
-              </div>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#0b3f3a', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
-                  Didn't find the correct point on the body?
-                </div>
-                <div style={{ fontSize: 13, color: '#52736d', marginTop: 3, lineHeight: 1.4 }}>
-                  Can't pinpoint your pain or disease on the body? Describe what you're experiencing directly and our clinical triage will match you.
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => handleCustomSubmit()}
-              className="hover-lift"
+          <div>
+            <h3
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                background: '#0f766e',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: 12,
-                padding: '9px 18px',
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: 600,
-                cursor: 'pointer',
-                fontFamily: "'Space Grotesk', sans-serif",
-                whiteSpace: 'nowrap',
-                alignSelf: isWide ? 'center' : 'stretch',
-                justifyContent: 'center',
+                color: '#0b3f3a',
+                letterSpacing: '-0.01em',
+                lineHeight: 1.3,
+                margin: 0,
               }}
             >
-              <span>Describe cause directly</span>
-              <ArrowRight size={14} strokeWidth={2.2} />
-            </button>
+              Can't find it on the figure?
+            </h3>
+            <p style={{ fontSize: 13, color: '#52736d', margin: '4px 0 0 0', lineHeight: 1.5 }}>
+              Just tell us what you're feeling — we'll take it from there.
+            </p>
           </div>
 
-          {/* Quick symptom description input */}
           <form
             onSubmit={(e) => handleCustomSubmit(e)}
             style={{
@@ -387,7 +344,6 @@ export default function BodyMapHero({
               flexDirection: isWide ? 'row' : 'column',
               gap: 10,
               width: '100%',
-              marginTop: 2,
             }}
           >
             <div
@@ -400,6 +356,15 @@ export default function BodyMapHero({
                 border: '1px solid #d9ece7',
                 borderRadius: 10,
                 padding: '0 14px',
+                transition: 'border-color 160ms ease, box-shadow 160ms ease',
+              }}
+              onFocus={(e) => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#0f766e';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 0 0 3px rgba(15, 118, 110, 0.12)';
+              }}
+              onBlur={(e) => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#d9ece7';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
               }}
             >
               <Search size={15} color="#8aa39d" style={{ marginRight: 8, flexShrink: 0 }} />
@@ -407,7 +372,7 @@ export default function BodyMapHero({
                 type="text"
                 value={customCause}
                 onChange={(e) => setCustomCause(e.target.value)}
-                placeholder="Describe your cause or symptoms (e.g. fatigue, unexplained nausea, ear buzzing, all-over body aches)..."
+                placeholder="e.g. I'm tired a lot, my stomach hurts, I can't sleep…"
                 style={{
                   width: '100%',
                   border: 'none',
@@ -416,7 +381,7 @@ export default function BodyMapHero({
                   fontFamily: "'Space Grotesk', sans-serif",
                   fontSize: 13,
                   color: '#0b3f3a',
-                  padding: '10px 0',
+                  padding: '11px 0',
                 }}
               />
             </div>
@@ -424,7 +389,7 @@ export default function BodyMapHero({
               type="submit"
               className="hover-lift"
               style={{
-                background: '#ff6b5b',
+                background: '#0f766e',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: 10,
@@ -438,19 +403,16 @@ export default function BodyMapHero({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 6,
-                boxShadow: '0 2px 8px rgba(255, 107, 91, 0.2)',
               }}
             >
-              <span>Continue to triage</span>
+              <span>Start triage</span>
               <ArrowRight size={14} strokeWidth={2.2} />
             </button>
           </form>
 
-          {/* Systemic condition tags */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 2 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#8aa39d', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Common systemic concerns:
-            </span>
+          {/* Plain-language suggestion chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: '#8aa39d' }}>Try one:</span>
             {SYSTEMIC_SUGGESTIONS.map((sug) => (
               <button
                 key={sug}
@@ -460,27 +422,29 @@ export default function BodyMapHero({
                   handleCustomSubmit(undefined, sug);
                 }}
                 style={{
-                  background: '#ffffff',
+                  background: 'transparent',
                   border: '1px solid #d9ece7',
                   borderRadius: 9999,
                   padding: '4px 11px',
-                  fontSize: 11,
-                  color: '#0f766e',
+                  fontSize: 12,
+                  color: '#52736d',
                   fontWeight: 500,
                   cursor: 'pointer',
                   fontFamily: "'Space Grotesk', sans-serif",
-                  transition: 'background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease',
+                  transition: 'background-color 160ms ease, border-color 160ms ease, color 160ms ease',
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = '#eaf6f2';
                   e.currentTarget.style.borderColor = '#0f766e';
+                  e.currentTarget.style.color = '#0b3f3a';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.background = 'transparent';
                   e.currentTarget.style.borderColor = '#d9ece7';
+                  e.currentTarget.style.color = '#52736d';
                 }}
               >
-                + {sug}
+                {sug}
               </button>
             ))}
           </div>
