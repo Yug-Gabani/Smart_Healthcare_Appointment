@@ -268,8 +268,23 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     return DEFAULT_PRESET;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  /* "Shortcut" mode: patient landed here from a landing-page specialty tile
+   * with ?specialty=X. They skip the 6-question triage flow and go straight
+   * to step 3 (pick a doctor & time). A short required intake textarea on
+   * step 3 still gathers one line of context for the doctor, and is sent
+   * as a minimal triage assessment just before booking so downstream joins
+   * (assessment -> appointment) keep working. */
+  const shortcutSpecialty = useMemo(() => searchParams.get('specialty') || null, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [step, setStep] = useState<1 | 2 | 3>(shortcutSpecialty ? 3 : 1);
   const [subStep, setSubStep] = useState(0); // 0..5 within Step 1
+  const [shortcutIntake, setShortcutIntake] = useState('');
+  const [shortcutIntakeError, setShortcutIntakeError] = useState(false);
+
+  /* React Router doesn't reset scroll position on navigation. Patients often click a
+   * specialty tile near the bottom of the landing page, so without this they'd land
+   * mid-way down the booking page (past the intake and the Fast Lane chip). Reset once. */
+  useEffect(() => { window.scrollTo(0, 0); }, []);
 
   // Step 1 fields
   const [chiefComplaint, setChiefComplaint] = useState(initialPreset.chiefComplaint);
@@ -308,6 +323,9 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<Appointment | null>(null);
 
+  /** Which doctor card has its details panel expanded (bio, experience, languages, fee). */
+  const [expandedDoctorId, setExpandedDoctorId] = useState('');
+
   const toggleSymptom = (s: string) =>
     setSelectedSymptoms(p => (p.includes(s) ? p.filter(x => x !== s) : [...p, s]));
 
@@ -343,17 +361,21 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     } finally { setAssessing(false); }
   };
 
+  /* Effective specialty for step 3 — comes from either the triage result or the
+   * shortcut URL param. Used by the doctor fetch and in the UI labels. */
+  const effectiveSpecialty = assessment?.suggestedSpecialty ?? shortcutSpecialty ?? null;
+  const isShortcut = !!shortcutSpecialty && !assessment;
+
   /* -------------------- doctors (on entering step 3) -------------------- */
   useEffect(() => {
     if (step !== 3) return;
     setDoctorsLoading(true); setDoctorsError(null);
-    const specialty = assessment?.suggestedSpecialty;
-    doctorsApi.list(specialty)
-      .then(list => (list.length === 0 && specialty ? doctorsApi.list() : list))
+    doctorsApi.list(effectiveSpecialty ?? undefined)
+      .then(list => (list.length === 0 && effectiveSpecialty ? doctorsApi.list() : list))
       .then(list => { setDoctors(list); if (list.length) setSelectedDoctorId(list[0].id); })
       .catch(err => setDoctorsError(err.message || 'Failed to load doctors'))
       .finally(() => setDoctorsLoading(false));
-  }, [step, assessment?.suggestedSpecialty]);
+  }, [step, effectiveSpecialty]);
 
   const selectedDoctor = useMemo(
     () => doctors.find(d => d.id === selectedDoctorId) || null,
@@ -427,11 +449,30 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const handleBook = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoctorId || !selectedSlotId) { setBookingError('Pick a doctor and a time first.'); return; }
+    if (isShortcut && !shortcutIntake.trim()) {
+      setShortcutIntakeError(true);
+      setBookingError('Please tell us briefly why you are seeing a ' + effectiveSpecialty + ' today.');
+      return;
+    }
     setBooking(true); setBookingError(null);
     try {
+      /* Shortcut path: synthesise a minimal triage record from the one-line intake
+       * so the appointment still carries context. If the triage call fails we fall
+       * through and book without an assessmentId — the backend allows that. */
+      let assessmentId = assessment?.id;
+      if (isShortcut) {
+        try {
+          const mini = await triageApi.assess({
+            chiefComplaint: shortcutIntake.trim(),
+            symptoms: [], durationDays: 1, painLevel: 0,
+            fever: false, chestPain: false, shortnessOfBreath: false,
+          });
+          assessmentId = mini.id;
+        } catch { /* keep assessmentId undefined and continue */ }
+      }
       const booked = await appointmentsApi.book({
         doctorId: selectedDoctorId, slotId: selectedSlotId,
-        assessmentId: assessment?.id, consultationType,
+        assessmentId, consultationType,
         attachmentIds: attachments.map(a => a.id),
       });
       setConfirmed(booked);
@@ -648,7 +689,8 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
       `}</style>
       <div style={{ maxWidth: 880, margin: '48px auto', padding: '0 24px' }}>
 
-        {/* progress line */}
+        {/* progress line (hidden in shortcut mode — steps 1 & 2 were bypassed) */}
+        {!isShortcut && (
         <div style={{ maxWidth: 560, margin: '0 auto 40px' }} aria-hidden>
           <div style={{ font: `600 10px ${FONT}`, letterSpacing: '.16em', color: 'var(--ink-muted)', textTransform: 'uppercase', textAlign: 'center', marginBottom: 18 }}>Book a visit</div>
           <div style={{ position: 'relative', height: 24 }}>
@@ -673,6 +715,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
             ))}
           </div>
         </div>
+        )}
 
         {/* STEP 1 */}
         {step === 1 && (
@@ -751,10 +794,55 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
         )}
 
         {/* STEP 3 */}
-        {step === 3 && assessment && (
+        {step === 3 && (assessment || isShortcut) && (
           <form onSubmit={handleBook} style={card}>
-            <h2 style={h2}>Pick your doctor & time</h2>
-            <p style={sub}>Almost done.</p>
+            {isShortcut ? (
+              <>
+                <div style={{ display: 'inline-block', font: `600 10px ${FONT}`, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--primary)', background: '#e3f1ed', padding: '4px 10px', borderRadius: 9999, marginBottom: 12 }}>
+                  Fast lane · {effectiveSpecialty}
+                </div>
+                <h2 style={h2}>Pick your doctor & time</h2>
+                <p style={sub}>
+                  You skipped the symptom check because you already know what you need.{' '}
+                  <button type="button" onClick={() => navigate('/book')} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', font: `inherit`, textDecoration: 'underline', cursor: 'pointer' }}>
+                    Answer symptom questions instead
+                  </button>
+                </p>
+
+                {/* EMERGENCY disclaimer — short, calm, not alarming unless needed */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', marginBottom: 20, borderRadius: 10, background: 'rgba(217,119,6,.08)', border: '1px solid rgba(217,119,6,.22)', color: '#92400e', font: `500 12.5px/1.4 ${FONT}` }}>
+                  <span style={{ font: `700 14px ${FONT}`, marginTop: 1 }}>!</span>
+                  <span>If this feels urgent — chest pain, trouble breathing, heavy bleeding, confusion — call <strong>108</strong> now, or <button type="button" onClick={() => navigate('/book')} style={{ background: 'none', border: 'none', padding: 0, color: '#92400e', font: `inherit`, textDecoration: 'underline', cursor: 'pointer' }}>run a quick symptom check</button> first.</span>
+                </div>
+
+                {/* Required one-line intake */}
+                <div style={{ marginBottom: 24 }}>
+                  <label htmlFor="shortcut-intake" style={{ display: 'block', font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 8 }}>
+                    One quick thing — why are you seeing a {effectiveSpecialty} today?
+                  </label>
+                  <textarea
+                    id="shortcut-intake"
+                    value={shortcutIntake}
+                    onChange={e => { setShortcutIntake(e.target.value); if (shortcutIntakeError && e.target.value.trim()) setShortcutIntakeError(false); }}
+                    placeholder="A sentence is plenty — e.g. 'Chest tightness after exercise for the past week.'"
+                    rows={3}
+                    style={{
+                      width: '100%', padding: '12px 14px', borderRadius: 12,
+                      border: `1px solid ${shortcutIntakeError ? 'var(--danger)' : 'var(--border)'}`,
+                      background: '#fff', font: `400 14px/1.5 ${FONT}`, color: 'var(--ink)', resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                  {shortcutIntakeError && (
+                    <div style={{ marginTop: 6, font: `400 12px ${FONT}`, color: 'var(--danger)' }}>The doctor needs at least a short sentence to prep for your visit.</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 style={h2}>Pick your doctor & time</h2>
+                <p style={sub}>Almost done.</p>
+              </>
+            )}
 
             <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 9 }}>How would you like to meet?</div>
             <div style={{ display: 'inline-flex', padding: 4, borderRadius: 9999, background: '#eef4f0', border: '1px solid var(--border)', gap: 2, marginBottom: 24 }}>
@@ -770,33 +858,92 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
               })}
             </div>
 
-            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 10 }}>Doctors for {assessment.suggestedSpecialty}</div>
+            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 10 }}>Doctors for {effectiveSpecialty}</div>
             {doctorsLoading && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} className="animate-spin" /> Loading doctors…</div>}
             {doctorsError && <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{doctorsError}</div>}
             {!doctorsLoading && !doctorsError && !doctors.length && <div style={{ padding: 16, color: 'var(--muted)' }}>No doctors available right now.</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {doctors.map(doc => {
                 const on = selectedDoctorId === doc.id;
+                const expanded = expandedDoctorId === doc.id;
+                /* The "More about Dr. X" row only shows when we have *something* to reveal.
+                 * At a minimum every seeded doctor has a bio; profile extras (experience,
+                 * languages, fee) appear when the doctor record has them set. */
+                const hasExtra = !!(doc.bio || doc.yearsExperience || doc.consultationFee || doc.languages || (doc.reviewCount ?? 0) > 0);
+                /* "Dr. Robert Chen, FACC" → "Dr. Robert Chen" (first name + first surname, strip credentials) */
+                const shortName = doc.fullName.replace(/,.*$/, '').trim();
                 return (
-                  <button key={doc.id} type="button" onClick={() => setSelectedDoctorId(doc.id)} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '14px 18px',
-                    borderRadius: 14, cursor: 'pointer', textAlign: 'left',
-                    border: on ? '2px solid var(--primary)' : '1px solid var(--border)', background: on ? '#e3f1ed' : '#fff',
+                  <div key={doc.id} style={{
+                    borderRadius: 14,
+                    border: on ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    background: on ? '#e3f1ed' : '#fff',
+                    overflow: 'hidden',
                   }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
-                      {doc.avatarUrl
-                        ? <img src={doc.avatarUrl} alt={doc.fullName} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
-                        : <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#e3f1ed', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', font: `700 14px ${FONT}` }}>{doc.fullName.replace('Dr. ', '').split(' ').map(s => s[0]).join('').slice(0, 2)}</span>}
-                      <span>
-                        <span style={{ display: 'block', font: `600 15px ${FONT}`, color: 'var(--ink)' }}>{doc.fullName}</span>
-                        <span style={{ display: 'block', font: `400 13px ${FONT}`, color: 'var(--ink-muted)' }}>{doc.specialty} · {doc.hospital}</span>
+                    {/* Top row — selectable */}
+                    <button type="button" onClick={() => setSelectedDoctorId(doc.id)} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+                      padding: '14px 18px', cursor: 'pointer', textAlign: 'left',
+                      border: 'none', background: 'transparent', fontFamily: 'inherit',
+                    }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+                        {doc.avatarUrl
+                          ? <img src={doc.avatarUrl} alt={doc.fullName} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
+                          : <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#e3f1ed', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', font: `700 14px ${FONT}` }}>{doc.fullName.replace('Dr. ', '').split(' ').map(s => s[0]).join('').slice(0, 2)}</span>}
+                        <span>
+                          <span style={{ display: 'block', font: `600 15px ${FONT}`, color: 'var(--ink)' }}>{doc.fullName}</span>
+                          <span style={{ display: 'block', font: `400 13px ${FONT}`, color: 'var(--ink-muted)' }}>{doc.specialty} · {doc.hospital}</span>
+                        </span>
                       </span>
-                    </span>
-                    <span style={{ textAlign: 'right' }}>
-                      <span style={{ display: 'block', font: `600 13px ${FONT}`, color: '#d97706' }}>★ {Number(doc.rating).toFixed(1)}</span>
-                      <span style={{ display: 'block', font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}>{on ? `${availableSlots.length} open` : `${doc.openSlotCount} open`} slots</span>
-                    </span>
-                  </button>
+                      <span style={{ textAlign: 'right' }}>
+                        <span style={{ display: 'block', font: `600 13px ${FONT}`, color: '#d97706' }}>★ {Number(doc.rating).toFixed(1)}</span>
+                        <span style={{ display: 'block', font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}>{on ? `${availableSlots.length} open` : `${doc.openSlotCount} open`} slots</span>
+                      </span>
+                    </button>
+
+                    {/* "More about Dr. X" toggle */}
+                    {hasExtra && (
+                      <div style={{ padding: '0 18px 10px', textAlign: 'right' }}>
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); setExpandedDoctorId(expanded ? '' : doc.id); }}
+                          aria-expanded={expanded}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer', padding: '4px 2px',
+                            font: `600 12px ${FONT}`, color: 'var(--primary)',
+                          }}>
+                          {expanded ? '▴ Less' : `▾ More about ${shortName}`}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Expanded details panel */}
+                    {expanded && hasExtra && (
+                      <div style={{
+                        padding: '14px 18px',
+                        borderTop: '1px dashed var(--border)',
+                        background: on ? 'rgba(255,255,255,.4)' : 'var(--canvas)',
+                        font: `400 13px/1.55 ${FONT}`, color: 'var(--ink)',
+                      }}>
+                        {/* Quick-facts row */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px', marginBottom: doc.bio ? 10 : 0 }}>
+                          {doc.yearsExperience != null && (
+                            <span><strong>{doc.yearsExperience}</strong> yrs experience</span>
+                          )}
+                          {doc.languages && (
+                            <span>Speaks <strong>{doc.languages}</strong></span>
+                          )}
+                          {doc.consultationFee != null && (
+                            <span>Consultation ₹<strong>{Number(doc.consultationFee).toFixed(0)}</strong></span>
+                          )}
+                          {(doc.reviewCount ?? 0) > 0 && (
+                            <span><strong>{doc.reviewCount}</strong> patient reviews</span>
+                          )}
+                        </div>
+                        {doc.bio && (
+                          <p style={{ margin: 0, color: 'var(--ink-muted)' }}>{doc.bio}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -851,16 +998,20 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
 
             <div style={{ marginTop: 20, paddingTop: 18, borderTop: '1px solid var(--border)', font: `500 13px ${FONT}`, color: 'var(--muted)' }}>
               {selectedDoctor && selectedSlot
-                ? `${assessment.suggestedSpecialty} · ${selectedDoctor.fullName} · ${formatSlot(selectedSlot.slotAt)} · ${consultationType === 'VIDEO' ? 'Video call' : 'In person'}`
+                ? `${effectiveSpecialty} · ${selectedDoctor.fullName} · ${formatSlot(selectedSlot.slotAt)} · ${consultationType === 'VIDEO' ? 'Video call' : 'In person'}`
                 : 'Pick a day and time to see your appointment summary.'}
             </div>
 
             {bookingError && <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{bookingError}</div>}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 24 }}>
-              <button type="button" onClick={() => setStep(2)} style={btnGhost}><ArrowLeft size={15} /> Back</button>
-              <button type="submit" disabled={booking || !selectedDoctorId || !selectedSlotId}
-                style={{ ...btnPrimary, background: booking || !selectedSlotId ? '#9fc3bd' : 'var(--primary)', cursor: booking || !selectedSlotId ? 'not-allowed' : 'pointer' }}>
+              {isShortcut ? (
+                <button type="button" onClick={() => navigate('/')} style={btnGhost}><ArrowLeft size={15} /> Choose a different specialty</button>
+              ) : (
+                <button type="button" onClick={() => setStep(2)} style={btnGhost}><ArrowLeft size={15} /> Back</button>
+              )}
+              <button type="submit" disabled={booking || !selectedDoctorId || !selectedSlotId || (isShortcut && !shortcutIntake.trim())}
+                style={{ ...btnPrimary, background: booking || !selectedSlotId || (isShortcut && !shortcutIntake.trim()) ? '#9fc3bd' : 'var(--primary)', cursor: booking || !selectedSlotId || (isShortcut && !shortcutIntake.trim()) ? 'not-allowed' : 'pointer' }}>
                 {booking ? <><Loader2 size={15} className="animate-spin" /> Booking…</> : <>Book appointment <ArrowRight size={16} /></>}
               </button>
             </div>

@@ -17,10 +17,12 @@ import {
 /**
  * Practo-style "Book an appointment for an in-clinic consultation" grid.
  *
- * <p>Each card jumps straight to the hospitals directory pre-filtered to that specialty, which is
- * the fastest path from "I know the specialty" → "I can see hospitals + doctors that provide it".
- * The underlying route is a protected one — if the visitor isn't signed in, ProtectedRoute will
- * redirect them to login with a `next=` back to the same filtered URL.
+ * <p>Each card is a fast lane for patients who already know what kind of doctor they need: it
+ * jumps straight into the booking flow with the specialty pre-locked, skipping the symptom
+ * questionnaire. The booking page reads {@code ?specialty=} and lands the visitor on step 3
+ * (pick a doctor & time) with a short required "why are you here" intake above the doctor cards.
+ * If the visitor isn't signed in, ProtectedRoute will redirect them to login with a `next=` back
+ * to the same shortcut URL.
  */
 
 interface SpecialtyEntry {
@@ -47,7 +49,7 @@ export const SpecialtyGrid: React.FC = () => {
   const navigate = useNavigate();
 
   const go = (specialty: string) => {
-    navigate(`/hospitals?specialty=${encodeURIComponent(specialty)}`);
+    navigate(`/book?specialty=${encodeURIComponent(specialty)}`);
   };
 
   return (
