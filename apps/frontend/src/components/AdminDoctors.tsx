@@ -60,7 +60,7 @@ export const AdminDoctors: React.FC = () => {
   };
 
   return (
-    <PageTransition style={{ maxWidth: '1100px', margin: '48px auto', padding: '0 24px' }}>
+    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '48px auto', padding: '0 24px', boxSizing: 'border-box' }}>
       <motion.h1 {...fadeInUp} style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
         Doctor verification
       </motion.h1>
@@ -109,7 +109,12 @@ export const AdminDoctors: React.FC = () => {
           Nothing in <strong>{tab.toLowerCase()}</strong>.
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+        <div style={{
+          display: 'grid',
+          gap: 16,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+          width: '100%',
+        }}>
           {rows.map(d => (
             <motion.div
               key={d.id}
@@ -118,7 +123,9 @@ export const AdminDoctors: React.FC = () => {
               className="hover-lift"
               style={{
                 background: '#fff', border: '1px solid #d7e8e5', borderRadius: 16,
-                padding: '18px 20px', cursor: 'pointer',
+                padding: '20px 22px', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                height: '100%', boxSizing: 'border-box',
               }}
             >
               <div style={{ fontSize: 15, fontWeight: 700, color: '#0b3f3a' }}>{d.fullName}</div>

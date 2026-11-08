@@ -85,7 +85,7 @@ export const MyAppointments: React.FC = () => {
   };
 
   return (
-    <PageTransition style={{ maxWidth: '1000px', margin: '48px auto', padding: '0 24px' }}>
+    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '48px auto', padding: '0 24px', boxSizing: 'border-box' }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         flexWrap: 'wrap', gap: '20px', marginBottom: '28px',
@@ -177,7 +177,12 @@ export const MyAppointments: React.FC = () => {
       )}
 
       {!loading && !error && filtered.length > 0 && (
-        <div style={{ display: 'grid', gap: '16px' }}>
+        <div style={{
+          display: 'grid',
+          gap: '20px',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+          width: '100%',
+        }}>
           <AnimatePresence>
             {filtered.map(appt => {
               const canCancel = isUpcoming(appt);
@@ -190,94 +195,103 @@ export const MyAppointments: React.FC = () => {
                   animate="animate"
                   exit="exit"
                   className="card card-hover"
-                  style={{ padding: '24px' }}
+                  style={{
+                    padding: '24px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    height: '100%',
+                    boxSizing: 'border-box',
+                  }}
                 >
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    flexWrap: 'wrap', gap: '12px',
-                    borderBottom: '1px solid #d9ece7',
-                    paddingBottom: '16px', marginBottom: '16px',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      {appt.doctorAvatarUrl ? (
-                        <img
-                          src={appt.doctorAvatarUrl}
-                          alt={appt.doctorName ?? ''}
-                          style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }}
-                        />
-                      ) : (
-                        <div style={{
-                          width: '48px', height: '48px', borderRadius: '50%',
-                          backgroundColor: '#eaf6f2', color: '#0f766e',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontWeight: 700,
-                        }}>
-                          {(appt.doctorName ?? 'Dr').split(' ').map(s => s[0]).join('').slice(0, 2)}
-                        </div>
-                      )}
-                      <div>
-                        <h2 style={{ fontSize: '17px', fontWeight: 700, color: '#0b3f3a', margin: 0 }}>
-                          {appt.doctorName ?? 'Attending physician'}
-                        </h2>
-                        <div style={{ fontSize: '13px', color: '#52736d' }}>
-                          {appt.doctorSpecialty}{appt.doctorHospital ? ` · ${appt.doctorHospital}` : ''}
+                  <div>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      flexWrap: 'wrap', gap: '12px',
+                      borderBottom: '1px solid #d9ece7',
+                      paddingBottom: '16px', marginBottom: '16px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        {appt.doctorAvatarUrl ? (
+                          <img
+                            src={appt.doctorAvatarUrl}
+                            alt={appt.doctorName ?? ''}
+                            style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover' }}
+                          />
+                        ) : (
+                          <div style={{
+                            width: '48px', height: '48px', borderRadius: '50%',
+                            backgroundColor: '#eaf6f2', color: '#0f766e',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontWeight: 700,
+                          }}>
+                            {(appt.doctorName ?? 'Dr').split(' ').map(s => s[0]).join('').slice(0, 2)}
+                          </div>
+                        )}
+                        <div>
+                          <h2 style={{ fontSize: '17px', fontWeight: 700, color: '#0b3f3a', margin: 0 }}>
+                            {appt.doctorName ?? 'Attending physician'}
+                          </h2>
+                          <div style={{ fontSize: '13px', color: '#52736d' }}>
+                            {appt.doctorSpecialty}{appt.doctorHospital ? ` · ${appt.doctorHospital}` : ''}
+                          </div>
                         </div>
                       </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span
+                          className="badge-morph"
+                          style={{
+                            padding: '3px 10px', borderRadius: '9999px',
+                            fontSize: '12px', fontWeight: 700,
+                            color: urgencyColor(appt.urgency), backgroundColor: urgencyBg(appt.urgency),
+                          }}
+                        >{appt.urgency}</span>
+                        <span
+                          className="badge-morph"
+                          style={{
+                            padding: '3px 10px', borderRadius: '9999px',
+                            fontSize: '12px', fontWeight: 600,
+                            color: '#0b3f3a', backgroundColor: '#eaf6f2',
+                          }}
+                        >{statusLabel(appt.status)}</span>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span
-                        className="badge-morph"
-                        style={{
-                          padding: '3px 10px', borderRadius: '9999px',
-                          fontSize: '12px', fontWeight: 700,
-                          color: urgencyColor(appt.urgency), backgroundColor: urgencyBg(appt.urgency),
-                        }}
-                      >{appt.urgency}</span>
-                      <span
-                        className="badge-morph"
-                        style={{
-                          padding: '3px 10px', borderRadius: '9999px',
-                          fontSize: '12px', fontWeight: 600,
-                          color: '#0b3f3a', backgroundColor: '#eaf6f2',
-                        }}
-                      >{statusLabel(appt.status)}</span>
+
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                      gap: '12px',
+                      backgroundColor: '#eaf6f2',
+                      padding: '14px 18px', borderRadius: '12px',
+                      marginBottom: '14px', fontSize: '13px',
+                      border: '1px solid #d9ece7',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Clock size={16} color="#0f766e" />
+                        <span><strong>Slot:</strong> {formatSlot(appt.slotAt)}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {appt.consultationType === 'VIDEO' ? (
+                          <Video size={16} color="#0f766e" />
+                        ) : (
+                          <MapPin size={16} color="#0f766e" />
+                        )}
+                        <span><strong>Mode:</strong> {appt.consultationType === 'VIDEO' ? 'Telehealth' : 'In-Person'}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <FileText size={16} color="#0f766e" />
+                        <span><strong>Ref:</strong> {appt.id.slice(0, 8)}</span>
+                      </div>
                     </div>
+
+                    {appt.chiefComplaint && (
+                      <div style={{ fontSize: '14px', marginBottom: '12px', color: '#0b3f3a' }}>
+                        <strong>Reported concern:</strong> {appt.chiefComplaint}
+                      </div>
+                    )}
                   </div>
 
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                    gap: '14px',
-                    backgroundColor: '#eaf6f2',
-                    padding: '14px 18px', borderRadius: '12px',
-                    marginBottom: '14px', fontSize: '13px',
-                    border: '1px solid #d9ece7',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Clock size={16} color="#0f766e" />
-                      <span><strong>Slot:</strong> {formatSlot(appt.slotAt)}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {appt.consultationType === 'VIDEO' ? (
-                        <Video size={16} color="#0f766e" />
-                      ) : (
-                        <MapPin size={16} color="#0f766e" />
-                      )}
-                      <span><strong>Mode:</strong> {appt.consultationType === 'VIDEO' ? 'Telehealth' : 'In-Person'}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <FileText size={16} color="#0f766e" />
-                      <span><strong>Ref:</strong> {appt.id.slice(0, 8)}</span>
-                    </div>
-                  </div>
-
-                  {appt.chiefComplaint && (
-                    <div style={{ fontSize: '14px', marginBottom: '12px', color: '#0b3f3a' }}>
-                      <strong>Reported concern:</strong> {appt.chiefComplaint}
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: 'auto', paddingTop: '16px' }}>
                     {appt.consultationType === 'VIDEO' && appt.status !== 'CANCELLED' && appt.status !== 'COMPLETED' && (
                       <button
                         onClick={() => navigate(`/consultation/${appt.id}`)}

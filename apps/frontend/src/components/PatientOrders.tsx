@@ -47,7 +47,7 @@ export const PatientOrders: React.FC = () => {
   };
 
   return (
-    <PageTransition style={{ maxWidth: '820px', margin: '48px auto', padding: '0 24px 64px' }}>
+    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '48px auto', padding: '0 24px 64px', boxSizing: 'border-box' }}>
       <button
         onClick={() => navigate(-1)}
         className="hover-lift"
@@ -107,16 +107,23 @@ export const PatientOrders: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{
+          display: 'grid',
+          gap: 20,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+          width: '100%',
+        }}>
           {orders.map(o => (
             <motion.div
               key={o.id}
               {...fadeInUp}
               style={{
                 background: '#fff', border: '1px solid #d7e8e5', borderRadius: 16,
-                padding: '20px 22px',
+                padding: '24px', display: 'flex', flexDirection: 'column',
+                justifyContent: 'space-between', height: '100%', boxSizing: 'border-box',
               }}
             >
+              <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#0b3f3a' }}>
@@ -160,11 +167,12 @@ export const PatientOrders: React.FC = () => {
                   </div>
                 ))}
               </div>
+              </div>
 
               {/* Actions */}
               {o.status === 'NEW' && (
                 cancelling === o.id ? (
-                  <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+                  <div style={{ marginTop: 'auto', paddingTop: 16, display: 'flex', gap: 8 }}>
                     <button
                       onClick={() => cancel(o.id)}
                       disabled={acting}
@@ -185,17 +193,19 @@ export const PatientOrders: React.FC = () => {
                     >Keep order</button>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => setCancelling(o.id)}
-                    style={{
-                      marginTop: 14, background: 'transparent', color: '#b91c1c',
-                      border: '1px solid #fecaca', padding: '7px 14px', borderRadius: 9999,
-                      fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                      display: 'inline-flex', alignItems: 'center', gap: 6,
-                    }}
-                  >
-                    <AlertTriangle size={12} /> Cancel this order
-                  </button>
+                  <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+                    <button
+                      onClick={() => setCancelling(o.id)}
+                      style={{
+                        background: 'transparent', color: '#b91c1c',
+                        border: '1px solid #fecaca', padding: '7px 14px', borderRadius: 9999,
+                        fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                      }}
+                    >
+                      <AlertTriangle size={12} /> Cancel this order
+                    </button>
+                  </div>
                 )
               )}
             </motion.div>

@@ -227,7 +227,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Main Header Inner Content */}
         <div
           style={{
-            maxWidth: '1200px',
+            maxWidth: '1680px',
             margin: '0 auto',
             padding: '0 24px',
             height: '100%',

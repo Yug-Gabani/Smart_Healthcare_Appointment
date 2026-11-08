@@ -426,9 +426,11 @@ export const DoctorDashboard: React.FC = () => {
 
   return (
     <PageTransition style={{
-      maxWidth: '1200px',
+      width: '100%',
+      maxWidth: '1440px',
       margin: '0 auto',
       padding: '36px 20px 64px 20px',
+      boxSizing: 'border-box',
       fontFamily: "'Space Grotesk', ui-sans-serif, system-ui, sans-serif",
       color: '#0b3f3a',
     }}>
@@ -1326,7 +1328,12 @@ export const DoctorDashboard: React.FC = () => {
             </div>
           </section>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))',
+            gap: '16px',
+            width: '100%',
+          }}>
             {[
               {
                 id: 'tr-01',
@@ -1347,7 +1354,18 @@ export const DoctorDashboard: React.FC = () => {
                 consent: 'Explicit In-Clinic Transcription Consent Verified',
               },
             ].map(item => (
-              <div key={item.id} style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #d9ece7', padding: '22px 24px', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)' }}>
+              <div key={item.id} style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid #d9ece7',
+                padding: '22px 24px',
+                boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                height: '100%',
+                boxSizing: 'border-box',
+              }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                   <div>
                     <span style={{ fontSize: '16px', fontWeight: 700, color: '#0b3f3a' }}>{item.patient}</span>

@@ -55,9 +55,11 @@ export const SpecialtyGrid: React.FC = () => {
   return (
     <section
       style={{
-        maxWidth: '1120px',
+        width: '100%',
+        maxWidth: '1440px',
         margin: '0 auto 72px auto',
         padding: '0 24px',
+        boxSizing: 'border-box',
       }}
     >
       <div style={{ textAlign: 'center', marginBottom: '32px' }}>

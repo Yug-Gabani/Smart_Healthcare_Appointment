@@ -27,7 +27,7 @@ export const HospitalDetail: React.FC = () => {
   }, [id]);
 
   return (
-    <PageTransition style={{ maxWidth: '900px', margin: '48px auto', padding: '0 24px' }}>
+    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '48px auto', padding: '0 24px', boxSizing: 'border-box' }}>
       <button
         onClick={() => navigate(-1)}
         className="hover-lift"
@@ -120,10 +120,15 @@ export const HospitalDetail: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div style={{ display: 'grid', gap: '10px' }}>
+            <div style={{
+              display: 'grid',
+              gap: '16px',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+              width: '100%',
+            }}>
               {doctors.map(d => (
                 <div key={d.id} className="card card-hover" style={{
-                  padding: '14px 18px', display: 'flex', justifyContent: 'space-between',
+                  padding: '18px 20px', display: 'flex', justifyContent: 'space-between',
                   alignItems: 'center', gap: '14px', flexWrap: 'wrap',
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
