@@ -1,4 +1,4 @@
-# =========================================================
+﻿# =========================================================
 # PulseCare 1-Click Startup Script (PowerShell)
 # =========================================================
 Write-Host "========================================" -ForegroundColor Cyan
@@ -27,9 +27,9 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-# 2. Start Full-Stack Backend and Microservices Container
-Write-Host "`n[3/4] Starting Spring Boot Backend and microservices..." -ForegroundColor Yellow
-docker compose -f "$composeFile" --profile full up -d backend ai-service debezium 2>$null
+# 2. Start Full-Stack Backend Container
+Write-Host "`n[3/4] Starting Spring Boot Backend container..." -ForegroundColor Yellow
+docker compose -f "$composeFile" --profile full up -d backend
 
 # Wait for backend health
 Write-Host "Waiting for backend to become ready on port 8080..." -ForegroundColor Gray
