@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-public class NotificationAuditService {
+public class NotificationAuditService implements NotificationAuditServiceI {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationAuditService.class);
 

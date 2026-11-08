@@ -35,17 +35,21 @@ public class KafkaPaymentConfig {
     @Value("${spring.kafka.producer.properties.max.block.ms:2000}")
     private String maxBlockMs;
 
+    @Value("${spring.kafka.topic.auto-create:false}")
+    private boolean autoCreateTopics;
+
     @Bean
     public KafkaAdmin kafkaAdmin() {
         Map<String, Object> configs = new HashMap<>();
         configs.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         KafkaAdmin admin = new KafkaAdmin(configs);
         admin.setFatalIfBrokerNotAvailable(false);
+        admin.setAutoCreate(autoCreateTopics);
         return admin;
     }
 
     @Bean
-    @ConditionalOnProperty(name = "spring.kafka.topic.auto-create", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(name = "spring.kafka.topic.auto-create", havingValue = "true", matchIfMissing = false)
     public NewTopic paymentReceiptTopic() {
         return TopicBuilder.name(PAYMENT_RECEIPT_TOPIC)
                 .partitions(3)
@@ -54,7 +58,7 @@ public class KafkaPaymentConfig {
     }
 
     @Bean
-    @ConditionalOnProperty(name = "spring.kafka.topic.auto-create", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(name = "spring.kafka.topic.auto-create", havingValue = "true", matchIfMissing = false)
     public NewTopic paymentReceiptDlqTopic() {
         return TopicBuilder.name(PAYMENT_RECEIPT_DLQ_TOPIC)
                 .partitions(3)
