@@ -68,7 +68,7 @@ export const Hospitals: React.FC = () => {
   );
 
   return (
-    <PageTransition style={{ maxWidth: '1100px', margin: '48px auto', padding: '0 24px' }}>
+    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '48px auto', padding: '0 24px', boxSizing: 'border-box' }}>
       <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
         Browse hospitals
       </h1>
@@ -83,8 +83,9 @@ export const Hospitals: React.FC = () => {
         animate="animate"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(260px, 2fr) 1fr 1fr 1fr',
-          gap: '10px', marginBottom: '20px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '12px', marginBottom: '24px',
+          width: '100%',
         }}
       >
         <div style={{ position: 'relative' }}>
@@ -171,8 +172,9 @@ export const Hospitals: React.FC = () => {
             animate="animate"
             style={{
               display: 'grid',
-              gap: '16px',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+              gap: '20px',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+              width: '100%',
             }}
           >
             {results.map(h => (

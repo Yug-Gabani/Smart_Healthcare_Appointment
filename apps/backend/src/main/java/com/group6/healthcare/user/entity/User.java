@@ -79,6 +79,17 @@ public class User {
     @Column(name = "emergency_contact_phone", length = 50)
     private String emergencyContactPhone;
 
+    /* Self-reported health info — surfaced on the patient dashboard's right rail and
+     * editable from /profile. Introduced in V19 migration. All optional. */
+    @Column(name = "blood_group", length = 8)
+    private String bloodGroup;
+
+    @Column(name = "allergies", columnDefinition = "TEXT")
+    private String allergies;
+
+    @Column(name = "conditions", columnDefinition = "TEXT")
+    private String conditions;
+
     @Column(name = "is_deleted", nullable = false)
     private boolean isDeleted;
 

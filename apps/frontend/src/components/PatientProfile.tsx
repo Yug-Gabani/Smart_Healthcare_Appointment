@@ -56,6 +56,9 @@ export const PatientProfile: React.FC = () => {
         addressPincode: profile.addressPincode,
         emergencyContactName: profile.emergencyContactName,
         emergencyContactPhone: profile.emergencyContactPhone,
+        bloodGroup: profile.bloodGroup,
+        allergies: profile.allergies,
+        conditions: profile.conditions,
       });
       setProfile(saved);
       setSavedBanner(true);
@@ -230,6 +233,39 @@ export const PatientProfile: React.FC = () => {
               label="Emergency Contact Phone"
               value={profile.emergencyContactPhone ?? ''}
               onChange={v => set('emergencyContactPhone', v)}
+            />
+          </Row>
+
+          {/* Health information — surfaced on the dashboard's right rail. */}
+          <SectionHeading label="Health information" />
+          <Row>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#52736d', marginBottom: 6 }}>Blood group</div>
+              <CustomSelect
+                value={profile.bloodGroup ?? ''}
+                options={[
+                  { value: '', label: 'Not specified' },
+                  { value: 'A+', label: 'A+' }, { value: 'A-', label: 'A-' },
+                  { value: 'B+', label: 'B+' }, { value: 'B-', label: 'B-' },
+                  { value: 'AB+', label: 'AB+' }, { value: 'AB-', label: 'AB-' },
+                  { value: 'O+', label: 'O+' }, { value: 'O-', label: 'O-' },
+                  { value: 'UNKNOWN', label: "Don't know" },
+                ]}
+                onChange={val => set('bloodGroup', val || undefined)}
+              />
+            </div>
+            <div />
+          </Row>
+          <Row>
+            <WaveInput
+              label="Allergies (e.g. Penicillin, nuts, pollen)"
+              value={profile.allergies ?? ''}
+              onChange={v => set('allergies', v)}
+            />
+            <WaveInput
+              label="Ongoing conditions (e.g. Diabetes, Hypertension)"
+              value={profile.conditions ?? ''}
+              onChange={v => set('conditions', v)}
             />
           </Row>
 

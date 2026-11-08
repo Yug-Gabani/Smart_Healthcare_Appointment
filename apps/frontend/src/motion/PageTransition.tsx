@@ -40,7 +40,7 @@ export const PageTransition: React.FC<PageTransitionProps> = ({
         },
       }}
       className={className}
-      style={style}
+      style={{ width: '100%', boxSizing: 'border-box', ...style }}
       {...props}
     >
       {children}

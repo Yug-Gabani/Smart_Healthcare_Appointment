@@ -15,5 +15,9 @@ public record PatientProfileResponse(
         String addressState,
         String addressPincode,
         String emergencyContactName,
-        String emergencyContactPhone
+        String emergencyContactPhone,
+        /* Self-reported health fields (V19). Surfaced on the dashboard's right rail. */
+        String bloodGroup,
+        String allergies,
+        String conditions
 ) {}
