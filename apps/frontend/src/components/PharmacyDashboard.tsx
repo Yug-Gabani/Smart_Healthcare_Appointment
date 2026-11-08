@@ -81,7 +81,7 @@ export const PharmacyDashboard: React.FC = () => {
   const kpiCount = (s: PharmacyOrderStatus) => (tab === s ? rows.length : null);
 
   return (
-    <PageTransition style={{ maxWidth: '1200px', margin: '36px auto', padding: '0 24px 64px' }}>
+    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '36px auto', padding: '0 24px 64px', boxSizing: 'border-box' }}>
       <motion.h1 {...fadeInUp} style={{ fontSize: 28, fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
         Pharmacy desk
       </motion.h1>
@@ -152,7 +152,12 @@ export const PharmacyDashboard: React.FC = () => {
           No orders in <strong>{tab.replace('_', ' ').toLowerCase()}</strong>.
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+        <div style={{
+          display: 'grid',
+          gap: 16,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+          width: '100%',
+        }}>
           {rows.map(o => (
             <motion.div
               key={o.id}
@@ -161,7 +166,9 @@ export const PharmacyDashboard: React.FC = () => {
               className="hover-lift"
               style={{
                 background: '#fff', border: '1px solid #d7e8e5', borderRadius: 16,
-                padding: '18px 20px', cursor: 'pointer',
+                padding: '20px 22px', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                height: '100%', boxSizing: 'border-box',
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>

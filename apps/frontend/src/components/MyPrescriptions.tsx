@@ -89,7 +89,7 @@ export const MyPrescriptions: React.FC = () => {
   };
 
   return (
-    <PageTransition style={{ maxWidth: '960px', margin: '48px auto', padding: '0 24px' }}>
+    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '48px auto', padding: '0 24px', boxSizing: 'border-box' }}>
       <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
         My prescriptions
       </h1>
@@ -136,7 +136,12 @@ export const MyPrescriptions: React.FC = () => {
       )}
 
       {!loading && !error && rxList.length > 0 && (
-        <div style={{ display: 'grid', gap: '14px' }}>
+        <div style={{
+          display: 'grid',
+          gap: '20px',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+          width: '100%',
+        }}>
           <AnimatePresence>
             {rxList.map(rx => {
               const voided = rx.status === 'VOIDED';
@@ -161,8 +166,16 @@ export const MyPrescriptions: React.FC = () => {
                   animate="animate"
                   exit="exit"
                   className="card card-hover"
-                  style={{ padding: '20px' }}
+                  style={{
+                    padding: '24px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    height: '100%',
+                    boxSizing: 'border-box',
+                  }}
                 >
+                  <div>
                   <div style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     marginBottom: '12px', flexWrap: 'wrap', gap: '10px',
@@ -249,8 +262,9 @@ export const MyPrescriptions: React.FC = () => {
                       <strong>Notes:</strong> {rx.notes}
                     </div>
                   )}
+                  </div>
 
-                  <div style={{ marginTop: '14px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ marginTop: 'auto', paddingTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                     <button onClick={() => downloadPdf(rx.id)} className="btn btn-secondary hover-lift">
                       <Download size={14} /> PDF
                     </button>

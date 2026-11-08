@@ -13,6 +13,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -63,8 +64,11 @@ public class PaymentRefund {
     @Column(name = "status", nullable = false, length = 32)
     private String status;
 
-    @Column(name = "hours_before_slot")
-    private Double hoursBeforeSlot;
+    /* NUMERIC(6,2) in the DB (V18 migration) — mapped as BigDecimal so Hibernate's
+     * schema validation matches and so tier-boundary comparisons (e.g. 23.99 vs 24.0)
+     * are exact rather than subject to float imprecision. */
+    @Column(name = "hours_before_slot", precision = 6, scale = 2)
+    private BigDecimal hoursBeforeSlot;
 
     @Column(name = "policy_message", columnDefinition = "TEXT")
     private String policyMessage;

@@ -15,11 +15,15 @@ public record DoctorResponse(
         BigDecimal rating,
         Integer reviewCount,
         String bio,
+        Integer yearsExperience,
+        BigDecimal consultationFee,
+        String languages,
         List<SlotSummary> nextSlots,
         int openSlotCount
 ) {
     public record SlotSummary(UUID id, OffsetDateTime slotAt) {}
 
+    /** Legacy constructor kept so older call sites compile without passing the newer profile fields. */
     public DoctorResponse(
             UUID id,
             String fullName,
@@ -32,6 +36,6 @@ public record DoctorResponse(
             List<SlotSummary> nextSlots,
             int openSlotCount
     ) {
-        this(id, fullName, specialty, hospital, hospitalId, avatarUrl, rating, 0, bio, nextSlots, openSlotCount);
+        this(id, fullName, specialty, hospital, hospitalId, avatarUrl, rating, 0, bio, null, null, null, nextSlots, openSlotCount);
     }
 }

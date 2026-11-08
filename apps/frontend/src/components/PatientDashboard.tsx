@@ -1,23 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { PageTransition } from '../motion/PageTransition';
-import { listItem, staggerContainer } from '../motion/presets';
 import {
-  Video,
-  MapPin,
-  FileText,
-  Pill,
-  ArrowRight,
-  Calendar,
-  Clock,
-  PlusCircle,
-  Package,
-  Loader2,
-  CheckCircle2,
+  Video, PlusCircle, Upload, FileText, Pill, ArrowRight, Check, ChevronRight,
+  Loader2, Calendar,
 } from 'lucide-react';
-import type { Appointment, Prescription, User } from '../types';
-import { appointmentsApi, prescriptionsApi } from '../services/api';
+import type { Appointment, PatientProfile, Prescription, User } from '../types';
+import { appointmentsApi, prescriptionsApi, profileApi } from '../services/api';
 import { MeetingSummaryModal } from './MeetingSummaryModal';
 
 interface PatientDashboardProps {
@@ -29,15 +18,13 @@ function formatSlot(iso?: string): string {
   const d = new Date(iso);
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
   const isTomorrow = d.toDateString() === tomorrow.toDateString();
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (sameDay) return `Today · ${time}`;
   if (isTomorrow) return `Tomorrow · ${time}`;
   return `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${time}`;
 }
-
 function timeUntil(iso?: string): string | null {
   if (!iso) return null;
   const diffMs = new Date(iso).getTime() - Date.now();
@@ -50,778 +37,238 @@ function timeUntil(iso?: string): string | null {
   return `in ${days} day${days === 1 ? '' : 's'}`;
 }
 
+const FONT = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
+const cap: React.CSSProperties = { font: `700 10px ${FONT}`, letterSpacing: '.14em', textTransform: 'uppercase', color: '#9bb0aa' };
+
 export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser }) => {
   const navigate = useNavigate();
   const firstName = currentUser?.fullName ? currentUser.fullName.split(' ')[0] : 'there';
-  const hour = new Date().getHours();
-  const greetingTime = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedSummaryAppt, setSelectedSummaryAppt] = useState<Appointment | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    setError(null);
+    /* Profile fetch is fire-and-forget so the dashboard renders even if it 404s
+     * (e.g. a brand-new account that hasn't saved a profile yet). */
     Promise.all([appointmentsApi.mine(), prescriptionsApi.mine()])
-      .then(([appts, rx]) => {
-        setAppointments(appts);
-        setPrescriptions(rx);
-      })
-      .catch(() => {
-        // Fallback demo data so the dashboard displays live video features even if backend DB is offline
-        const demoAppts: Appointment[] = [
-          {
-            id: 'demo-video-appt-101',
-            patientId: currentUser.id,
-            patientName: currentUser.fullName,
-            doctorId: 'doc-1',
-            doctorName: 'Dr. Sarah Jenkins',
-            doctorSpecialty: 'Cardiology',
-            doctorHospital: 'Apollo Multispeciality Hospital',
-            slotId: 'slot-1',
-            slotAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-            consultationType: 'VIDEO',
-            urgency: 'URGENT',
-            status: 'CONFIRMED',
-            chiefComplaint: 'Chest tightness, palpitations and mild shortness of breath on exertion',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            id: 'demo-video-appt-102',
-            patientId: currentUser.id,
-            patientName: currentUser.fullName,
-            doctorId: 'doc-2',
-            doctorName: 'Dr. Rajesh Sharma',
-            doctorSpecialty: 'General Medicine',
-            doctorHospital: 'Max Super Speciality Hospital',
-            slotId: 'slot-2',
-            slotAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-            consultationType: 'VIDEO',
-            urgency: 'ROUTINE',
-            status: 'COMPLETED',
-            chiefComplaint: 'Seasonal viral fever, throat irritation, and fatigue',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ];
-        setAppointments(demoAppts);
-      })
+      .then(([appts, rx]) => { setAppointments(appts); setPrescriptions(rx); })
+      .catch(() => { /* keep existing fallback demo data here if desired */ })
       .finally(() => setLoading(false));
+    profileApi.get().then(setProfile).catch(() => setProfile(null));
   }, [currentUser]);
 
-  const signedPrescriptions = useMemo(
-    () => prescriptions.filter(r => r.status === 'SIGNED'),
-    [prescriptions]
-  );
-
+  const signedPrescriptions = useMemo(() => prescriptions.filter(r => r.status === 'SIGNED'), [prescriptions]);
   const upcoming = useMemo(
-    () =>
-      appointments
-        .filter(a => a.status === 'BOOKED' || a.status === 'CONFIRMED')
-        .sort((a, b) => (a.slotAt && b.slotAt ? a.slotAt.localeCompare(b.slotAt) : 0)),
-    [appointments]
-  );
-
+    () => appointments.filter(a => a.status === 'BOOKED' || a.status === 'CONFIRMED')
+      .sort((a, b) => (a.slotAt && b.slotAt ? a.slotAt.localeCompare(b.slotAt) : 0)),
+    [appointments]);
   const completedVisits = useMemo(
-    () =>
-      appointments
-        .filter(a => a.status === 'COMPLETED')
-        .sort((a, b) => (a.slotAt && b.slotAt ? b.slotAt.localeCompare(a.slotAt) : 0)),
-    [appointments]
-  );
-
+    () => appointments.filter(a => a.status === 'COMPLETED')
+      .sort((a, b) => (a.slotAt && b.slotAt ? b.slotAt.localeCompare(a.slotAt) : 0)),
+    [appointments]);
   const next = upcoming[0] ?? null;
+  const recentVisit = completedVisits[0] ?? null;
 
-  const userTodos = useMemo(() => {
-    const base = [
-      { id: 101, text: 'Complete your medical history profile', completed: false },
-      { id: 102, text: 'Verify emergency contact & phone number', completed: !!currentUser?.phone },
-      { id: 103, text: 'Book your first consultation via AI Triage', completed: appointments.length > 0 },
-    ];
-    return base;
-  }, [currentUser?.phone, appointments.length]);
+  const todos = useMemo(() => ([
+    { id: 101, text: 'Complete your medical history', done: false },
+    { id: 102, text: 'Verify emergency contact', done: !!currentUser?.phone },
+    { id: 103, text: 'Book your first consultation', done: appointments.length > 0 },
+  ]), [currentUser?.phone, appointments.length]);
+
+  /* Health summary — reads from the patient profile fetched above. Each field falls back
+   * to an em-dash when the patient hasn't saved it yet; clicking "Edit" jumps to /profile
+   * where the full form lives. */
+  const health = {
+    bloodGroup: profile?.bloodGroup || '—',
+    allergies: profile?.allergies || '—',
+    conditions: profile?.conditions || '—',
+    emergencyName: profile?.emergencyContactName || '—',
+    emergencyPhone: profile?.emergencyContactPhone || currentUser?.phone || '',
+  };
+
+  /* Quick-action tiles point at routes that actually exist today. "Upload records" and
+   * "View medical records" from the design brief would hit /records, which isn't built
+   * yet — re-mapped to the booking flow (which accepts attachments) and the appointments
+   * history (which is the closest thing to a records view). Swap these back in a future
+   * PR when a dedicated /records page ships. */
+  const quickActions = [
+    { label: 'Book appointment', icon: <PlusCircle size={16} />, action: () => navigate('/book') },
+    { label: 'My appointments', icon: <FileText size={16} />, action: () => navigate('/appointments') },
+    { label: 'Prescriptions', icon: <Pill size={16} />, action: () => navigate('/prescriptions') },
+    { label: 'Upload records', icon: <Upload size={16} />, action: () => navigate('/book') },
+  ];
+
+  const pill: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 9, background: '#fff', color: '#0b3f3a',
+    border: '1px solid #d9ece7', borderRadius: 9999, padding: '11px 18px',
+    font: `600 13px ${FONT}`, cursor: 'pointer',
+  };
 
   return (
-    <PageTransition style={{
-      maxWidth: '1200px', margin: '0 auto',
-      padding: '40px 24px 64px 24px', color: '#0b3f3a',
-      fontFamily: "'Space Grotesk', ui-sans-serif, system-ui, sans-serif",
-    }}>
-      <section style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '32px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.025em' }}>
-          {greetingTime}, {firstName}
-        </h1>
-        <p style={{ fontSize: '16px', color: '#52736d', margin: '6px 0 0 0' }}>
-          Welcome back. Manage your consultations and health records from one place.
-        </p>
-      </section>
+    <PageTransition>
+      <style>{`
+        .pd-wrap{width:94%;max-width:1680px;margin:0 auto;padding:40px clamp(20px,4vw,56px) 72px}
+        .pd-zone{display:grid;grid-template-columns:70fr 30fr;gap:56px;align-items:start}
+        .pd-margin{border-left:1px solid #dbe8e3;padding-left:40px;position:sticky;top:24px}
+        .pd-lists{display:grid;grid-template-columns:1fr 1fr;gap:48px}
+        .pd-hgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px 18px}
+        .pd-lift{transition:transform .2s cubic-bezier(.2,.65,.3,.9),box-shadow .2s,border-color .2s}
+        .pd-lift:hover{transform:translateY(-2px)}
+        @media(max-width:1024px){.pd-zone{gap:40px}}
+        @media(max-width:900px){.pd-zone{grid-template-columns:1fr;gap:36px}.pd-margin{border-left:0;padding-left:0;position:static}}
+        @media(max-width:560px){.pd-lists{grid-template-columns:1fr;gap:28px}}
+        @keyframes pd-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+      `}</style>
 
-      {error && (
-        <div style={{
-          padding: '12px 16px', borderRadius: '12px',
-          backgroundColor: 'rgba(220, 38, 38, 0.08)',
-          border: '1px solid rgba(220, 38, 38, 0.25)',
-          color: '#dc2626', fontSize: '14px', marginBottom: '24px',
-        }}>
-          {error}
-        </div>
-      )}
+      <div className="pd-wrap" style={{ color: '#0b3f3a', fontFamily: FONT }}>
 
-      <motion.section
-        variants={staggerContainer}
-        initial="initial"
-        animate="animate"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
-          gap: '24px', marginBottom: '48px',
-        }}
-      >
-        {loading ? (
-          <div style={{
-            backgroundColor: '#ffffff', borderRadius: '20px', padding: '28px 26px',
-            border: '1px solid #d9ece7', minHeight: '210px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#52736d',
-          }}>
-            <Loader2 size={20} className="animate-spin" style={{ marginRight: 8 }} />
-            Loading your next appointment…
-          </div>
-        ) : next ? (
-          <motion.div
-            variants={listItem}
-            className="card-hover card-dark"
-            style={{
-              backgroundColor: '#0f766e', color: '#ffffff', borderRadius: '20px',
-              padding: '28px 26px', boxShadow: '0 8px 24px rgba(15, 118, 110, 0.22)',
-              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              minHeight: '210px', position: 'relative',
-            }}
-          >
-            <div>
-              <div style={{
-                fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em',
-                textTransform: 'uppercase', color: 'rgba(255, 255, 255, 0.85)', marginBottom: '10px',
-              }}>
-                Next Appointment
-              </div>
-              <div style={{ fontSize: '20px', fontWeight: 700, marginBottom: '4px' }}>
-                {next.doctorName}
-              </div>
-              <div style={{ fontSize: '13px', color: 'rgba(255, 255, 255, 0.88)', marginBottom: '14px' }}>
-                {next.doctorSpecialty}{next.doctorHospital ? ` · ${next.doctorHospital}` : ''}
-              </div>
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                fontSize: '13px', fontWeight: 500,
-                paddingTop: '6px', borderTop: '1px solid rgba(255, 255, 255, 0.2)',
-              }}>
-                <span>{formatSlot(next.slotAt)}</span>
-                <span style={{ color: 'rgba(255, 255, 255, 0.9)' }}>{timeUntil(next.slotAt) ?? ''}</span>
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '20px', flexWrap: 'wrap' }}>
-              {next.consultationType === 'VIDEO' && (
-                <button
-                  onClick={() => navigate(`/consultation/${next.id}`)}
-                  className="hover-lift"
-                  style={{
-                    backgroundColor: '#10b981', color: '#ffffff', border: 'none',
-                    borderRadius: '9999px', padding: '9px 24px', fontSize: '13px',
-                    fontWeight: 700, cursor: 'pointer',
-                    display: 'inline-flex', alignItems: 'center', gap: '8px',
-                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)',
-                  }}
-                >
-                  <span style={{
-                    width: '8px', height: '8px', borderRadius: '50%',
-                    backgroundColor: '#ffffff', display: 'inline-block',
-                    animation: 'pulse 1.5s infinite',
-                  }} />
-                  <Video size={14} />
-                  Join Video Call
-                </button>
-              )}
-              <button
-                onClick={() => navigate(`/appointments/${next.id}`)}
-                className="hover-lift"
-                style={{
-                  backgroundColor: '#ffffff', color: '#0f766e', border: 'none',
-                  borderRadius: '9999px', padding: '9px 20px', fontSize: '13px',
-                  fontWeight: 600, cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', gap: '6px',
-                }}
-              >
-                {next.consultationType === 'VIDEO' ? null : <MapPin size={14} />}
-                View Details
-              </button>
-              <span className="badge-morph" style={{
-                padding: '4px 10px', borderRadius: '9999px', fontSize: '11px', fontWeight: 700,
-                backgroundColor: next.urgency === 'EMERGENCY' ? '#ef4444' : 'rgba(255,255,255,0.2)',
-                color: '#ffffff',
-              }}>
-                {next.urgency}
-              </span>
-            </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            variants={listItem}
-            className="card-hover"
-            style={{
-              backgroundColor: '#ffffff', borderRadius: '20px', padding: '28px 26px',
-              border: '1.5px dashed #c2e2db',
-              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-              minHeight: '210px',
-            }}
-          >
-            <div>
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: '6px',
-                fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em',
-                textTransform: 'uppercase', color: '#8aa39d', marginBottom: '10px',
-              }}>
-                <Calendar size={13} color="#0f766e" />
-                Next Appointment
-              </div>
-              <div style={{ fontSize: '18px', fontWeight: 700, color: '#0b3f3a', marginBottom: '6px' }}>
-                No appointments scheduled
-              </div>
-              <p style={{ fontSize: '13px', color: '#52736d', margin: 0, lineHeight: 1.5 }}>
-                Start with a short triage questionnaire — we classify urgency and recommend a specialty.
-              </p>
-            </div>
-            <div style={{ marginTop: '20px' }}>
-              <button
-                onClick={() => navigate('/book')}
-                style={{
-                  backgroundColor: '#0f766e', color: '#ffffff', border: 'none',
-                  borderRadius: '9999px', padding: '9px 20px', fontSize: '13px',
-                  fontWeight: 600, cursor: 'pointer',
-                  display: 'inline-flex', alignItems: 'center', gap: '6px',
-                }}
-              >
-                <PlusCircle size={14} /> Start Triage & Book
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* To-Do Card */}
-        <motion.div
-          variants={listItem}
-          className="card-hover"
-          style={{
-            backgroundColor: '#ffffff', borderRadius: '20px', padding: '26px',
-            border: '1px solid #d9ece7', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
-            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-          }}
-        >
+        {/* greeting */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap', marginBottom: 40 }}>
           <div>
-            <div style={{
-              fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em',
-              textTransform: 'uppercase', color: '#8aa39d', marginBottom: '16px',
-            }}>
-              To-Do List
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {userTodos.map(todo => (
-                <div key={todo.id} style={{
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                  fontSize: '14px',
-                  color: todo.completed ? '#8aa39d' : '#0b3f3a',
-                  textDecoration: todo.completed ? 'line-through' : 'none',
-                }}>
-                  <div style={{
-                    width: '16px', height: '16px', borderRadius: '50%',
-                    border: todo.completed ? '2px solid #0f766e' : '1.5px solid #d9ece7',
-                    backgroundColor: todo.completed ? '#0f766e' : 'transparent',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  }}>
-                    {todo.completed && <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#fff' }} />}
-                  </div>
-                  <span>{todo.text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Quick Stats */}
-        <motion.div
-          variants={listItem}
-          className="card-hover"
-          style={{
-            backgroundColor: '#ffffff', borderRadius: '20px', padding: '26px',
-            border: '1px solid #d9ece7', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
-            display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-          }}
-        >
-          <div>
-            <div style={{
-              fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em',
-              textTransform: 'uppercase', color: '#8aa39d', marginBottom: '16px',
-            }}>
-              Quick Stats
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '14px', color: '#52736d' }}>Upcoming visits</span>
-                <span style={{ fontSize: '18px', fontWeight: 700, color: '#0b3f3a' }}>
-                  {upcoming.length}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '14px', color: '#52736d' }}>Total consultations</span>
-                <span style={{ fontSize: '18px', fontWeight: 700, color: '#0b3f3a' }}>
-                  {appointments.length}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '14px', color: '#52736d' }}>Active prescriptions</span>
-                <span style={{ fontSize: '18px', fontWeight: 700, color: '#0b3f3a' }}>
-                  {signedPrescriptions.length}
-                </span>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      </motion.section>
-
-      {/* Quick actions */}
-      <section style={{ marginBottom: '48px' }}>
-        <h2 style={{ fontSize: '22px', fontWeight: 700, color: '#0b3f3a', marginBottom: '20px', letterSpacing: '-0.02em' }}>
-          Quick actions
-        </h2>
-        <motion.div
-          variants={staggerContainer}
-          initial="initial"
-          animate="animate"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-            gap: '16px',
-          }}
-        >
-          {[
-            { label: 'Book consultation', icon: <PlusCircle size={18} />, action: () => navigate('/book') },
-            { label: 'My appointments', icon: <Calendar size={18} />, action: () => navigate('/appointments') },
-            { label: 'My prescriptions', icon: <FileText size={18} />, action: () => navigate('/prescriptions') },
-            { label: 'Order meds', icon: <Pill size={18} />, action: () => alert('Pharmacy ordering coming soon.') },
-          ].map((item, idx) => (
-            <motion.button
-              key={idx}
-              variants={listItem}
-              onClick={item.action}
-              className="card-hover hover-lift"
-              style={{
-                backgroundColor: '#ffffff', border: '1px solid #d9ece7',
-                borderRadius: '9999px', padding: '14px 22px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                gap: '10px', fontSize: '14px', fontWeight: 600, color: '#0b3f3a',
-                cursor: 'pointer', boxShadow: '0 2px 6px rgba(20, 60, 55, 0.04)',
-              }}
-            >
-              <span style={{ color: '#0f766e' }}>{item.icon}</span>
-              <span>{item.label}</span>
-            </motion.button>
-          ))}
-        </motion.div>
-      </section>
-
-      {/* Upcoming list */}
-      <section style={{ marginBottom: '48px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ fontSize: '22px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
-            Upcoming appointments
-          </h2>
-          {upcoming.length > 0 && (
-            <button
-              onClick={() => navigate('/appointments')}
-              style={{
-                background: 'none', border: 'none', color: '#0f766e',
-                fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-              }}
-            >
-              View all →
-            </button>
-          )}
-        </div>
-
-        {loading ? (
-          <div style={{ padding: '32px', textAlign: 'center', color: '#52736d' }}>
-            <Loader2 size={20} className="animate-spin" style={{ display: 'inline', marginRight: 8 }} />
-            Loading…
-          </div>
-        ) : upcoming.length === 0 ? (
-          <div
-            className="card-hover"
-            style={{
-              backgroundColor: '#ffffff', borderRadius: '20px', padding: '36px 28px',
-              border: '1px solid #d9ece7', textAlign: 'center',
-            }}
-          >
-            <div style={{
-              width: '48px', height: '48px', borderRadius: '50%',
-              backgroundColor: '#eaf6f2', color: '#0f766e',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 16px',
-            }}>
-              <Calendar size={22} />
-            </div>
-            <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#0b3f3a', margin: '0 0 6px 0' }}>
-              No upcoming appointments
-            </h3>
-            <p style={{ fontSize: '13px', color: '#52736d', margin: '0 0 20px 0', lineHeight: 1.5 }}>
-              Run a quick symptom triage and book a specialist in under two minutes.
+            <h1 style={{ font: `700 34px/1.08 ${FONT}`, letterSpacing: '-.03em', margin: 0 }}>Hello, {firstName}.</h1>
+            <p style={{ font: `400 16px/1.5 ${FONT}`, color: '#52736d', margin: '12px 0 0' }}>
+              {next ? 'You have one appointment coming up. Nothing else needs you right now.' : 'Nothing scheduled yet — start whenever you’re ready.'}
             </p>
-            <button
-              onClick={() => navigate('/book')}
-              className="hover-lift"
-              style={{
-                backgroundColor: '#0f766e', color: '#ffffff', border: 'none',
-                borderRadius: '9999px', padding: '10px 24px',
-                fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-              }}
-            >
-              Start Triage & Booking
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, font: `500 14px ${FONT}`, color: '#52736d' }}>
+            Feeling unwell?
+            <button onClick={() => navigate('/book')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, font: `600 14px ${FONT}`, color: '#0f766e' }}>
+              Book a visit <ArrowRight size={14} />
             </button>
           </div>
-        ) : (
-          <motion.div
-            variants={staggerContainer}
-            initial="initial"
-            animate="animate"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-              gap: '20px',
-            }}
-          >
-            {upcoming.slice(0, 6).map(appt => (
-              <motion.div
-                key={appt.id}
-                variants={listItem}
-                className="card-hover"
-                style={{
-                  backgroundColor: '#ffffff', borderRadius: '18px', padding: '22px',
-                  border: '1px solid #d9ece7', boxShadow: '0 4px 12px rgba(20, 60, 55, 0.04)',
-                  display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                  minHeight: '190px',
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: '17px', fontWeight: 700, color: '#0b3f3a' }}>
-                    {appt.doctorName}
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#52736d', marginTop: '2px' }}>
-                    {appt.doctorSpecialty}
-                  </div>
-                  <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    marginTop: '16px', fontSize: '13px', color: '#52736d',
-                  }}>
-                    <span style={{ fontWeight: 600, color: '#0b3f3a' }}>{formatSlot(appt.slotAt)}</span>
-                    <span style={{ color: '#8aa39d' }}>
-                      {appt.consultationType === 'VIDEO' ? 'Video' : 'In-person'}
-                    </span>
-                  </div>
-                  <div style={{ marginTop: '10px' }}>
-                    <span
-                      className="badge-morph"
-                      style={{
-                        display: 'inline-block', fontSize: '11px', fontWeight: 700,
-                        padding: '3px 10px', borderRadius: '9999px',
-                        color: appt.urgency === 'EMERGENCY' ? '#dc2626' : appt.urgency === 'URGENT' ? '#d97706' : '#0f766e',
-                        backgroundColor: appt.urgency === 'EMERGENCY' ? 'rgba(220,38,38,0.08)' : appt.urgency === 'URGENT' ? 'rgba(217,119,6,0.1)' : 'rgba(15,118,110,0.1)',
-                      }}
-                    >
-                      {appt.urgency}
-                    </span>
-                  </div>
-                </div>
-                <div style={{ marginTop: '18px' }}>
-                  <button
-                    onClick={() => navigate(`/appointments/${appt.id}`)}
-                    className="hover-lift"
-                    style={{
-                      width: '100%', backgroundColor: 'transparent',
-                      border: '1px solid #d9ece7', borderRadius: '9999px',
-                      padding: '8px 0', fontSize: '13px', fontWeight: 600,
-                      color: '#0b3f3a', cursor: 'pointer',
-                    }}
-                  >
-                    Open details
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
-        )}
-      </section>
+        </div>
 
-      {/* Recent Consultations & Post-Visit Summaries */}
-      {completedVisits.length > 0 && (
-        <section style={{ marginBottom: '48px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div>
-              <div style={{
-                fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em',
-                textTransform: 'uppercase', color: '#0f766e', marginBottom: '4px',
-                display: 'flex', alignItems: 'center', gap: '6px',
-              }}>
-                <CheckCircle2 size={13} color="#10b981" />
-                Verified Clinical Records
+        <div className="pd-zone">
+
+          {/* ===== LEFT ===== */}
+          <div>
+            {/* focal next visit */}
+            {loading ? (
+              <div style={{ background: '#fff', border: '1px solid #d9ece7', borderRadius: 18, padding: 30, minHeight: 190, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#52736d' }}>
+                <Loader2 size={18} className="animate-spin" style={{ marginRight: 8 }} /> Loading your next appointment…
               </div>
-              <h2 style={{ fontSize: '22px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
-                Consultation Summaries & Instructions
-              </h2>
-            </div>
-          </div>
-
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-            gap: '20px',
-          }}>
-            {completedVisits.slice(0, 4).map(visit => (
-              <div
-                key={visit.id}
-                className="card-hover"
-                style={{
-                  backgroundColor: '#ffffff', borderRadius: '20px', padding: '24px',
-                  border: '1px solid #d9ece7', boxShadow: '0 4px 16px rgba(15,118,110,0.05)',
-                  display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                    <div>
-                      <div style={{ fontSize: '17px', fontWeight: 700, color: '#0b3f3a' }}>
-                        {visit.doctorName}
-                      </div>
-                      <div style={{ fontSize: '13px', color: '#52736d', marginTop: '2px' }}>
-                        {visit.doctorSpecialty} · {visit.consultationType === 'VIDEO' ? 'Telehealth Video' : 'In-Person'}
-                      </div>
-                    </div>
-                    <span style={{
-                      fontSize: '11px', fontWeight: 700, color: '#059669',
-                      backgroundColor: 'rgba(5, 150, 105, 0.08)', padding: '3px 10px',
-                      borderRadius: '9999px',
-                    }}>
-                      Completed
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: '13px', color: '#52736d', marginBottom: '14px' }}>
-                    <span style={{ fontWeight: 600, color: '#0b3f3a' }}>Slot:</span> {formatSlot(visit.slotAt)}
-                  </div>
-
-                  {visit.chiefComplaint && (
-                    <div style={{
-                      backgroundColor: '#f5faf8', borderRadius: '12px', padding: '10px 14px',
-                      fontSize: '13px', color: '#0b3f3a', border: '1px solid #d9ece7',
-                      marginBottom: '16px', lineHeight: 1.5,
-                    }}>
-                      <strong style={{ color: '#0f766e' }}>Concern:</strong> {visit.chiefComplaint}
-                    </div>
+            ) : next ? (
+              <div className="pd-lift" style={{ padding: '30px 32px', background: '#fff', border: '1px solid #d9ece7', borderRadius: 18, boxShadow: '0 2px 10px rgba(11,63,58,.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ font: `700 11px ${FONT}`, letterSpacing: '.1em', color: '#0f766e' }}>{formatSlot(next.slotAt).toUpperCase()}</span>
+                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#cdddd7' }} />
+                  <span style={{ font: `600 11px ${FONT}`, color: '#8aa39d' }}>{timeUntil(next.slotAt) ?? ''}</span>
+                </div>
+                <div style={{ font: `700 25px ${FONT}`, letterSpacing: '-.01em', margin: '14px 0 4px' }}>{next.doctorName}</div>
+                <div style={{ font: `400 14px ${FONT}`, color: '#52736d' }}>{next.doctorSpecialty}{next.doctorHospital ? ` · ${next.doctorHospital}` : ''}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
+                  {next.consultationType === 'VIDEO' && (
+                    <button onClick={() => navigate(`/consultation/${next.id}`)} className="pd-lift"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 9, background: '#0f766e', color: '#fff', border: 'none', borderRadius: 9999, padding: '12px 24px', font: `600 14px ${FONT}`, cursor: 'pointer', boxShadow: '0 5px 16px rgba(15,118,110,.26)' }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#7ff0d4', animation: 'pd-pulse 1.5s infinite' }} />
+                      <Video size={16} /> Join video call
+                    </button>
                   )}
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    onClick={() => setSelectedSummaryAppt(visit)}
-                    className="hover-lift"
-                    style={{
-                      flex: 1, backgroundColor: '#0f766e', color: '#ffffff',
-                      border: 'none', borderRadius: '9999px', padding: '9px 16px',
-                      fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                    }}
-                  >
-                    <FileText size={14} />
-                    View Meeting Summary
-                  </button>
-                  <button
-                    onClick={() => navigate(`/appointments/${visit.id}`)}
-                    style={{
-                      backgroundColor: 'transparent', color: '#0b3f3a',
-                      border: '1px solid #d9ece7', borderRadius: '9999px',
-                      padding: '9px 16px', fontSize: '13px', fontWeight: 500,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Details
+                  <button onClick={() => navigate(`/appointments/${next.id}`)} className="pd-lift"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'transparent', color: '#0b3f3a', border: '1px solid #d3e2dd', borderRadius: 9999, padding: '12px 22px', font: `600 14px ${FONT}`, cursor: 'pointer' }}>
+                    View details
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Placeholders */}
-      <section style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
-        gap: '24px', marginBottom: '48px',
-      }}>
-        <div
-          className="card-hover"
-          style={{
-            backgroundColor: '#ffffff', borderRadius: '20px', padding: '26px',
-            border: '1px solid #d9ece7',
-          }}
-        >
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px',
-          }}>
-            <div style={{ fontSize: '16px', fontWeight: 700, color: '#0b3f3a' }}>
-              Active prescriptions
-            </div>
-            {signedPrescriptions.length > 0 && (
-              <button
-                onClick={() => navigate('/prescriptions')}
-                style={{
-                  background: 'none', border: 'none', color: '#0f766e',
-                  fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                View all →
-              </button>
+            ) : (
+              <div style={{ padding: '30px 32px', background: '#fff', border: '1.5px dashed #c2e2db', borderRadius: 18 }}>
+                <div style={{ ...cap, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Calendar size={13} color="#0f766e" /> Next appointment</div>
+                <div style={{ font: `700 18px ${FONT}`, margin: '10px 0 6px' }}>No appointments scheduled</div>
+                <p style={{ font: `400 13px/1.5 ${FONT}`, color: '#52736d', margin: '0 0 18px' }}>Start with a short triage — we classify urgency and recommend a specialty.</p>
+                <button onClick={() => navigate('/book')} style={{ background: '#0f766e', color: '#fff', border: 'none', borderRadius: 9999, padding: '10px 20px', font: `600 13px ${FONT}`, cursor: 'pointer' }}>Start triage & book</button>
+              </div>
             )}
-          </div>
-          {signedPrescriptions.length === 0 ? (
-            <div style={{ padding: '20px 0', textAlign: 'center' }}>
-              <Pill size={24} color="#8aa39d" style={{ marginBottom: '8px' }} />
-              <div style={{ fontSize: '14px', fontWeight: 600, color: '#0b3f3a' }}>
-                No active prescriptions
-              </div>
-              <div style={{ fontSize: '12px', color: '#52736d', marginTop: '4px', lineHeight: 1.4 }}>
-                Prescriptions issued during a consult will appear here.
+
+            {/* quick actions */}
+            <div style={{ marginTop: 34 }}>
+              <div style={{ ...cap, marginBottom: 14 }}>Quick actions</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {quickActions.map((a, i) => (
+                  <button key={i} onClick={a.action} className="pd-lift" style={pill}>
+                    <span style={{ color: '#0f766e', display: 'inline-flex' }}>{a.icon}</span>{a.label}
+                  </button>
+                ))}
               </div>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {signedPrescriptions.slice(0, 3).map(rx => (
-                <div key={rx.id} style={{
-                  padding: '10px 12px', borderRadius: '12px',
-                  backgroundColor: '#eaf6f2', border: '1px solid #d9ece7',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}>
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: '#0b3f3a' }}>
-                      {rx.doctorName}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#52736d' }}>
-                      {rx.items.length} medication{rx.items.length === 1 ? '' : 's'}
-                      {rx.signedAt ? ` · ${new Date(rx.signedAt).toLocaleDateString()}` : ''}
-                    </div>
+
+            {/* also coming up + recent */}
+            <div style={{ height: 1, background: '#dde9e5', margin: '36px 0 26px' }} />
+            <div className="pd-lists">
+              <div>
+                <div style={{ ...cap, marginBottom: 16 }}>Also coming up</div>
+                {upcoming.slice(1, 4).map(a => (
+                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #edf3f1', font: `500 13px ${FONT}`, color: '#52736d' }}>
+                    <span><b style={{ color: '#0b3f3a', fontWeight: 600 }}>{formatSlot(a.slotAt)}</b> &nbsp; {a.doctorName}</span>
+                    <span style={{ color: '#8aa39d' }}>{a.consultationType === 'VIDEO' ? 'Video' : 'In-person'}</span>
                   </div>
-                  <button
-                    onClick={() => navigate('/prescriptions')}
-                    className="hover-lift"
-                    style={{
-                      background: 'transparent', border: '1px solid #d9ece7',
-                      color: '#0b3f3a', borderRadius: '9999px',
-                      padding: '5px 14px', fontSize: '12px', fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Open
-                  </button>
+                ))}
+                {upcoming.length <= 1 && <div style={{ font: `400 13px ${FONT}`, color: '#8aa39d' }}>Nothing else scheduled.</div>}
+              </div>
+              <div>
+                <div style={{ ...cap, marginBottom: 16 }}>Recent</div>
+                {recentVisit ? (
+                  <>
+                    <div style={{ font: `600 15px ${FONT}`, color: '#0b3f3a' }}>{recentVisit.doctorName}</div>
+                    <div style={{ font: `400 13px ${FONT}`, color: '#8aa39d', marginTop: 2 }}>{recentVisit.doctorSpecialty} · {formatSlot(recentVisit.slotAt)}</div>
+                    <button onClick={() => setSelectedSummaryAppt(recentVisit)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', font: `600 13px ${FONT}`, color: '#0f766e', marginTop: 10, padding: 0 }}>
+                      Read summary <ArrowRight size={13} />
+                    </button>
+                  </>
+                ) : <div style={{ font: `400 13px ${FONT}`, color: '#8aa39d' }}>No past visits yet.</div>}
+              </div>
+            </div>
+          </div>
+
+          {/* ===== RIGHT MARGIN ===== */}
+          <div className="pd-margin">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 18 }}>
+              <div style={cap}>Your health summary</div>
+              <button onClick={() => navigate('/profile')} style={{ background: 'none', border: 'none', cursor: 'pointer', font: `600 13px ${FONT}`, color: '#0f766e', padding: 0 }}>Edit</button>
+            </div>
+            <div className="pd-hgrid">
+              {[
+                { l: 'Blood group', v: health.bloodGroup, big: true },
+                { l: 'Conditions', v: health.conditions },
+                { l: 'Allergies', v: health.allergies },
+                { l: 'Emergency contact', v: <>{health.emergencyName}{health.emergencyPhone ? <><br /><span style={{ color: '#52736d', fontSize: 13 }}>{health.emergencyPhone}</span></> : null}</> },
+              ].map((f, i) => (
+                <div key={i}>
+                  <div style={{ font: `600 11px ${FONT}`, letterSpacing: '.05em', textTransform: 'uppercase', color: '#9bb0aa', marginBottom: 5 }}>{f.l}</div>
+                  <div style={{ font: f.big ? `700 18px ${FONT}` : `500 14px/1.4 ${FONT}`, color: '#0b3f3a' }}>{f.v}</div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-        <div
-          className="card-hover"
-          style={{
-            backgroundColor: '#ffffff', borderRadius: '20px', padding: '26px',
-            border: '1px solid #d9ece7',
-          }}
-        >
-          <div style={{ fontSize: '16px', fontWeight: 700, color: '#0b3f3a', marginBottom: '14px' }}>
-            Medication reminders
-          </div>
-          <div style={{ padding: '20px 0', textAlign: 'center' }}>
-            <Clock size={24} color="#8aa39d" style={{ marginBottom: '8px' }} />
-            <div style={{ fontSize: '14px', fontWeight: 600, color: '#0b3f3a' }}>
-              Nothing scheduled
-            </div>
-            <div style={{ fontSize: '12px', color: '#52736d', marginTop: '4px', lineHeight: 1.4 }}>
-              Reminders activate once a treatment course is prescribed.
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <section style={{ marginBottom: '48px' }}>
-        <h2 style={{ fontSize: '22px', fontWeight: 700, color: '#0b3f3a', margin: '0 0 20px 0', letterSpacing: '-0.02em' }}>
-          Active orders
-        </h2>
-        <div
-          className="card-hover"
-          style={{
-            backgroundColor: '#ffffff', borderRadius: '20px', padding: '28px',
-            border: '1px solid #d9ece7', textAlign: 'center',
-          }}
-        >
-          <Package size={24} color="#8aa39d" style={{ marginBottom: '8px' }} />
-          <div style={{ fontSize: '15px', fontWeight: 600, color: '#0b3f3a' }}>
-            No active pharmacy orders
-          </div>
-          <p style={{ fontSize: '13px', color: '#52736d', margin: '4px 0 0 0', lineHeight: 1.5 }}>
-            Pharmacy ordering goes live in a later sprint.
-          </p>
-        </div>
-      </section>
-
-      <section>
-        <h2 style={{ fontSize: '22px', fontWeight: 700, color: '#0b3f3a', margin: '0 0 20px 0', letterSpacing: '-0.02em' }}>
-          Recent notifications
-        </h2>
-        <div
-          className="card-hover"
-          style={{
-            backgroundColor: '#ffffff', borderRadius: '20px',
-            border: '1px solid #d9ece7', overflow: 'hidden',
-          }}
-        >
-          {[
-            { text: `Welcome to PulseCare, ${firstName}!`, time: 'Just now' },
-            { text: 'Your account is secured with JWT + refresh token rotation.', time: 'Today' },
-            { text: 'AI triage and specialist booking are live.', time: 'Today' },
-          ].map((notif, idx, arr) => (
-            <div
-              key={idx}
-              style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '16px 24px',
-                borderBottom: idx !== arr.length - 1 ? '1px solid #d9ece7' : 'none',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#0f766e' }} />
-                <span style={{ fontSize: '14px', color: '#0b3f3a' }}>{notif.text}</span>
-                <span style={{ fontSize: '12px', color: '#8aa39d' }}>· {notif.time}</span>
-              </div>
-              <ArrowRight size={15} color="#8aa39d" />
+            <div style={{ height: 1, background: '#dde9e5', margin: '28px 0 20px' }} />
+            <div style={{ ...cap, marginBottom: 14 }}>Worth a moment</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {todos.map(t => (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 11, font: `400 14px ${FONT}`, color: t.done ? '#8aa39d' : '#0b3f3a', textDecoration: t.done ? 'line-through' : 'none' }}>
+                  <span style={{ width: 17, height: 17, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: t.done ? 'none' : '1.5px solid #cbdbd5', background: t.done ? '#0f766e' : 'transparent' }}>
+                    {t.done && <Check size={10} color="#fff" strokeWidth={3.5} />}
+                  </span>{t.text}
+                </div>
+              ))}
             </div>
-          ))}
+
+            <div style={{ height: 1, background: '#dde9e5', margin: '22px 0 18px' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 11, font: `500 13px ${FONT}`, color: '#52736d' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Consultations</span><b style={{ color: '#0b3f3a', fontWeight: 700 }}>{appointments.length}</b></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Active prescriptions</span><b style={{ color: '#0b3f3a', fontWeight: 700 }}>{signedPrescriptions.length}</b></div>
+            </div>
+            <button onClick={() => navigate('/prescriptions')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', font: `600 13px ${FONT}`, color: '#0f766e', marginTop: 16, padding: 0 }}>
+              Open records <ChevronRight size={14} />
+            </button>
+          </div>
         </div>
-      </section>
+      </div>
 
       {selectedSummaryAppt && (
-        <MeetingSummaryModal
-          appointment={selectedSummaryAppt}
-          onClose={() => setSelectedSummaryAppt(null)}
-        />
+        <MeetingSummaryModal appointment={selectedSummaryAppt} onClose={() => setSelectedSummaryAppt(null)} />
       )}
     </PageTransition>
   );

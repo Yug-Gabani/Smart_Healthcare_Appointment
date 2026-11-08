@@ -33,6 +33,9 @@ export interface Doctor {
   rating: number;
   reviewCount?: number;
   bio?: string;
+  yearsExperience?: number;
+  consultationFee?: number;
+  languages?: string;
   nextSlots: SlotSummary[];
   openSlotCount: number;
   /** Legacy field retained so the old booking modal still compiles until it is retired. */
@@ -255,7 +258,14 @@ export interface PatientProfile {
   addressPincode?: string;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
+  /** Self-reported health info (V19). Shown on the dashboard's right rail, editable from /profile. */
+  bloodGroup?: string;
+  allergies?: string;
+  conditions?: string;
 }
+
+export const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'UNKNOWN'] as const;
+export type BloodGroup = typeof BLOOD_GROUPS[number];
 
 export interface AuthState {
   token: string | null;

@@ -57,6 +57,9 @@ public class PatientProfileController {
         if (req.addressPincode() != null)       u.setAddressPincode(nullIfBlank(req.addressPincode()));
         if (req.emergencyContactName() != null) u.setEmergencyContactName(nullIfBlank(req.emergencyContactName()));
         if (req.emergencyContactPhone() != null)u.setEmergencyContactPhone(nullIfBlank(req.emergencyContactPhone()));
+        if (req.bloodGroup() != null)           u.setBloodGroup(nullIfBlank(req.bloodGroup()));
+        if (req.allergies() != null)            u.setAllergies(nullIfBlank(req.allergies()));
+        if (req.conditions() != null)           u.setConditions(nullIfBlank(req.conditions()));
         return ApiResponse.ok(toResponse(userRepository.save(u)), "Profile updated");
     }
 
@@ -69,7 +72,8 @@ public class PatientProfileController {
                 u.getId(), u.getEmail(), u.getFullName(), u.getPhone(),
                 u.getDateOfBirth(), u.getGender(),
                 u.getAddressStreet(), u.getAddressCity(), u.getAddressState(), u.getAddressPincode(),
-                u.getEmergencyContactName(), u.getEmergencyContactPhone()
+                u.getEmergencyContactName(), u.getEmergencyContactPhone(),
+                u.getBloodGroup(), u.getAllergies(), u.getConditions()
         );
     }
 }

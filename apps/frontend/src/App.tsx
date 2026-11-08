@@ -110,7 +110,7 @@ export const App: React.FC = () => {
         </>
       )}
 
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: isConsultationRoute ? 'hidden' : undefined }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%', overflow: isConsultationRoute ? 'hidden' : undefined }}>
         <Routes>
           {/* Root: dashboard for signed-in users, landing otherwise */}
           {/*

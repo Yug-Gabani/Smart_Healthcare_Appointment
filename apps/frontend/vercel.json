@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://healthcare-backend-i1db.onrender.com/api/:path*"
+      "destination": "https://smart-healthcare-appointment-lp91.onrender.com/api/:path*"
     },
     {
       "source": "/((?!api).*)",

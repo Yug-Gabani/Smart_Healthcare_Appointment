@@ -264,6 +264,19 @@ type UploadCategory = 'SYMPTOM_IMAGE' | 'PRIOR_PRESCRIPTION' | 'LAB_REPORT';
 export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ currentUser }) => {
   const [searchParams] = useSearchParams();
 
+  /* "Shortcut" mode: patient landed here from a landing-page specialty tile
+   * with ?specialty=X. They skip the 6-question triage flow and go straight
+   * to step 3 (pick a doctor, time & pay). A short required intake textarea
+   * on step 3 still gathers one line of context for the doctor; it is sent
+   * as a minimal triage assessment just before booking so the appointment
+   * still links to a TriageAssessment row. */
+  const shortcutSpecialty = useMemo(() => searchParams.get('specialty') || null, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* React Router doesn't reset scroll position on navigation. Patients often click a
+   * specialty tile near the bottom of the landing page, so without this they'd land
+   * mid-way down the booking page (past the intake and the Fast Lane chip). Reset once. */
+  useEffect(() => { window.scrollTo(0, 0); }, []);
+
   const initialPreset = useMemo<SpotIntakePreset>(() => {
     let hotspotKey = searchParams.get('hotspot') || searchParams.get('focus') || '';
     if (!hotspotKey) {
@@ -285,9 +298,11 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     return DEFAULT_PRESET;
   }, [searchParams]);
 
-  // Overall steps: 1 = intake, 2 = AI review, 3 = pick doctor & time
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  // Overall steps: 1 = intake, 2 = AI review, 3 = pick doctor & time (shortcut lands on 3)
+  const [step, setStep] = useState<1 | 2 | 3>(shortcutSpecialty ? 3 : 1);
   const [subStep, setSubStep] = useState<number>(0);
+  const [shortcutIntake, setShortcutIntake] = useState('');
+  const [shortcutIntakeError, setShortcutIntakeError] = useState(false);
 
   // Step 1 micro-intake fields
   const [chiefComplaint, setChiefComplaint] = useState(initialPreset.chiefComplaint);
@@ -321,6 +336,15 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const [booking, setBooking] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<Appointment | null>(null);
+
+  /* Scroll to the top of the page whenever the step flips OR the confirmation card renders.
+   * Step 3's form is tall, so clicking "Book appointment" or "Instant Test" at the bottom
+   * leaves the browser scrolled way down — when the next step or confirmation renders, the
+   * patient lands below the fold and thinks nothing happened. */
+  useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [step, confirmed]);
+
+  /** Which doctor card has its details panel expanded (bio, experience, languages, fee). */
+  const [expandedDoctorId, setExpandedDoctorId] = useState('');
 
   // Payment Gateway states
   const [paymentInfo, setPaymentInfo] = useState<{
@@ -454,26 +478,57 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     }
   };
 
-  /* Fetch doctors for specialty when assessment is ready */
+  /* Effective specialty for step 3 — comes from either the triage result or the
+   * shortcut URL param. Used by the doctor fetch and in the UI labels. */
+  const effectiveSpecialty = assessment?.suggestedSpecialty ?? shortcutSpecialty ?? null;
+  const isShortcut = !!shortcutSpecialty && !assessment;
+
+  /** Per-doctor slot cache. Populated once by the list-load prefetch (in parallel for all
+   *  doctors in the specialty) and read instantly on every doctor switch — so switching
+   *  back-and-forth between doctors is zero-latency instead of triggering a refetch each time. */
+  const slotsCacheRef = useRef<Record<string, Slot[]>>({});
+
+  /* Fetch doctors for specialty — triggered by either triage result or shortcut URL.
+   * As soon as the list arrives, kick off slot fetches for ALL doctors in parallel so by
+   * the time the patient clicks around, every card is already warm in the cache. */
   useEffect(() => {
-    if (!assessment) return;
+    if (!effectiveSpecialty) return;
     setDoctorsLoading(true);
     setDoctorsError(null);
-    doctorsApi.list(assessment.suggestedSpecialty)
+    doctorsApi.list(effectiveSpecialty)
       .then(docs => {
         setDoctors(docs);
         if (docs.length > 0) setSelectedDoctorId(docs[0].id);
+        // Prefetch every doctor's slots in parallel; result goes straight into the cache.
+        slotsCacheRef.current = {};
+        docs.forEach(d => {
+          doctorsApi.slots(d.id)
+            .then(slots => {
+              slotsCacheRef.current[d.id] = slots;
+              // If this is the currently-selected doctor, surface the slots immediately.
+              setSelectedDoctorId(curId => {
+                if (curId === d.id) setDoctorSlots(slots);
+                return curId;
+              });
+            })
+            .catch(() => { /* keep cache empty; manual fetch effect will retry on click */ });
+        });
       })
       .catch(err => setDoctorsError(err.message || 'Could not load doctors.'))
       .finally(() => setDoctorsLoading(false));
-  }, [assessment]);
+  }, [effectiveSpecialty]);
 
-  /* Fetch slots for selected doctor */
+  /* Fetch slots for selected doctor. Hits the cache first (populated by the prefetch above),
+   * only falls through to the network for a cache miss — e.g. if the prefetch is still inflight
+   * when the user clicks a different doctor, or failed for this one. */
   useEffect(() => {
     if (!selectedDoctorId) { setDoctorSlots([]); return; }
+    const cached = slotsCacheRef.current[selectedDoctorId];
+    if (cached) { setDoctorSlots(cached); setSlotsLoading(false); return; }
+    setDoctorSlots([]);
     setSlotsLoading(true);
     doctorsApi.slots(selectedDoctorId)
-      .then(setDoctorSlots)
+      .then(slots => { slotsCacheRef.current[selectedDoctorId] = slots; setDoctorSlots(slots); })
       .catch(() => setDoctorSlots([]))
       .finally(() => setSlotsLoading(false));
   }, [selectedDoctorId]);
@@ -608,10 +663,25 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
         razorpaySignature: signature,
       });
 
+      /* Shortcut path: synthesise a minimal triage record from the one-line intake
+       * so the appointment still carries context. If the triage call fails we fall
+       * through and book without an assessmentId — the backend allows that. */
+      let assessmentId = assessment?.id;
+      if (isShortcut && shortcutIntake.trim()) {
+        try {
+          const mini = await triageApi.assess({
+            chiefComplaint: shortcutIntake.trim(),
+            symptoms: [], durationDays: 1, painLevel: 0,
+            fever: false, chestPain: false, shortnessOfBreath: false,
+          });
+          assessmentId = mini.id;
+        } catch { /* keep assessmentId undefined and continue */ }
+      }
+
       const booked = await appointmentsApi.book({
         doctorId: selectedDoctorId,
         slotId: selectedSlotId,
-        assessmentId: assessment?.id,
+        assessmentId,
         consultationType,
         attachmentIds: attachments.map(a => a.id),
       });
@@ -637,6 +707,11 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     e.preventDefault();
     if (!selectedDoctorId || !selectedSlotId) {
       setBookingError('Pick a doctor and a time first.');
+      return;
+    }
+    if (isShortcut && !shortcutIntake.trim()) {
+      setShortcutIntakeError(true);
+      setBookingError('Please tell us briefly why you are seeing a ' + effectiveSpecialty + ' today.');
       return;
     }
     setBooking(true);
@@ -717,6 +792,11 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     e.preventDefault();
     if (!selectedDoctorId || !selectedSlotId) {
       setBookingError('Choose a doctor and a slot before confirming.');
+      return;
+    }
+    if (isShortcut && !shortcutIntake.trim()) {
+      setShortcutIntakeError(true);
+      setBookingError('Please tell us briefly why you are seeing a ' + effectiveSpecialty + ' today.');
       return;
     }
     setBooking(true);
@@ -971,16 +1051,18 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
         }}
       />
       <div style={{ maxWidth: 880, margin: '48px auto', padding: '0 24px' }}>
-        {/* Step Indicator Header */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 20, font: `600 13px ${FONT}`, color: 'var(--muted)' }}>
-            {['1. Intake', '2. Review', '3. Book & Pay'].map((l, i) => (
-              <span key={l} style={{ color: stepIdx >= i ? 'var(--primary)' : 'var(--ink-muted)', fontWeight: stepIdx === i ? 700 : 500 }}>
-                {l}
-              </span>
-            ))}
+        {/* Step Indicator Header (hidden in shortcut mode — steps 1 & 2 were bypassed) */}
+        {!isShortcut && (
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 20, font: `600 13px ${FONT}`, color: 'var(--muted)' }}>
+              {['1. Intake', '2. Review', '3. Book & Pay'].map((l, i) => (
+                <span key={l} style={{ color: stepIdx >= i ? 'var(--primary)' : 'var(--ink-muted)', fontWeight: stepIdx === i ? 700 : 500 }}>
+                  {l}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* STEP 1: Micro-Questions */}
         {step === 1 && (
@@ -1051,10 +1133,55 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
         )}
 
         {/* STEP 3: Doctor, Time, Coupons, and Razorpay Gateway */}
-        {step === 3 && assessment && (
+        {step === 3 && (assessment || isShortcut) && (
           <form onSubmit={handleLivePaymentBooking} style={card}>
-            <h2 style={h2}>Pick your doctor, time & checkout</h2>
-            <p style={sub}>Select your specialist, reserve a slot with 2-phase lock, and complete booking.</p>
+            {isShortcut ? (
+              <>
+                <div style={{ display: 'inline-block', font: `600 10px ${FONT}`, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--primary)', background: '#e3f1ed', padding: '4px 10px', borderRadius: 9999, marginBottom: 12 }}>
+                  Fast lane · {effectiveSpecialty}
+                </div>
+                <h2 style={h2}>Pick your doctor, time & checkout</h2>
+                <p style={sub}>
+                  You skipped the symptom check because you already know what you need.{' '}
+                  <a href="/book" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>
+                    Answer symptom questions instead
+                  </a>
+                </p>
+
+                {/* EMERGENCY disclaimer — short, calm, not alarming unless needed */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', marginBottom: 20, borderRadius: 10, background: 'rgba(217,119,6,.08)', border: '1px solid rgba(217,119,6,.22)', color: '#92400e', font: `500 12.5px/1.4 ${FONT}` }}>
+                  <span style={{ font: `700 14px ${FONT}`, marginTop: 1 }}>!</span>
+                  <span>If this feels urgent — chest pain, trouble breathing, heavy bleeding, confusion — call <strong>108</strong> now, or <a href="/book" style={{ color: '#92400e', textDecoration: 'underline' }}>run a quick symptom check</a> first.</span>
+                </div>
+
+                {/* Required one-line intake */}
+                <div style={{ marginBottom: 24 }}>
+                  <label htmlFor="shortcut-intake" style={{ display: 'block', font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 8 }}>
+                    One quick thing — why are you seeing a {effectiveSpecialty} today?
+                  </label>
+                  <textarea
+                    id="shortcut-intake"
+                    value={shortcutIntake}
+                    onChange={e => { setShortcutIntake(e.target.value); if (shortcutIntakeError && e.target.value.trim()) setShortcutIntakeError(false); }}
+                    placeholder="A sentence is plenty — e.g. 'Chest tightness after exercise for the past week.'"
+                    rows={3}
+                    style={{
+                      width: '100%', padding: '12px 14px', borderRadius: 12,
+                      border: `1px solid ${shortcutIntakeError ? 'var(--danger)' : 'var(--border)'}`,
+                      background: '#fff', font: `400 14px/1.5 ${FONT}`, color: 'var(--ink)', resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                  {shortcutIntakeError && (
+                    <div style={{ marginTop: 6, font: `400 12px ${FONT}`, color: 'var(--danger)' }}>The doctor needs at least a short sentence to prep for your visit.</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 style={h2}>Pick your doctor, time & checkout</h2>
+                <p style={sub}>Select your specialist, reserve a slot with 2-phase lock, and complete booking.</p>
+              </>
+            )}
 
             <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 9 }}>Consultation Mode</div>
             <div style={{ display: 'inline-flex', padding: 4, borderRadius: 9999, background: '#eef4f0', border: '1px solid var(--border)', gap: 2, marginBottom: 24 }}>
@@ -1070,33 +1197,92 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
               })}
             </div>
 
-            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 10 }}>Specialists in {assessment.suggestedSpecialty}</div>
+            <div style={{ font: `600 13px ${FONT}`, color: 'var(--ink)', marginBottom: 10 }}>Specialists in {effectiveSpecialty}</div>
             {doctorsLoading && <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} className="animate-spin" /> Loading specialists…</div>}
             {doctorsError && <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{doctorsError}</div>}
             {!doctorsLoading && !doctorsError && !doctors.length && <div style={{ padding: 16, color: 'var(--muted)' }}>No doctors available right now.</div>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {doctors.map(doc => {
                 const on = selectedDoctorId === doc.id;
+                const expanded = expandedDoctorId === doc.id;
+                /* The "More about Dr. X" row only shows when we have *something* to reveal.
+                 * At a minimum every seeded doctor has a bio; profile extras (experience,
+                 * languages, fee) appear when the doctor record has them set. */
+                const hasExtra = !!(doc.bio || doc.yearsExperience || doc.consultationFee || doc.languages || (doc.reviewCount ?? 0) > 0);
+                /* "Dr. Robert Chen, FACC" → "Dr. Robert Chen" (strip credentials after the comma) */
+                const shortName = doc.fullName.replace(/,.*$/, '').trim();
                 return (
-                  <button key={doc.id} type="button" onClick={() => setSelectedDoctorId(doc.id)} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '14px 18px',
-                    borderRadius: 14, cursor: 'pointer', textAlign: 'left',
-                    border: on ? '2px solid var(--primary)' : '1px solid var(--border)', background: on ? '#e3f1ed' : '#fff',
+                  <div key={doc.id} style={{
+                    borderRadius: 14,
+                    border: on ? '2px solid var(--primary)' : '1px solid var(--border)',
+                    background: on ? '#e3f1ed' : '#fff',
+                    overflow: 'hidden',
                   }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
-                      {doc.avatarUrl
-                        ? <img src={doc.avatarUrl} alt={doc.fullName} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
-                        : <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#e3f1ed', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', font: `700 14px ${FONT}` }}>{doc.fullName.replace('Dr. ', '').split(' ').map(s => s[0]).join('').slice(0, 2)}</span>}
-                      <span>
-                        <span style={{ display: 'block', font: `600 15px ${FONT}`, color: 'var(--ink)' }}>{doc.fullName}</span>
-                        <span style={{ display: 'block', font: `400 13px ${FONT}`, color: 'var(--ink-muted)' }}>{doc.specialty} · {doc.hospital}</span>
+                    {/* Top row — selectable */}
+                    <button type="button" onClick={() => setSelectedDoctorId(doc.id)} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+                      padding: '14px 18px', cursor: 'pointer', textAlign: 'left',
+                      border: 'none', background: 'transparent', fontFamily: 'inherit',
+                    }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+                        {doc.avatarUrl
+                          ? <img src={doc.avatarUrl} alt={doc.fullName} style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }} />
+                          : <span style={{ width: 44, height: 44, borderRadius: '50%', background: '#e3f1ed', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', font: `700 14px ${FONT}` }}>{doc.fullName.replace('Dr. ', '').split(' ').map(s => s[0]).join('').slice(0, 2)}</span>}
+                        <span>
+                          <span style={{ display: 'block', font: `600 15px ${FONT}`, color: 'var(--ink)' }}>{doc.fullName}</span>
+                          <span style={{ display: 'block', font: `400 13px ${FONT}`, color: 'var(--ink-muted)' }}>{doc.specialty} · {doc.hospital}</span>
+                        </span>
                       </span>
-                    </span>
-                    <span style={{ textAlign: 'right' }}>
-                      <span style={{ display: 'block', font: `600 13px ${FONT}`, color: '#d97706' }}>★ {Number(doc.rating).toFixed(1)}</span>
-                      <span style={{ display: 'block', font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}>{on ? `${availableSlots.length} open` : `${doc.openSlotCount} open`} slots</span>
-                    </span>
-                  </button>
+                      <span style={{ textAlign: 'right' }}>
+                        <span style={{ display: 'block', font: `600 13px ${FONT}`, color: '#d97706' }}>★ {Number(doc.rating).toFixed(1)}</span>
+                        <span style={{ display: 'block', font: `500 12px ${FONT}`, color: 'var(--ink-muted)' }}>{on ? (slotsLoading ? '…' : `${availableSlots.length} open`) : `${doc.openSlotCount} open`} slots</span>
+                      </span>
+                    </button>
+
+                    {/* "More about Dr. X" toggle */}
+                    {hasExtra && (
+                      <div style={{ padding: '0 18px 10px', textAlign: 'right' }}>
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); setExpandedDoctorId(expanded ? '' : doc.id); }}
+                          aria-expanded={expanded}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer', padding: '4px 2px',
+                            font: `600 12px ${FONT}`, color: 'var(--primary)',
+                          }}>
+                          {expanded ? '▴ Less' : `▾ More about ${shortName}`}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Expanded details panel */}
+                    {expanded && hasExtra && (
+                      <div style={{
+                        padding: '14px 18px',
+                        borderTop: '1px dashed var(--border)',
+                        background: on ? 'rgba(255,255,255,.4)' : 'var(--canvas)',
+                        font: `400 13px/1.55 ${FONT}`, color: 'var(--ink)',
+                      }}>
+                        {/* Quick-facts row */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px', marginBottom: doc.bio ? 10 : 0 }}>
+                          {doc.yearsExperience != null && (
+                            <span><strong>{doc.yearsExperience}</strong> yrs experience</span>
+                          )}
+                          {doc.languages && (
+                            <span>Speaks <strong>{doc.languages}</strong></span>
+                          )}
+                          {doc.consultationFee != null && (
+                            <span>Consultation ₹<strong>{Number(doc.consultationFee).toFixed(0)}</strong></span>
+                          )}
+                          {(doc.reviewCount ?? 0) > 0 && (
+                            <span><strong>{doc.reviewCount}</strong> patient reviews</span>
+                          )}
+                        </div>
+                        {doc.bio && (
+                          <p style={{ margin: 0, color: 'var(--ink-muted)' }}>{doc.bio}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -1276,7 +1462,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
             {/* Summary Line */}
             <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--border)', font: `500 13px ${FONT}`, color: 'var(--muted)' }}>
               {selectedDoctor && selectedSlot
-                ? `${assessment.suggestedSpecialty} · ${selectedDoctor.fullName} · ${formatSlot(selectedSlot.slotAt)} · ${consultationType === 'VIDEO' ? 'Video call' : 'In person'}`
+                ? `${effectiveSpecialty} · ${selectedDoctor.fullName} · ${formatSlot(selectedSlot.slotAt)} · ${consultationType === 'VIDEO' ? 'Video call' : 'In person'}`
                 : 'Pick a specialist, day, and time slot to finalize.'}
             </div>
 
