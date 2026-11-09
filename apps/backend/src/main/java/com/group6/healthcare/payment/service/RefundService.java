@@ -46,7 +46,7 @@ public class RefundService {
     private final DoctorRepository doctorRepository;
     private final PaymentOrderRepository paymentOrderRepository;
     private final PaymentRefundRepository paymentRefundRepository;
-    private final NotificationAuditService auditService;
+    private final NotificationAuditServiceI auditService;
     private final PaymentService paymentService;
 
     @Autowired(required = false)
@@ -58,7 +58,7 @@ public class RefundService {
             DoctorRepository doctorRepository,
             PaymentOrderRepository paymentOrderRepository,
             PaymentRefundRepository paymentRefundRepository,
-            NotificationAuditService auditService,
+            NotificationAuditServiceI auditService,
             PaymentService paymentService
     ) {
         this.appointmentRepository = appointmentRepository;

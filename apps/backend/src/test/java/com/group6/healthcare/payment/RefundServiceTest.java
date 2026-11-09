@@ -18,7 +18,7 @@ import com.group6.healthcare.payment.entity.PaymentOrder;
 import com.group6.healthcare.payment.entity.PaymentRefund;
 import com.group6.healthcare.payment.repository.PaymentOrderRepository;
 import com.group6.healthcare.payment.repository.PaymentRefundRepository;
-import com.group6.healthcare.payment.service.NotificationAuditService;
+import com.group6.healthcare.payment.service.NotificationAuditServiceI;
 import com.group6.healthcare.payment.service.PaymentService;
 import com.group6.healthcare.payment.service.RefundService;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,7 +56,7 @@ class RefundServiceTest {
     private PaymentRefundRepository paymentRefundRepository;
 
     @Mock
-    private NotificationAuditService auditService;
+    private NotificationAuditServiceI auditService;
 
     @Mock
     private PaymentService paymentService;

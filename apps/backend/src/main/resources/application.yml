@@ -5,7 +5,7 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5434/healthcare}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/healthcare}
     username: ${DB_USERNAME:healthcare}
     password: ${DB_PASSWORD:healthcare}
     hikari:
@@ -51,6 +51,9 @@ spring:
     listener:
       concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
       ack-mode: record
+      auto-startup: ${KAFKA_AUTO_STARTUP:false}
+    topic:
+      auto-create: ${KAFKA_TOPIC_AUTO_CREATE:false}
 
   # Redis Cache & Distributed In-Memory Concurrency (2-Phase Slot Reservation)
   data:
