@@ -10,7 +10,8 @@ import {
   X,
   LogIn,
   UserPlus,
-  ShieldCheck,
+  Stethoscope,
+  Clock,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,7 +19,7 @@ import type { Hospital, DoctorReview } from '../types';
 import { publicHospitalsApi, reviewsApi } from '../services/api';
 import { CustomSelect } from './CustomSelect';
 import { PageTransition } from '../motion/PageTransition';
-import { listItem, staggerContainer, EASE_ENTER } from '../motion/presets';
+import { EASE_ENTER } from '../motion/presets';
 import BodyMapHero from './BodyMapHero';
 import SpecialtyGrid from './SpecialtyGrid';
 
@@ -29,44 +30,20 @@ interface LandingPageProps {
   onSignIn?: () => void;
 }
 
-// Wireframe placeholder box with diagonal lines and centered text
-const WireframeImagePlaceholder: React.FC<{ text: string; height?: number }> = ({
-  text,
-  height = 180,
-}) => (
-  <div style={{
-    position: 'relative',
-    width: '100%',
-    height: `${height}px`,
-    backgroundColor: '#eaf6f2',
-    borderRadius: '14px',
-    overflow: 'hidden',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  }}>
-    <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
-      <line x1="0" y1="0" x2="100%" y2="100%" stroke="#d9ece7" strokeWidth="1.2" />
-      <line x1="100%" y1="0" x2="0" y2="100%" stroke="#d9ece7" strokeWidth="1.2" />
-    </svg>
-    <span style={{
-      position: 'relative',
-      fontSize: '11px',
-      color: '#52736d',
-      fontWeight: 500,
-      backgroundColor: '#ffffff',
-      border: '1px solid #d9ece7',
-      padding: '3px 8px',
-      borderRadius: '4px',
-      fontFamily: "'Space Grotesk', sans-serif",
-    }}>
-      {text}
-    </span>
-  </div>
-);
+/* =========================================================
+ * Design direction (see unslop audit):
+ *   Product: triage-first healthcare booking for Indian patients
+ *   Character: calm, exact, a little warm
+ *   World: paper charts, exam-room light, filled prescription on wood
+ *   Moments: (1) body-map section = how triage starts,
+ *            (2) hero-right preview card = what triage produces
+ *   Signature: live urgency chip (coloured dot + two words), used
+ *              ONLY where a real verdict is shown — never decoration.
+ * =======================================================*/
+
+const FONT = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
 
 export const LandingPage: React.FC<LandingPageProps> = ({
-  onSelectDoctor,
   onBookSpecialty,
   onGetCare,
 }) => {
@@ -85,13 +62,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   useEffect(() => {
     reviewsApi.landing(6)
-      .then((data) => {
-        if (data && data.length > 0) setReviews(data);
-      })
+      .then(data => { if (data && data.length) setReviews(data); })
       .catch(() => {});
   }, []);
 
-  // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
@@ -105,22 +79,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = searchQuery.trim();
-    // Only query and suggest when the user actually types a name
-    if (!q) {
-      setResults([]);
-      setShowResults(false);
-      setSearching(false);
-      return;
-    }
-
+    if (!q) { setResults([]); setShowResults(false); setSearching(false); return; }
     const cityParam = city && city !== 'All India' ? city : undefined;
     setSearching(true);
     debounceRef.current = setTimeout(() => {
       publicHospitalsApi.search({ q, city: cityParam, limit: 8 })
-        .then(list => {
-          setResults(list);
-          setShowResults(true);
-        })
+        .then(list => { setResults(list); setShowResults(true); })
         .catch(() => setResults([]))
         .finally(() => setSearching(false));
     }, 300);
@@ -134,252 +98,184 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
   return (
     <PageTransition style={{
-      maxWidth: '1200px',
+      maxWidth: 1440,
       margin: '0 auto',
-      padding: '40px 24px 80px 24px',
+      padding: '48px clamp(20px, 4vw, 56px) 96px',
       color: '#0b3f3a',
-      fontFamily: "'Space Grotesk', ui-sans-serif, system-ui, sans-serif",
+      fontFamily: FONT,
     }}>
-      {/* HERO SECTION */}
-      <section style={{
-        textAlign: 'center',
-        maxWidth: '860px',
-        margin: '0 auto 64px auto',
-        padding: '48px 24px 44px 24px',
-        borderRadius: '16px',
-        background: 'linear-gradient(180deg, #eaf6f2 0%, #def0eb 60%, #eaf6f2 100%)',
-      }}>
-        {/* Verified by doctors Pill Badge - Coral uppercase eyebrow */}
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          backgroundColor: '#ffffff',
-          color: '#ff6b5b',
-          fontSize: '12px',
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          padding: '6px 16px',
-          borderRadius: '9999px',
-          marginBottom: '24px',
-          border: '1px solid #d9ece7',
-          boxShadow: '0 2px 8px rgba(20, 60, 55, 0.04)',
-        }}>
-          <Check size={13} strokeWidth={2.5} color="#ff6b5b" />
-          <span>VERIFIED BY DOCTORS</span>
-        </div>
+      <style>{`
+        .lp-hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,520px);gap:64px;align-items:center;margin-bottom:96px}
+        .lp-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+        @media(max-width:1024px){.lp-hero{grid-template-columns:1fr;gap:48px}}
+        @media(max-width:768px){.lp-tiles{grid-template-columns:repeat(2,1fr)}}
+        @media(max-width:480px){.lp-tiles{grid-template-columns:1fr}}
+      `}</style>
 
-        {/* Hero Headline (Space Grotesk 700, deep teal) */}
-        <h1 style={{
-          fontFamily: "'Space Grotesk', sans-serif",
-          fontSize: '56px',
-          lineHeight: '1.05',
-          fontWeight: 700,
-          color: '#0b3f3a',
-          margin: '0 0 20px 0',
-          letterSpacing: '-0.03em',
-        }}>
-          Care that starts before<br />the appointment.
-        </h1>
+      {/* ============ HERO ============ */}
+      <section className="lp-hero">
 
-        {/* Subtitle (Space Grotesk 400-500, ink body) */}
-        <p style={{
-          fontSize: '18px',
-          lineHeight: '1.55',
-          color: '#52736d',
-          margin: '0 auto 40px auto',
-          maxWidth: '560px',
-          fontWeight: 400,
-        }}>
-          Book a doctor, upload what's bothering you, and<br />
-          get seen faster when it matters.
-        </p>
-
-        {/* Search Band Card - white pill container with 6px inner padding + teal button inside */}
-        <div id="for-hospitals" ref={searchContainerRef} style={{ position: 'relative', maxWidth: '740px', margin: '0 auto' }}>
-        <div style={{
-          backgroundColor: '#ffffff',
-          borderRadius: '9999px',
-          padding: '6px 8px 6px 20px',
-          display: 'flex',
-          alignItems: 'center',
-          boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
-          border: '1px solid #d9ece7',
-          gap: '12px',
-        }}>
-          {/* Location Selector */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: '14px',
+        {/* Left: text + search */}
+        <div>
+          <h1 style={{
+            font: `600 56px/1.05 ${FONT}`,
+            letterSpacing: '-0.025em',
             color: '#0b3f3a',
-            fontWeight: 500,
-            whiteSpace: 'nowrap',
-            paddingRight: '14px',
-            borderRight: '1px solid #d9ece7',
-            cursor: 'pointer',
+            margin: '0 0 20px',
+            maxWidth: 560,
           }}>
-            <MapPin size={16} color="#0f766e" />
-            <CustomSelect
-              value={city}
-              options={[
-                'All India',
-                'Ahmedabad',
-                'Gandhinagar',
-                'Mumbai',
-                'Delhi',
-                'Bengaluru Urban',
-                'Pune',
-                'Chennai',
-              ]}
-              onChange={setCity}
-              searchable={true}
-              searchPlaceholder="Search city…"
-              variant="borderless"
-            />
-          </div>
-
-          {/* Search Input */}
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
+            See a doctor before your symptom gets worse
+          </h1>
+          <p style={{
+            font: `400 17px/1.5 ${FONT}`,
+            color: '#52736d',
+            margin: '0 0 36px',
+            maxWidth: 460,
           }}>
-            <Search size={16} color="#0f766e" />
-            <input
-              type="text"
-              placeholder="Search hospitals by name (e.g. Apollo, Lilavati)"
-              value={searchQuery}
-              onChange={e => {
-                const val = e.target.value;
-                setSearchQuery(val);
-                if (!val.trim()) {
-                  setShowResults(false);
-                  setResults([]);
-                }
-              }}
-              onFocus={() => { if (searchQuery.trim() && results.length) setShowResults(true); }}
-              style={{
-                width: '100%',
-                border: 'none',
-                outline: 'none',
-                fontSize: '14px',
-                color: '#0b3f3a',
-                background: 'transparent',
-                fontFamily: "'Space Grotesk', sans-serif",
-              }}
-            />
-            {searching && <Loader2 size={14} className="animate-spin" color="#0f766e" />}
-          </div>
+            Describe what&rsquo;s bothering you. We classify urgency, suggest
+            the right specialty, and book a slot at a hospital near you.
+          </p>
 
-          {/* Solid Teal Search Button */}
-          <button
-            onClick={() => onGetCare?.()}
-            className="hover-lift"
-            style={{
-              backgroundColor: '#0f766e',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '9999px',
-              padding: '12px 24px',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'background-color 0.15s ease',
-              whiteSpace: 'nowrap',
-              fontFamily: "'Space Grotesk', sans-serif",
-              boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
-            onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#0f766e')}
-          >
-            <span>Search</span>
-            <ArrowRight size={14} />
-          </button>
-        </div>
-
-        {/* Live-results dropdown */}
-        <AnimatePresence>
-          {showResults && searchQuery.trim() && results.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 4 }}
-              transition={{ duration: 0.18, ease: EASE_ENTER }}
+          {/* Primary + secondary action */}
+          <div style={{ display: 'flex', gap: 12, marginBottom: 40, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => onGetCare?.('/book')}
               style={{
-                position: 'absolute',
-                top: 'calc(100% + 8px)',
-                left: 0, right: 0,
-                backgroundColor: '#ffffff',
-                borderRadius: '16px',
-                border: '1px solid #d9ece7',
-                boxShadow: '0 10px 24px rgba(20, 60, 55, 0.10)',
-                maxHeight: '360px', overflowY: 'auto',
-                zIndex: 20, textAlign: 'left',
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                background: '#0f766e', color: '#fff', border: 'none',
+                borderRadius: 10, padding: '14px 24px',
+                font: `500 15px ${FONT}`, cursor: 'pointer',
+                transition: 'background-color 160ms ease',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
+              onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#0f766e')}
+            >
+              Start symptom check <ArrowRight size={16} strokeWidth={1.75} />
+            </button>
+            <button
+              onClick={() => { document.getElementById('specialties')?.scrollIntoView({ behavior: 'smooth' }); }}
+              style={{
+                background: 'transparent', color: '#0b3f3a',
+                border: '1px solid #d3e2dd', borderRadius: 10,
+                padding: '14px 24px', font: `500 15px ${FONT}`, cursor: 'pointer',
               }}
             >
-              {results.map(h => (
-                <button
-                  key={h.id}
-                  onClick={() => { setPreview(h); setShowResults(false); }}
-                  className="card-hover"
-                  style={{
-                    display: 'block', width: '100%',
-                    padding: '12px 16px',
-                    border: 'none', borderBottom: '1px solid #d9ece7',
-                    backgroundColor: 'transparent',
-                    textAlign: 'left', cursor: 'pointer',
-                    fontFamily: 'inherit',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#eaf6f2')}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#0b3f3a' }}>
-                    {h.name}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#52736d', marginTop: '2px' }}>
-                    <MapPin size={11} color="#0f766e" style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />
-                    {[h.city, h.state].filter(Boolean).join(', ') || 'Location unknown'}
-                    {h.specialties.length > 0 && (
-                      <span> · {h.specialties.length} specialt{h.specialties.length === 1 ? 'y' : 'ies'}</span>
-                    )}
-                  </div>
-                </button>
-              ))}
-              <button
-                onClick={() => { setShowResults(false); }}
-                style={{
-                  display: 'block', width: '100%', padding: '8px',
-                  background: 'transparent', border: 'none',
-                  fontSize: '11px', color: '#8aa39d', cursor: 'pointer',
-                  fontFamily: "'Space Grotesk', sans-serif",
-                }}
-              >
-                Close results
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {showResults && !searching && results.length === 0 && searchQuery.trim() && (
-          <div style={{
-            position: 'absolute', top: 'calc(100% + 8px)',
-            left: 0, right: 0,
-            backgroundColor: '#ffffff', borderRadius: '16px',
-            border: '1px solid #d9ece7', padding: '18px',
-            fontSize: '13px', color: '#52736d', textAlign: 'left', zIndex: 20,
-            fontFamily: "'Space Grotesk', sans-serif",
-          }}>
-            No hospitals match "{searchQuery}" in {city}.
+              Browse specialties
+            </button>
           </div>
-        )}
+
+          {/* Search a hospital by name — secondary entry */}
+          <div ref={searchContainerRef} style={{ position: 'relative', maxWidth: 560 }}>
+            <div style={{
+              font: `500 12px ${FONT}`, color: '#8aa39d', marginBottom: 8,
+            }}>
+              Or look up a specific hospital
+            </div>
+            <div style={{
+              background: '#fff', border: '1px solid #d9ece7', borderRadius: 10,
+              display: 'flex', alignItems: 'stretch',
+            }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '0 12px', borderRight: '1px solid #e5efeb',
+              }}>
+                <MapPin size={14} color="#0f766e" strokeWidth={1.75} />
+                <CustomSelect
+                  value={city}
+                  options={['All India', 'Ahmedabad', 'Gandhinagar', 'Mumbai', 'Delhi', 'Bengaluru Urban', 'Pune', 'Chennai']}
+                  onChange={setCity}
+                  searchable={true}
+                  searchPlaceholder="Search city"
+                  variant="borderless"
+                />
+              </div>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
+                <Search size={14} color="#8aa39d" strokeWidth={1.75} />
+                <input
+                  type="text"
+                  placeholder="Apollo, Lilavati, Kokilaben..."
+                  value={searchQuery}
+                  onChange={e => {
+                    const v = e.target.value;
+                    setSearchQuery(v);
+                    if (!v.trim()) { setShowResults(false); setResults([]); }
+                  }}
+                  onFocus={() => { if (searchQuery.trim() && results.length) setShowResults(true); }}
+                  style={{
+                    width: '100%', border: 'none', outline: 'none',
+                    padding: '12px 0', font: `400 14px ${FONT}`,
+                    color: '#0b3f3a', background: 'transparent',
+                  }}
+                />
+                {searching && <Loader2 size={14} className="animate-spin" color="#0f766e" strokeWidth={1.75} />}
+              </div>
+            </div>
+
+            {/* Live-results dropdown */}
+            <AnimatePresence>
+              {showResults && searchQuery.trim() && results.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 4 }}
+                  transition={{ duration: 0.16, ease: EASE_ENTER }}
+                  style={{
+                    position: 'absolute', top: 'calc(100% + 8px)',
+                    left: 0, right: 0,
+                    background: '#fff', borderRadius: 12,
+                    border: '1px solid #d9ece7',
+                    boxShadow: '0 8px 24px rgba(11, 63, 58, 0.08)',
+                    maxHeight: 360, overflowY: 'auto', zIndex: 20,
+                  }}
+                >
+                  {results.map(h => (
+                    <button
+                      key={h.id}
+                      onClick={() => { setPreview(h); setShowResults(false); }}
+                      style={{
+                        display: 'block', width: '100%',
+                        padding: '12px 16px', border: 'none',
+                        borderBottom: '1px solid #eef5f3',
+                        background: 'transparent', textAlign: 'left',
+                        cursor: 'pointer', fontFamily: 'inherit',
+                        transition: 'background-color 120ms ease',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f4faf8')}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                      <div style={{ font: `500 14px ${FONT}`, color: '#0b3f3a' }}>
+                        {h.name}
+                      </div>
+                      <div style={{ font: `400 12px ${FONT}`, color: '#52736d', marginTop: 2 }}>
+                        {[h.city, h.state].filter(Boolean).join(', ') || 'Location unknown'}
+                        {h.specialties.length > 0 && (
+                          <> &middot; {h.specialties.length} specialt{h.specialties.length === 1 ? 'y' : 'ies'}</>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {showResults && !searching && results.length === 0 && searchQuery.trim() && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 8px)', left: 0, right: 0,
+                background: '#fff', borderRadius: 12,
+                border: '1px solid #d9ece7', padding: 16,
+                font: `400 13px ${FONT}`, color: '#52736d',
+                boxShadow: '0 8px 24px rgba(11, 63, 58, 0.08)', zIndex: 20,
+              }}>
+                No hospitals match &ldquo;{searchQuery}&rdquo; in {city}.
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Right: triage-result preview card (the signature moment).
+            Shows what the app PRODUCES — not a stock photo of a doctor.
+            Rendered entirely in code so it stays crisp on every density. */}
+        <TriageResultPreview />
       </section>
 
       {/* Hospital preview modal */}
@@ -395,555 +291,345 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         )}
       </AnimatePresence>
 
-      {/* SECTION B: 4 CATEGORY TILES */}
-      <motion.section
-        id="find-care"
-        variants={staggerContainer}
-        initial="initial"
-        whileInView="animate"
-        viewport={{ once: true, margin: '-20px' }}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: '24px',
-          marginBottom: '72px',
-        }}
-      >
-        {[
-          {
-            image: '/video-consult.jpg',
-            title: 'Video Consult',
-            subtitle: 'Connect in 60s',
-          },
-          {
-            image: '/find-doctors.jpg',
-            title: 'Find Doctors Near You',
-            subtitle: '27k+ hospitals',
-          },
-          {
-            image: '/my-records.jpg',
-            title: 'My Records',
-            subtitle: 'Visits + meds',
-          },
-          {
-            image: '/order-medicine.jpg',
-            title: 'Order Medicine',
-            subtitle: 'Fast delivery',
-          },
-        ].map((tile, idx) => (
-          <motion.div
-            key={idx}
-            variants={listItem}
-            id={idx === 0 ? 'video-consult' : idx === 1 ? 'find-doctors' : undefined}
-            onClick={() => onGetCare?.()}
-            className="card-hover"
-            style={{
-              backgroundColor: '#ffffff',
-              borderRadius: '14px',
-              padding: '16px',
-              border: '1px solid #d9ece7',
-              boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
-              cursor: 'pointer',
-            }}
-          >
-            <div style={{
-              width: '100%',
-              height: '180px',
-              borderRadius: '10px',
-              overflow: 'hidden',
-              backgroundColor: '#eaf6f2',
-            }}>
-              <img
-                src={tile.image}
-                alt={tile.title}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  display: 'block',
-                  transition: 'transform 0.3s ease',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.04)')}
-                onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
-              />
-            </div>
-            <div style={{ marginTop: '16px' }}>
-              <div style={{ fontSize: '18px', fontWeight: 700, color: '#0b3f3a', fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '-0.02em' }}>
-                {tile.title}
-              </div>
-              <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>
-                {tile.subtitle}
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </motion.section>
-
-      {/* SECTION C: BODY MAP HERO */}
-      <BodyMapHero
-        onStartTriage={(hotspotId) => {
-          const target = `/book?hotspot=${encodeURIComponent(hotspotId)}`;
-          try {
-            sessionStorage.setItem('pulsecare_pending_hotspot', hotspotId);
-          } catch {}
-          if (onBookSpecialty) {
-            onBookSpecialty(target);
-          } else if (onGetCare) {
-            onGetCare(target);
-          } else {
-            navigate(target);
-          }
-        }}
-        onCustomTriage={(cause) => {
-          const target = cause ? `/book?complaint=${encodeURIComponent(cause)}` : '/book';
-          try {
-            if (cause) sessionStorage.setItem('pulsecare_pending_complaint', cause);
-          } catch {}
-          if (onGetCare) {
-            onGetCare(target);
-          } else {
-            navigate(target);
-          }
-        }}
-      />
-
-      {/* SECTION C-2: SPECIALTY GRID — "pick a specialty" entry point, Practo-style.
-          Complements the body-map above: symptom-first (BodyMap) vs. specialty-first (this grid). */}
-      <SpecialtyGrid />
-
-      {/* SECTION E: BOOK AN IN-CLINIC APPOINTMENT (4 Doctor Cards) */}
-      <section style={{ marginBottom: '72px' }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '28px',
-        }}>
-          <h2 style={{
-            fontSize: '26px',
-            fontWeight: 700,
-            color: '#0b3f3a',
-            margin: 0,
-            letterSpacing: '-0.02em',
-            lineHeight: '1.05',
-            fontFamily: "'Space Grotesk', sans-serif",
-          }}>
-            Book an in-clinic appointment
-          </h2>
-          <a
-            href="#all-doctors"
-            style={{
-              fontSize: '14px',
-              fontWeight: 600,
-              color: '#0f766e',
-              textDecoration: 'none',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontFamily: "'Space Grotesk', sans-serif",
-            }}
-          >
-            See all doctors →
-          </a>
+      {/* ============ 4 ENTRY POINTS (tiles) ============ */}
+      <section id="find-care" style={{ marginBottom: 96 }}>
+        <div style={{ font: `500 13px ${FONT}`, color: '#8aa39d', marginBottom: 20 }}>
+          Ways to start
         </div>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: '24px',
-        }}>
+        <div className="lp-tiles">
           {[
-            {
-              name: 'Dr. Shah',
-              specialty: 'Cardiology · Apollo',
-              rating: '4.8',
-              slot: 'Next 2pm',
-              fee: '₹600',
-            },
-            {
-              name: 'Dr. Mehta',
-              specialty: 'Pediatrics · Civil',
-              rating: '4.9',
-              slot: 'Next 5pm',
-              fee: '₹500',
-            },
-            {
-              name: 'Dr. Rao',
-              specialty: 'Dermatology · KD',
-              rating: '4.7',
-              slot: 'Tomorrow',
-              fee: '₹400',
-            },
-            {
-              name: 'Dr. Iyer',
-              specialty: 'General Medicine · Zydus',
-              rating: '4.6',
-              slot: 'Today',
-              fee: '₹300',
-            },
-          ].map((doc, idx) => (
-            <div
-              key={idx}
-              className="card-hover"
+            { image: '/video-consult.jpg',  title: 'Video consult',      sub: 'Private call with a doctor',       href: '/book' },
+            { image: '/find-doctors.jpg',    title: 'Find doctors',       sub: 'By city or specialty',             href: '/hospitals' },
+            { image: '/my-records.jpg',      title: 'Your records',       sub: 'Visits and prescriptions',         href: '/appointments' },
+            { image: '/order-medicine.jpg',  title: 'Order medicine',     sub: 'Delivered to you',                 href: '/prescriptions' },
+          ].map(tile => (
+            <button
+              key={tile.title}
+              onClick={() => onGetCare?.(tile.href)}
               style={{
-                backgroundColor: '#ffffff',
-                borderRadius: '14px',
-                padding: '16px',
-                border: '1px solid #d9ece7',
-                boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
+                background: '#fff', border: '1px solid #d9ece7',
+                borderRadius: 16, padding: 16, cursor: 'pointer',
+                textAlign: 'left', fontFamily: FONT,
+                transition: 'border-color 160ms ease',
               }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = '#b8d4cc')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = '#d9ece7')}
             >
-              <div>
-                <WireframeImagePlaceholder text="Doctor photo" height={160} />
-                <div style={{ marginTop: '14px' }}>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: '#0b3f3a', fontFamily: "'Space Grotesk', sans-serif" }}>
-                    {doc.name}
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#52736d', marginTop: '2px' }}>
-                    {doc.specialty}
-                  </div>
-
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginTop: '12px',
-                    fontSize: '13px',
-                  }}>
-                    <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      fontWeight: 600,
-                      color: '#0b3f3a',
-                    }}>
-                      <Star size={13} fill="#ff6b5b" color="#ff6b5b" />
-                      {doc.rating}
-                    </span>
-                    <span style={{ color: '#52736d', fontSize: '12px' }}>{doc.slot}</span>
-                  </div>
-
-                  <div style={{
-                    fontSize: '16px',
-                    fontWeight: 700,
-                    color: '#0b3f3a',
-                    marginTop: '8px',
-                    fontFamily: "'Space Grotesk', sans-serif",
-                  }}>
-                    {doc.fee}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: '16px' }}>
-                <button
-                  onClick={() => onSelectDoctor?.(doc.name)}
-                  className="hover-lift"
-                  style={{
-                    width: '100%',
-                    backgroundColor: '#0f766e',
-                    border: 'none',
-                    borderRadius: '14px',
-                    padding: '10px 0',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#ffffff',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.15s ease',
-                    fontFamily: "'Space Grotesk', sans-serif",
-                    boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
-                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#0f766e')}
-                >
-                  Book
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* SECTION: VERIFIED PATIENT REVIEWS & RATINGS */}
-      <section style={{ marginBottom: '72px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '6px',
-            backgroundColor: '#eaf6f2',
-            color: '#0f766e',
-            fontSize: '11px',
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            padding: '4px 12px',
-            borderRadius: '9999px',
-            marginBottom: '10px',
-          }}>
-            <ShieldCheck size={14} /> Verified Patient Reviews
-          </span>
-          <h2 style={{
-            fontSize: '28px',
-            fontWeight: 700,
-            color: '#0b3f3a',
-            margin: '0 0 8px 0',
-            letterSpacing: '-0.02em',
-            fontFamily: "'Space Grotesk', sans-serif",
-          }}>
-            Trusted care, rated by real patients
-          </h2>
-          <p style={{ fontSize: '14px', color: '#52736d', margin: 0, maxWidth: '600px', marginLeft: 'auto', marginRight: 'auto' }}>
-            Every review is submitted by a verified patient following a completed video or hospital consultation.
-          </p>
-        </div>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '20px',
-        }}>
-          {(reviews.length > 0
-            ? reviews
-            : [
-                {
-                  id: 'default-1',
-                  appointmentId: 'apt-1',
-                  doctorId: 'doc-1',
-                  doctorName: 'Dr. Aarav Patel',
-                  doctorSpecialty: 'Cardiologist',
-                  patientName: 'Rohan M.',
-                  rating: 5,
-                  comment: 'Dr. Patel took the time to review my ECG thoroughly and explained each step of my treatment plan. I felt genuinely heard and well taken care of.',
-                  tags: 'Thorough & Attentive, Clear Explanations',
-                  isAnonymous: false,
-                  createdAt: '2 days ago',
-                },
-                {
-                  id: 'default-2',
-                  appointmentId: 'apt-2',
-                  doctorId: 'doc-2',
-                  doctorName: 'Dr. Priya Sharma',
-                  doctorSpecialty: 'Dermatologist',
-                  patientName: 'Ananya S.',
-                  rating: 5,
-                  comment: 'The video consultation was seamless. I uploaded my rash photo during triage, and Dr. Priya had diagnosed the reaction before the call even started!',
-                  tags: 'Punctual, Accurate Treatment',
-                  isAnonymous: false,
-                  createdAt: '4 days ago',
-                },
-                {
-                  id: 'default-3',
-                  appointmentId: 'apt-3',
-                  doctorId: 'doc-3',
-                  doctorName: 'Dr. Vikram Desai',
-                  doctorSpecialty: 'General Physician',
-                  patientName: 'Meera K.',
-                  rating: 5,
-                  comment: 'Very polite, patient, and knowledgeable. The digital prescription and follow-up guidelines were sent right to my account instantly.',
-                  tags: 'Empathetic & Kind, Great Follow-up',
-                  isAnonymous: false,
-                  createdAt: '1 week ago',
-                },
-              ]
-          ).map((rev) => (
-            <div
-              key={rev.id}
-              className="card-hover"
-              style={{
-                backgroundColor: '#ffffff',
-                borderRadius: '16px',
-                border: '1px solid #d9ece7',
-                padding: '22px',
-                boxShadow: '0 2px 12px rgba(11, 63, 58, 0.05)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div>
-                {/* Doctor Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div>
-                    <div style={{ fontSize: '15px', fontWeight: 700, color: '#0b3f3a', fontFamily: "'Space Grotesk', sans-serif" }}>
-                      {rev.doctorName ?? 'Consulting Physician'}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#52736d' }}>
-                      {rev.doctorSpecialty ?? 'Specialist'}
-                    </div>
-                  </div>
-                  {/* Stars */}
-                  <div style={{ display: 'flex', gap: '3px' }}>
-                    {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        size={15}
-                        color={i < rev.rating ? '#f59e0b' : '#d1d5db'}
-                        fill={i < rev.rating ? '#f59e0b' : 'transparent'}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Comment */}
-                <p style={{
-                  fontSize: '13px',
-                  lineHeight: '1.6',
-                  color: '#2d4b45',
-                  margin: '0 0 14px 0',
-                  fontStyle: rev.comment ? 'normal' : 'italic',
-                }}>
-                  {rev.comment ? `“${rev.comment}”` : '“Exceptional and prompt clinical consultation.”'}
-                </p>
-
-                {/* Tags */}
-                {rev.tags && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '16px' }}>
-                    {rev.tags.split(',').map((t, tidx) => (
-                      <span
-                        key={tidx}
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          backgroundColor: '#eaf6f2',
-                          color: '#0f766e',
-                          padding: '2px 8px',
-                          borderRadius: '6px',
-                        }}
-                      >
-                        {t.trim()}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Patient Footer */}
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingTop: '12px',
-                borderTop: '1px solid #eaf6f2',
-                fontSize: '11px',
-                color: '#52736d',
+                width: '100%', height: 148, borderRadius: 10,
+                overflow: 'hidden', background: '#eaf6f2', marginBottom: 16,
               }}>
-                <span style={{ fontWeight: 600, color: '#0b3f3a' }}>
-                  {rev.isAnonymous ? 'Verified Patient' : (rev.patientName || 'Verified Patient')}
+                <img
+                  src={tile.image}
+                  alt={tile.title}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              </div>
+              <div style={{ font: `600 16px ${FONT}`, color: '#0b3f3a' }}>{tile.title}</div>
+              <div style={{ font: `400 13px ${FONT}`, color: '#52736d', marginTop: 4 }}>{tile.sub}</div>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ============ SYMPTOM-FIRST BODY MAP ============ */}
+      <section style={{ marginBottom: 96 }}>
+        <div style={{ font: `500 13px ${FONT}`, color: '#8aa39d', marginBottom: 12 }}>
+          Start from your symptom
+        </div>
+        <h2 style={{
+          font: `600 28px/1.2 ${FONT}`,
+          letterSpacing: '-0.02em',
+          color: '#0b3f3a', margin: '0 0 24px', maxWidth: 560,
+        }}>
+          Tell us where it hurts &mdash; we route you from there
+        </h2>
+        <BodyMapHero
+          onStartTriage={(hotspotId) => {
+            const target = `/book?hotspot=${encodeURIComponent(hotspotId)}`;
+            try { sessionStorage.setItem('pulsecare_pending_hotspot', hotspotId); } catch {}
+            if (onBookSpecialty) onBookSpecialty(target);
+            else if (onGetCare) onGetCare(target);
+            else navigate(target);
+          }}
+          onCustomTriage={(cause) => {
+            const target = cause ? `/book?complaint=${encodeURIComponent(cause)}` : '/book';
+            try { if (cause) sessionStorage.setItem('pulsecare_pending_complaint', cause); } catch {}
+            if (onGetCare) onGetCare(target);
+            else navigate(target);
+          }}
+        />
+      </section>
+
+      {/* ============ SPECIALTY GRID ============ */}
+      <section id="specialties" style={{ marginBottom: 96 }}>
+        <div style={{ font: `500 13px ${FONT}`, color: '#8aa39d', marginBottom: 12 }}>
+          Or pick a specialty
+        </div>
+        <SpecialtyGrid />
+      </section>
+
+      {/* ============ WHAT PATIENTS SAID ============ */}
+      {(reviews.length > 0) && (
+      <section style={{ marginBottom: 96 }}>
+        <div style={{ font: `500 13px ${FONT}`, color: '#8aa39d', marginBottom: 12 }}>
+          What patients said
+        </div>
+        <h2 style={{
+          font: `600 28px/1.2 ${FONT}`, letterSpacing: '-0.02em',
+          color: '#0b3f3a', margin: '0 0 24px', maxWidth: 560,
+        }}>
+          Reviews from completed visits
+        </h2>
+        <div style={{
+          display: 'grid', gap: 16,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+        }}>
+          {reviews.map(rev => (
+            <div key={rev.id} style={{
+              background: '#fff', border: '1px solid #d9ece7',
+              borderRadius: 16, padding: 20,
+              display: 'flex', flexDirection: 'column', gap: 12,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                <div>
+                  <div style={{ font: `600 15px ${FONT}`, color: '#0b3f3a' }}>
+                    {rev.doctorName ?? 'Consulting physician'}
+                  </div>
+                  <div style={{ font: `400 12px ${FONT}`, color: '#8aa39d', marginTop: 2 }}>
+                    {rev.doctorSpecialty ?? 'Specialist'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                  {[...Array(5)].map((_, i) => (
+                    <Star
+                      key={i}
+                      size={14}
+                      strokeWidth={1.5}
+                      color={i < rev.rating ? '#d97706' : '#cfdbd6'}
+                      fill={i < rev.rating ? '#d97706' : 'transparent'}
+                    />
+                  ))}
+                </div>
+              </div>
+              {rev.comment && (
+                <p style={{
+                  font: `400 14px/1.55 ${FONT}`, color: '#2d4b45',
+                  margin: 0,
+                }}>
+                  {rev.comment}
+                </p>
+              )}
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                paddingTop: 12, marginTop: 'auto',
+                borderTop: '1px solid #eef5f3',
+                font: `400 12px ${FONT}`, color: '#8aa39d',
+              }}>
+                <span>
+                  {rev.isAnonymous ? 'Verified patient' : (rev.patientName || 'Verified patient')}
                 </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#0f766e' }}>
-                  <ShieldCheck size={12} /> Verified Visit
-                </span>
+                <span>{rev.createdAt}</span>
               </div>
             </div>
           ))}
         </div>
       </section>
+      )}
 
-      {/* SECTION G: TRUST STRIP */}
+      {/* ============ TRUST STRIP ============ */}
       <section style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        flexWrap: 'wrap',
-        gap: '40px',
-        padding: '24px 0',
-        marginBottom: '64px',
+        display: 'flex', justifyContent: 'center', alignItems: 'center',
+        flexWrap: 'wrap', gap: 40,
+        padding: '24px 0', marginBottom: 72,
         borderTop: '1px solid #d9ece7',
         borderBottom: '1px solid #d9ece7',
-        fontSize: '13px',
-        fontWeight: 500,
-        color: '#52736d',
-        fontFamily: "'Space Grotesk', sans-serif",
+        font: `400 13px ${FONT}`, color: '#52736d',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Check size={14} color="#0f766e" strokeWidth={2.5} />
-          <span>Verified doctors</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Check size={14} color="#0f766e" strokeWidth={2.5} />
-          <span>Encrypted records</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Check size={14} color="#0f766e" strokeWidth={2.5} />
-          <span>No data sold</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Check size={14} color="#0f766e" strokeWidth={2.5} />
-          <span>24/7 availability</span>
-        </div>
+        {[
+          'Verified doctors',
+          'Encrypted records',
+          'No data sold',
+          '24/7 availability',
+        ].map(label => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Check size={14} color="#0f766e" strokeWidth={1.75} />
+            <span>{label}</span>
+          </div>
+        ))}
       </section>
 
-      {/* FOOTER */}
+      {/* ============ FOOTER ============ */}
       <footer style={{
-        fontSize: '13px',
-        color: '#52736d',
-        fontFamily: "'Space Grotesk', sans-serif",
+        font: `400 13px ${FONT}`, color: '#52736d',
       }}>
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '36px',
-          marginBottom: '40px',
+          gap: 36, marginBottom: 32,
         }}>
           <div>
             <div style={{
-              fontWeight: 700,
-              color: '#0b3f3a',
-              marginBottom: '10px',
-              fontSize: '18px',
-              letterSpacing: '-0.02em',
+              font: `600 18px ${FONT}`, color: '#0b3f3a',
+              marginBottom: 12, letterSpacing: '-0.02em',
             }}>
               pulsecare
             </div>
-            <div style={{ lineHeight: '1.9', color: '#52736d' }}>Group 6<br />IT314<br />DA-IICT</div>
+            <div style={{ lineHeight: 1.8 }}>Group 6<br />IT314<br />DA-IICT</div>
           </div>
-          <div>
-            <div style={{ fontWeight: 700, color: '#0b3f3a', marginBottom: '10px' }}>For Patients</div>
-            <div style={{ lineHeight: '1.9', color: '#52736d' }}>
-              <div>Find doctors</div>
-              <div>Book appt</div>
-              <div>My account</div>
-              <div>Download app</div>
+          {[
+            { h: 'For patients',  items: ['Find doctors', 'Book appointment', 'My account', 'Download app'] },
+            { h: 'For providers', items: ['For doctors', 'For hospitals', 'For pharmacies', 'Partner with us'] },
+            { h: 'Legal',         items: ['Privacy', 'Terms', 'Help', 'Contact'] },
+          ].map(col => (
+            <div key={col.h}>
+              <div style={{ font: `600 13px ${FONT}`, color: '#0b3f3a', marginBottom: 12 }}>{col.h}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {col.items.map(it => <div key={it}>{it}</div>)}
+              </div>
             </div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, color: '#0b3f3a', marginBottom: '10px' }}>For Providers</div>
-            <div style={{ lineHeight: '1.9', color: '#52736d' }}>
-              <div>For doctors</div>
-              <div>For hospitals</div>
-              <div>For pharmacies</div>
-              <div>Partner with us</div>
-            </div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, color: '#0b3f3a', marginBottom: '10px' }}>Legal</div>
-            <div style={{ lineHeight: '1.9', color: '#52736d' }}>
-              <div>Privacy</div>
-              <div>Terms</div>
-              <div>Help</div>
-              <div>Contact</div>
-            </div>
-          </div>
+          ))}
         </div>
 
         <div style={{
-          paddingTop: '24px',
-          borderTop: '1px solid #d9ece7',
-          fontSize: '12px',
-          color: '#8aa39d',
+          paddingTop: 20, borderTop: '1px solid #d9ece7',
+          font: `400 12px ${FONT}`, color: '#8aa39d',
         }}>
-          © 2026 pulsecare – Group 6 – IT314 – DA-IICT
+          &copy; 2026 pulsecare &middot; Group 6 &middot; IT314 &middot; DA-IICT
         </div>
       </footer>
     </PageTransition>
   );
 };
 
-/** Preview panel shown when an unauthenticated visitor clicks a hospital search result. */
+/* -------------------------------------------------------------------
+ * TriageResultPreview
+ *
+ * The hero's right-side moment. Shows the SIGNATURE live urgency chip
+ * on a plausible, product-shaped card: patient's complaint at the top,
+ * the triage verdict in the middle, the suggested doctor at the bottom
+ * with a slot time. Nothing here is interactive — it's a product shot
+ * in code, carrying the color so the rest of the chrome can stay quiet.
+ * -----------------------------------------------------------------*/
+const TriageResultPreview: React.FC = () => (
+  <div style={{
+    position: 'relative',
+    background: '#fff',
+    border: '1px solid #d9ece7',
+    borderRadius: 20,
+    padding: 24,
+    boxShadow: '0 1px 2px rgba(11,63,58,.04), 0 12px 32px rgba(11,63,58,.06)',
+    fontFamily: FONT,
+  }}>
+    {/* Window chrome — small cue this is a product view */}
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      font: `500 11px ${FONT}`, color: '#8aa39d', marginBottom: 20,
+    }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f4d4cf' }} />
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f0e6c3' }} />
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#cfe3d0' }} />
+      <span style={{ marginLeft: 8 }}>pulsecare / your result</span>
+    </div>
+
+    {/* What the patient told us */}
+    <div style={{
+      font: `500 11px ${FONT}`, color: '#8aa39d',
+      marginBottom: 8,
+    }}>
+      You told us
+    </div>
+    <p style={{
+      font: `400 14px/1.5 ${FONT}`, color: '#2d4b45',
+      margin: '0 0 24px',
+    }}>
+      &ldquo;Sharp chest tightness after climbing stairs, started this morning. Short of breath.&rdquo;
+    </p>
+
+    {/* Signature: the live urgency chip + verdict */}
+    <div style={{
+      background: '#fff9f0',
+      border: '1px solid #f3d9a4',
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 20,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{
+          width: 8, height: 8, borderRadius: '50%',
+          background: '#d97706',
+        }} />
+        <span style={{
+          font: `600 12px ${FONT}`, color: '#92400e',
+          letterSpacing: 0,
+        }}>
+          See a doctor today
+        </span>
+      </div>
+      <div style={{ font: `400 13px/1.5 ${FONT}`, color: '#92400e' }}>
+        Chest + breathing together can be time-sensitive. Book a same-day slot below.
+      </div>
+    </div>
+
+    {/* Suggested specialty + doctor */}
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      marginBottom: 12,
+    }}>
+      <div style={{ font: `500 12px ${FONT}`, color: '#8aa39d' }}>
+        Suggested specialty
+      </div>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        font: `500 12px ${FONT}`, color: '#0f766e',
+      }}>
+        <Stethoscope size={12} strokeWidth={1.75} /> Cardiology
+      </div>
+    </div>
+
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12,
+      padding: 12,
+      background: '#f4faf8',
+      border: '1px solid #e5efeb',
+      borderRadius: 10,
+    }}>
+      {/* Monogram avatar — typographic placeholder, no wireframe box */}
+      <div style={{
+        width: 40, height: 40, borderRadius: 999,
+        background: '#e3f1ed',
+        color: '#0f766e',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        font: `600 14px ${FONT}`,
+        flexShrink: 0,
+      }}>
+        RC
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ font: `600 14px ${FONT}`, color: '#0b3f3a' }}>
+          Dr. Robert Chen, FACC
+        </div>
+        <div style={{ font: `400 12px ${FONT}`, color: '#52736d', marginTop: 2 }}>
+          Asian Heart Institute &middot; Mumbai
+        </div>
+      </div>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        font: `500 12px ${FONT}`, color: '#52736d', whiteSpace: 'nowrap',
+      }}>
+        <Clock size={12} strokeWidth={1.75} /> 2:30 PM
+      </div>
+    </div>
+  </div>
+);
+
+/* -------------------------------------------------------------------
+ * HospitalPreviewModal
+ *
+ * Shown when an unauthenticated visitor clicks a hospital search
+ * result. Same quiet palette as the rest of the page, no colored
+ * shadows, no decorative chrome.
+ * -----------------------------------------------------------------*/
 const HospitalPreviewModal: React.FC<{
   hospital: Hospital;
   onClose: () => void;
@@ -954,134 +640,132 @@ const HospitalPreviewModal: React.FC<{
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    transition={{ duration: 0.18, ease: EASE_ENTER }}
+    transition={{ duration: 0.16, ease: EASE_ENTER }}
     style={{
       position: 'fixed', inset: 0, zIndex: 1200,
-      backgroundColor: 'rgba(11, 63, 58, 0.45)',
-      backdropFilter: 'blur(6px)',
+      background: 'rgba(11, 63, 58, 0.4)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '20px',
-      fontFamily: "'Space Grotesk', sans-serif",
+      padding: 20, fontFamily: FONT,
     }}
   >
     <motion.div
-      initial={{ opacity: 0, scale: 0.96, y: 8 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96, y: 8 }}
-      transition={{ duration: 0.22, ease: EASE_ENTER }}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.2, ease: EASE_ENTER }}
       style={{
-        backgroundColor: '#ffffff', borderRadius: '16px',
-        maxWidth: '600px', width: '100%', maxHeight: '88vh', overflow: 'auto',
-        boxShadow: '0 10px 24px rgba(20, 60, 55, 0.10)',
+        background: '#fff', borderRadius: 16,
+        maxWidth: 560, width: '100%', maxHeight: '88vh', overflow: 'auto',
         border: '1px solid #d9ece7',
-        padding: '28px',
+        padding: 24,
       }}
     >
       <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-        marginBottom: '16px',
+        display: 'flex', justifyContent: 'space-between',
+        alignItems: 'flex-start', marginBottom: 16, gap: 16,
       }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <div style={{
-            width: '42px', height: '42px', borderRadius: '10px',
-            backgroundColor: '#eaf6f2', color: '#0f766e',
+            width: 40, height: 40, borderRadius: 10,
+            background: '#eaf6f2', color: '#0f766e',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
           }}>
-            <Building2 size={22} />
+            <Building2 size={20} strokeWidth={1.75} />
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#0b3f3a', letterSpacing: '-0.02em' }}>
+            <h2 style={{ font: `600 18px ${FONT}`, color: '#0b3f3a', letterSpacing: '-0.015em', margin: 0 }}>
               {hospital.name}
             </h2>
-            <div style={{ fontSize: '13px', color: '#52736d', marginTop: '2px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-              <MapPin size={12} color="#0f766e" />
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              font: `400 13px ${FONT}`, color: '#52736d', marginTop: 4,
+            }}>
+              <MapPin size={12} color="#0f766e" strokeWidth={1.75} />
               {[hospital.city, hospital.state].filter(Boolean).join(', ') || 'Location unknown'}
             </div>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="icon-pop"
-          style={{ background: 'transparent', border: 'none', color: '#52736d', cursor: 'pointer', padding: '4px' }}
+          style={{
+            background: 'transparent', border: 'none',
+            color: '#52736d', cursor: 'pointer', padding: 4,
+          }}
+          aria-label="Close"
         >
-          <X size={20} />
+          <X size={20} strokeWidth={1.75} />
         </button>
       </div>
 
       {hospital.address && (
-        <div style={{ fontSize: '13px', color: '#52736d', marginBottom: '14px' }}>
+        <div style={{ font: `400 13px ${FONT}`, color: '#52736d', marginBottom: 16 }}>
           {hospital.address}
           {hospital.pincode ? ` — ${hospital.pincode}` : ''}
         </div>
       )}
 
-      <div style={{
-        fontSize: '11px', fontWeight: 700, color: '#0f766e',
-        textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px',
-      }}>
+      <div style={{ font: `500 12px ${FONT}`, color: '#8aa39d', marginBottom: 8 }}>
         Available specialties ({hospital.specialties.length})
       </div>
       {hospital.specialties.length === 0 ? (
         <div style={{
-          padding: '14px', borderRadius: '10px',
-          backgroundColor: '#eaf6f2', border: '1px solid #d9ece7',
-          fontSize: '13px', color: '#52736d',
-          marginBottom: '18px',
+          padding: 14, borderRadius: 10,
+          background: '#f4faf8', border: '1px solid #e5efeb',
+          font: `400 13px ${FONT}`, color: '#52736d',
+          marginBottom: 20,
         }}>
-          Specialty details are not published for this hospital in the government directory.
-          You can still find a doctor via symptom triage after signing in.
+          Specialty details are not published for this hospital in the
+          government directory. You can still find a doctor via symptom
+          triage after signing in.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '18px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
           {hospital.specialties.map(s => (
-            <span key={s} className="chip" style={{
-              padding: '4px 12px', borderRadius: '9999px',
-              fontSize: '12px', color: '#0b3f3a',
-              backgroundColor: '#eaf6f2', border: '1px solid #d9ece7',
-              fontFamily: "'Space Grotesk', sans-serif",
+            <span key={s} style={{
+              padding: '4px 10px', borderRadius: 999,
+              font: `400 12px ${FONT}`, color: '#0b3f3a',
+              background: '#eaf6f2', border: '1px solid #d9ece7',
             }}>{s}</span>
           ))}
         </div>
       )}
 
-      {/* Auth CTA panel */}
       <div style={{
-        padding: '18px 20px', borderRadius: '14px',
-        backgroundColor: '#eaf6f2',
-        border: '1px solid #d9ece7',
+        padding: 20, borderRadius: 12,
+        background: '#f4faf8', border: '1px solid #e5efeb',
       }}>
-        <div style={{ fontSize: '15px', fontWeight: 700, color: '#0b3f3a', marginBottom: '4px' }}>
+        <div style={{ font: `600 15px ${FONT}`, color: '#0b3f3a', marginBottom: 4 }}>
           Sign in to book an appointment
         </div>
-        <div style={{ fontSize: '13px', color: '#52736d', marginBottom: '14px' }}>
-          You need an account to run symptom triage and book a slot with a doctor at this hospital.
+        <div style={{ font: `400 13px ${FONT}`, color: '#52736d', marginBottom: 14 }}>
+          You need an account to run symptom triage and book a slot
+          with a doctor at this hospital.
         </div>
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button
             onClick={onLogin}
-            className="hover-lift"
             style={{
-              backgroundColor: '#ff6b5b', color: '#ffffff', border: 'none',
-              borderRadius: '14px', padding: '10px 20px',
-              fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
-              fontFamily: "'Space Grotesk', sans-serif",
+              background: 'transparent', color: '#0b3f3a',
+              border: '1px solid #d3e2dd', borderRadius: 10,
+              padding: '10px 18px',
+              font: `500 13px ${FONT}`, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
             }}
-          ><LogIn size={14} /> Log in</button>
+          ><LogIn size={14} strokeWidth={1.75} /> Log in</button>
           <button
             onClick={onSignup}
-            className="hover-lift"
             style={{
-              backgroundColor: '#0f766e', color: '#ffffff',
-              border: 'none',
-              borderRadius: '14px', padding: '10px 20px',
-              fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: '6px',
-              boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
-              fontFamily: "'Space Grotesk', sans-serif",
+              background: '#0f766e', color: '#fff',
+              border: 'none', borderRadius: 10,
+              padding: '10px 18px',
+              font: `500 13px ${FONT}`, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              transition: 'background-color 160ms ease',
             }}
-          ><UserPlus size={14} /> Sign up</button>
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#0f766e')}
+          ><UserPlus size={14} strokeWidth={1.75} /> Sign up</button>
         </div>
       </div>
     </motion.div>
