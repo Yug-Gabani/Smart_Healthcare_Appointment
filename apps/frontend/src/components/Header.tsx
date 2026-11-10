@@ -207,6 +207,33 @@ export const Header: React.FC<HeaderProps> = ({
     },
   ];
 
+  // Active navigation items for Floating Capsule Navigation Bar
+  const currentNavItems = !currentUser
+    ? guestNavItems.map(item => ({
+        id: item.id,
+        label: item.label,
+        href: item.href,
+        isActive: item.isActive,
+        onClick: item.onClick,
+      }))
+    : isPatient
+    ? [
+        { id: 'dashboard', label: 'Dashboard', href: '/patient', isActive: isPatientDashboard, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/patient'); } },
+        { id: 'book', label: 'Book Visit', href: '/book', isActive: isBookVisit, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/book'); } },
+        { id: 'appointments', label: 'My Appointments', href: '/appointments', isActive: isMyAppointments, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/appointments'); } },
+        { id: 'prescriptions', label: 'Prescriptions', href: '/prescriptions', isActive: isPrescriptions, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/prescriptions'); } },
+        { id: 'hospitals', label: 'Hospitals', href: '/hospitals', isActive: isHospitals, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/hospitals'); } },
+      ]
+    : isDoctor
+    ? [
+        { id: 'queue', label: 'My Queue', href: '/doctor#my-queue', isActive: isDoctorQueue, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/doctor#my-queue'); } },
+        { id: 'avail', label: 'Availability', href: '/doctor#availability', isActive: isDoctorAvailability, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/doctor#availability'); } },
+        { id: 'patients', label: 'Patients', href: '/doctor#patients', isActive: isDoctorPatients, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/doctor#patients'); } },
+        { id: 'prescriptions', label: 'Prescriptions', href: '/doctor#prescriptions', isActive: isDoctorPrescriptions, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/doctor#prescriptions'); } },
+        { id: 'transcripts', label: 'Transcripts', href: '/doctor#transcripts', isActive: isDoctorTranscripts, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/doctor#transcripts'); } },
+      ]
+    : [];
+
   return (
     <>
       <header
@@ -366,203 +393,89 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* MIDDLE: Desktop Navigation Links with sliding coral 2px underline */}
-          {!isMobile && (
-            <LayoutGroup id="headerNavUnderline">
+          {/* MIDDLE: Floating Capsule Navigation Bar (PulseCare Brand Palette) */}
+          {!isMobile && currentNavItems.length > 0 && (
+            <LayoutGroup id="headerNavPillGroup">
               <nav
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  gap: isScrolled ? '24px' : '28px',
-                  height: '100%',
-                  transition: `gap 220ms ${CUBIC_BEZIER_STR}`,
+                  backgroundColor: isScrolled ? '#f0fdf9' : 'rgba(15, 118, 110, 0.08)',
+                  borderRadius: '9999px',
+                  padding: '4px',
+                  border: '1px solid #cbe4dd',
+                  boxShadow: 'inset 0 1px 3px rgba(15, 118, 110, 0.06), 0 2px 8px rgba(20, 60, 55, 0.04)',
+                  position: 'relative',
+                  gap: '2px',
+                  transition: `background-color 220ms ${CUBIC_BEZIER_STR}, border-color 220ms ${CUBIC_BEZIER_STR}`,
                 }}
               >
-                {!currentUser && guestNavItems.map((item, idx) => (
-                  <motion.div
+                {currentNavItems.map((item, idx) => (
+                  <motion.a
                     key={item.id}
-                    initial={reduced ? false : { opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
+                    href={item.href}
+                    onClick={item.onClick}
+                    initial={reduced ? false : { opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
                     transition={{
-                      duration: 0.35,
-                      delay: reduced ? 0 : 0.25 + idx * 0.04,
+                      duration: 0.25,
+                      delay: reduced ? 0 : 0.1 + idx * 0.03,
                       ease: 'easeOut',
                     }}
-                    style={{ height: '100%', display: 'flex', alignItems: 'center' }}
-                  >
-                    <a
-                      href={item.href}
-                      onClick={item.onClick}
-                      style={{
-                        position: 'relative',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        height: '100%',
-                        padding: '0 4px',
-                        textDecoration: 'none',
-                        cursor: 'pointer',
-                        fontSize: isScrolled ? '13px' : '14px',
-                        fontWeight: item.isActive ? 600 : 500,
-                        color: item.isActive ? '#0b3f3a' : '#52736d',
-                        fontFamily: "'Space Grotesk', sans-serif",
-                        transition: `color 150ms ease, font-size 220ms ${CUBIC_BEZIER_STR}`,
-                        whiteSpace: 'nowrap',
-                      }}
-                      onMouseEnter={e => {
-                        if (!item.isActive) e.currentTarget.style.color = '#0b3f3a';
-                      }}
-                      onMouseLeave={e => {
-                        if (!item.isActive) e.currentTarget.style.color = '#52736d';
-                      }}
-                    >
-                      {item.label}
-
-                      {/* Sliding coral 2px continuous underline */}
-                      {item.isActive && (
-                        <motion.span
-                          layoutId="navActiveUnderline"
-                          transition={{
-                            type: 'spring',
-                            stiffness: 280,
-                            damping: 28,
-                          }}
-                          style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            height: '2px',
-                            backgroundColor: '#ff6b5b',
-                            borderRadius: '2px',
-                          }}
-                        />
-                      )}
-                    </a>
-                  </motion.div>
-                ))}
-
-                {/* Patient Navigation */}
-                {isPatient && [
-                  { id: 'dashboard', label: 'Dashboard', href: '/patient', active: isPatientDashboard, onClick: () => navigate('/patient') },
-                  { id: 'book', label: 'Book Visit', href: '/book', active: isBookVisit, onClick: () => navigate('/book') },
-                  { id: 'appointments', label: 'My Appointments', href: '/appointments', active: isMyAppointments, onClick: () => navigate('/appointments') },
-                  { id: 'prescriptions', label: 'Prescriptions', href: '/prescriptions', active: isPrescriptions, onClick: () => navigate('/prescriptions') },
-                  { id: 'hospitals', label: 'Hospitals', href: '/hospitals', active: isHospitals, onClick: () => navigate('/hospitals') },
-                ].map((item, idx) => (
-                  <motion.div
-                    key={item.id}
-                    initial={reduced ? false : { opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{
-                      duration: 0.35,
-                      delay: reduced ? 0 : 0.25 + idx * 0.04,
-                      ease: 'easeOut',
+                    style={{
+                      position: 'relative',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: isScrolled ? '6px 16px' : '7px 20px',
+                      borderRadius: '9999px',
+                      textDecoration: 'none',
+                      cursor: 'pointer',
+                      fontSize: isScrolled ? '12.5px' : '13.5px',
+                      fontWeight: item.isActive ? 600 : 500,
+                      color: item.isActive ? '#ffffff' : '#52736d',
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      letterSpacing: '-0.01em',
+                      transition: 'color 160ms ease, padding 200ms ease',
+                      whiteSpace: 'nowrap',
+                      zIndex: 1,
                     }}
-                    style={{ height: '100%', display: 'flex', alignItems: 'center' }}
-                  >
-                    <a
-                      href={item.href}
-                      onClick={e => { e.preventDefault(); item.onClick(); }}
-                      style={{
-                        position: 'relative',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        height: '100%',
-                        padding: '0 4px',
-                        textDecoration: 'none',
-                        cursor: 'pointer',
-                        fontSize: isScrolled ? '13px' : '14px',
-                        fontWeight: item.active ? 600 : 500,
-                        color: item.active ? '#0b3f3a' : '#52736d',
-                        fontFamily: "'Space Grotesk', sans-serif",
-                        transition: `color 150ms ease, font-size 220ms ${CUBIC_BEZIER_STR}`,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {item.label}
-                      {item.active && (
-                        <motion.span
-                          layoutId="navActiveUnderline"
-                          transition={{
-                            type: 'spring',
-                            stiffness: 280,
-                            damping: 28,
-                          }}
-                          style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            height: '2px',
-                            backgroundColor: '#ff6b5b',
-                            borderRadius: '2px',
-                          }}
-                        />
-                      )}
-                    </a>
-                  </motion.div>
-                ))}
-
-                {/* Doctor Navigation */}
-                {isDoctor && [
-                  { id: 'queue', label: 'My Queue', href: '/doctor#my-queue', active: isDoctorQueue, onClick: () => navigate('/doctor#my-queue') },
-                  { id: 'avail', label: 'Availability', href: '/doctor#availability', active: isDoctorAvailability, onClick: () => navigate('/doctor#availability') },
-                  { id: 'patients', label: 'Patients', href: '/doctor#patients', active: isDoctorPatients, onClick: () => navigate('/doctor#patients') },
-                  { id: 'prescriptions', label: 'Prescriptions', href: '/doctor#prescriptions', active: isDoctorPrescriptions, onClick: () => navigate('/doctor#prescriptions') },
-                  { id: 'transcripts', label: 'Transcripts', href: '/doctor#transcripts', active: isDoctorTranscripts, onClick: () => navigate('/doctor#transcripts') },
-                ].map((item, idx) => (
-                  <motion.div
-                    key={item.id}
-                    initial={reduced ? false : { opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{
-                      duration: 0.35,
-                      delay: reduced ? 0 : 0.25 + idx * 0.04,
-                      ease: 'easeOut',
+                    onMouseEnter={e => {
+                      if (!item.isActive) {
+                        e.currentTarget.style.color = '#0b3f3a';
+                        e.currentTarget.style.backgroundColor = 'rgba(15, 118, 110, 0.06)';
+                      }
                     }}
-                    style={{ height: '100%', display: 'flex', alignItems: 'center' }}
+                    onMouseLeave={e => {
+                      if (!item.isActive) {
+                        e.currentTarget.style.color = '#52736d';
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }
+                    }}
                   >
-                    <a
-                      href={item.href}
-                      onClick={e => { e.preventDefault(); item.onClick(); }}
-                      style={{
-                        position: 'relative',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        height: '100%',
-                        padding: '0 4px',
-                        textDecoration: 'none',
-                        cursor: 'pointer',
-                        fontSize: isScrolled ? '13px' : '14px',
-                        fontWeight: item.active ? 600 : 500,
-                        color: item.active ? '#0b3f3a' : '#52736d',
-                        fontFamily: "'Space Grotesk', sans-serif",
-                        transition: `color 150ms ease, font-size 220ms ${CUBIC_BEZIER_STR}`,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {item.label}
-                      {item.active && (
-                        <motion.span
-                          layoutId="navActiveUnderline"
-                          transition={{
-                            type: 'spring',
-                            stiffness: 280,
-                            damping: 28,
-                          }}
-                          style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            height: '2px',
-                            backgroundColor: '#ff6b5b',
-                            borderRadius: '2px',
-                          }}
-                        />
-                      )}
-                    </a>
-                  </motion.div>
+                    {/* Active sliding capsule indicator (PulseCare signature medical teal) */}
+                    {item.isActive && (
+                      <motion.span
+                        layoutId="navActivePillHighlight"
+                        transition={{
+                          type: 'spring',
+                          stiffness: 380,
+                          damping: 32,
+                          mass: 0.8,
+                        }}
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          backgroundColor: '#0f766e',
+                          borderRadius: '9999px',
+                          border: '1px solid #0d655e',
+                          boxShadow: '0 2px 8px rgba(15, 118, 110, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.22)',
+                          zIndex: -1,
+                        }}
+                      />
+                    )}
+                    <span style={{ position: 'relative', zIndex: 2 }}>{item.label}</span>
+                  </motion.a>
                 ))}
               </nav>
             </LayoutGroup>
