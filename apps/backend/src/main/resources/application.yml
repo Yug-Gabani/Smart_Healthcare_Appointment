@@ -126,6 +126,7 @@ logging:
     root: INFO
     com.group6.healthcare: DEBUG
     org.hibernate.SQL: INFO
+    org.apache.kafka: ERROR
 
 # =========================================================================
 # Razorpay Credentials (SINGLE SOURCE OF TRUTH)
