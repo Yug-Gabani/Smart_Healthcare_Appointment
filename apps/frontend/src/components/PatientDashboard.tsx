@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PageTransition } from '../motion/PageTransition';
 import {
   Video, PlusCircle, Upload, FileText, Pill, ArrowRight, Check, ChevronRight,
-  Loader2, Calendar, Sparkles, ShieldCheck, CheckCircle2, ChevronDown, ChevronUp, MessageSquare,
+  Loader2, Calendar, Sparkles, ChevronDown, ChevronUp, MessageSquare,
 } from 'lucide-react';
 import type { Appointment, PatientProfile, Prescription, User, ConsultationSession } from '../types';
 import { appointmentsApi, prescriptionsApi, profileApi, consultationsApi } from '../services/api';

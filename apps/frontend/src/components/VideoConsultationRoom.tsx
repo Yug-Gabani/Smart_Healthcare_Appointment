@@ -2443,13 +2443,14 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
                       animation: isTranscribing ? 'pulse 1.5s infinite' : 'none',
                     }}
                   />
-                  <strong style={{ color: isTranscribing ? '#065f46' : '#64748b' }}>
-                    {isTranscribing ? 'Speech-to-Text: Active' : 'Speech Recognition: Paused'}
+                  <strong style={{ color: !speechSupported ? '#991b1b' : isTranscribing ? '#065f46' : '#64748b' }}>
+                    {!speechSupported ? 'Speech API: Unavailable' : isTranscribing ? 'Speech-to-Text: Active' : 'Speech Recognition: Paused'}
                   </strong>
                   <span style={{ color: '#52736d' }}>· Web Speech API</span>
                 </div>
                 <button
                   type="button"
+                  disabled={!speechSupported}
                   onClick={() => setIsTranscribing(prev => !prev)}
                   style={{
                     backgroundColor: isTranscribing ? '#0f766e' : '#e2e8f0',
