@@ -122,7 +122,7 @@ public class AppointmentService {
         return toResponse(appt, doctor, slot, patient);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<AppointmentResponse> listForPatient(UUID patientId) {
         List<Appointment> appointments = appointmentRepository.findByPatientIdOrderByCreatedAtDesc(patientId);
         return hydrate(appointments, patientId, null);
@@ -130,17 +130,17 @@ public class AppointmentService {
 
     public enum DoctorQueueScope { ACTIVE, PAST, ALL }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<AppointmentResponse> listForDoctor(UUID doctorUserId, DoctorQueueScope scope) {
         return doctorRepository.findByUserId(doctorUserId)
                 .map(doctor -> {
                     List<AppointmentStatus> statuses = switch (scope) {
                         case ACTIVE -> List.of(AppointmentStatus.BOOKED, AppointmentStatus.CONFIRMED);
                         case PAST   -> List.of(AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW,
-                                               AppointmentStatus.CANCELLED);
+                                               AppointmentStatus.CANCELLED, AppointmentStatus.EXPIRED);
                         case ALL    -> List.of(AppointmentStatus.BOOKED, AppointmentStatus.CONFIRMED,
                                                AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW,
-                                               AppointmentStatus.CANCELLED);
+                                               AppointmentStatus.CANCELLED, AppointmentStatus.EXPIRED);
                     };
                     List<Appointment> appointments = appointmentRepository
                             .findByDoctorIdAndStatusInOrderByCreatedAtDesc(doctor.getId(), statuses);
@@ -186,21 +186,24 @@ public class AppointmentService {
             }
             case START -> {
                 if (appt.getStatus() == AppointmentStatus.COMPLETED
-                        || appt.getStatus() == AppointmentStatus.NO_SHOW) {
+                        || appt.getStatus() == AppointmentStatus.NO_SHOW
+                        || appt.getStatus() == AppointmentStatus.EXPIRED) {
                     throw new BusinessRuleException("Appointment is already " + appt.getStatus());
                 }
                 appt.setStatus(AppointmentStatus.CONFIRMED);
             }
             case COMPLETE -> {
                 if (appt.getStatus() == AppointmentStatus.COMPLETED
-                        || appt.getStatus() == AppointmentStatus.NO_SHOW) {
+                        || appt.getStatus() == AppointmentStatus.NO_SHOW
+                        || appt.getStatus() == AppointmentStatus.EXPIRED) {
                     throw new BusinessRuleException("Appointment is already " + appt.getStatus());
                 }
                 appt.setStatus(AppointmentStatus.COMPLETED);
             }
             case NO_SHOW -> {
                 if (appt.getStatus() == AppointmentStatus.COMPLETED
-                        || appt.getStatus() == AppointmentStatus.NO_SHOW) {
+                        || appt.getStatus() == AppointmentStatus.NO_SHOW
+                        || appt.getStatus() == AppointmentStatus.EXPIRED) {
                     throw new BusinessRuleException("Appointment is already " + appt.getStatus());
                 }
                 appt.setStatus(AppointmentStatus.NO_SHOW);
@@ -244,7 +247,9 @@ public class AppointmentService {
             throw new BusinessRuleException("Appointment belongs to a different patient");
         }
         if (appt.getStatus() == AppointmentStatus.CANCELLED
-                || appt.getStatus() == AppointmentStatus.COMPLETED) {
+                || appt.getStatus() == AppointmentStatus.COMPLETED
+                || appt.getStatus() == AppointmentStatus.NO_SHOW
+                || appt.getStatus() == AppointmentStatus.EXPIRED) {
             throw new BusinessRuleException("Appointment cannot be cancelled from status " + appt.getStatus());
         }
 
@@ -272,7 +277,7 @@ public class AppointmentService {
         return toResponse(appt, doctor, slot, patient);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AppointmentResponse get(UUID appointmentId, UUID patientId) {
         Appointment appt = appointmentRepository.findById(appointmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Appointment", appointmentId));
@@ -282,6 +287,15 @@ public class AppointmentService {
         Doctor doctor = doctorRepository.findById(appt.getDoctorId()).orElse(null);
         DoctorSlot slot = slotRepository.findById(appt.getSlotId()).orElse(null);
         User patient = userRepository.findById(appt.getPatientId()).orElse(null);
+
+        // Auto-expire elapsed appointments
+        if (appt.getStatus() == AppointmentStatus.BOOKED || appt.getStatus() == AppointmentStatus.CONFIRMED) {
+            if (slot != null && slot.getSlotAt() != null && slot.getSlotAt().plusMinutes(45).isBefore(java.time.OffsetDateTime.now())) {
+                appt.setStatus(AppointmentStatus.EXPIRED);
+                appointmentRepository.save(appt);
+            }
+        }
+
         return toResponse(appt, doctor, slot, patient);
     }
 
@@ -301,6 +315,22 @@ public class AppointmentService {
         List<UUID> patientIds = appointments.stream().map(Appointment::getPatientId).distinct().toList();
         Map<UUID, User> patientsById = userRepository.findAllById(patientIds).stream()
                 .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+
+        // Auto-expire appointments whose scheduled consultation window (+45 mins) has elapsed
+        java.time.OffsetDateTime now = java.time.OffsetDateTime.now();
+        List<Appointment> modified = new java.util.ArrayList<>();
+        for (Appointment a : appointments) {
+            if (a.getStatus() == AppointmentStatus.BOOKED || a.getStatus() == AppointmentStatus.CONFIRMED) {
+                DoctorSlot s = slotsById.get(a.getSlotId());
+                if (s != null && s.getSlotAt() != null && s.getSlotAt().plusMinutes(45).isBefore(now)) {
+                    a.setStatus(AppointmentStatus.EXPIRED);
+                    modified.add(a);
+                }
+            }
+        }
+        if (!modified.isEmpty()) {
+            appointmentRepository.saveAll(modified);
+        }
 
         return appointments.stream()
                 .map(a -> toResponse(

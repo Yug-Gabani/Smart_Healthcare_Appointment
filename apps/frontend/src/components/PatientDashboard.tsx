@@ -3,49 +3,35 @@ import { useNavigate } from 'react-router-dom';
 import { PageTransition } from '../motion/PageTransition';
 import {
   Video, PlusCircle, Upload, FileText, Pill, ArrowRight, Check, ChevronRight,
-  Loader2, Calendar,
+  Loader2, Calendar, AlertCircle,
 } from 'lucide-react';
 import type { Appointment, PatientProfile, Prescription, User } from '../types';
 import { appointmentsApi, prescriptionsApi, profileApi } from '../services/api';
 import { MeetingSummaryModal } from './MeetingSummaryModal';
+import {
+  isAppointmentExpired,
+  isAppointmentLive,
+  isAppointmentUpcoming,
+  formatAppointmentSlot,
+  formatTimeRelative,
+} from '../utils/appointmentStatus';
 
 interface PatientDashboardProps {
   currentUser: User;
 }
 
-function formatSlot(iso?: string): string {
-  if (!iso) return 'TBA';
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
-  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (sameDay) return `Today · ${time}`;
-  if (isTomorrow) return `Tomorrow · ${time}`;
-  return `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${time}`;
-}
-
-function timeUntil(iso?: string): string | null {
-  if (!iso) return null;
-  const diffMs = new Date(iso).getTime() - Date.now();
-  if (diffMs <= 0) return 'starts now';
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 60) return `in ${mins} min`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `in ${hours} h`;
-  const days = Math.round(hours / 24);
-  return `in ${days} day${days === 1 ? '' : 's'}`;
-}
-
 /** Context title derived from the patient's state. Replaces the generic greeting
  *  so the h1 says something useful (period or state) instead of "Hello, {firstName}". */
-function dashboardContext(next: Appointment | null): string {
-  if (!next) return 'Nothing scheduled right now';
-  const when = formatSlot(next.slotAt);
-  if (when.startsWith('Today')) return 'You have a visit today';
-  if (when.startsWith('Tomorrow')) return 'You have a visit tomorrow';
-  return 'Your next visit';
+function dashboardContext(next: Appointment | null, latestMissed: Appointment | null): string {
+  if (next) {
+    if (isAppointmentLive(next.slotAt, next.status)) return 'You have a visit right now';
+    const when = formatAppointmentSlot(next.slotAt);
+    if (when.startsWith('Today')) return 'You have a visit today';
+    if (when.startsWith('Tomorrow')) return 'You have a visit tomorrow';
+    return 'Your next visit';
+  }
+  if (latestMissed) return 'Review your missed visit';
+  return 'Nothing scheduled right now';
 }
 
 const FONT = "'Space Grotesk', ui-sans-serif, system-ui, sans-serif";
@@ -77,16 +63,31 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
   }, [currentUser]);
 
   const signedPrescriptions = useMemo(() => prescriptions.filter(r => r.status === 'SIGNED'), [prescriptions]);
+
+  // Upcoming includes only strictly active or future appointments (live now or upcoming in future)
   const upcoming = useMemo(
-    () => appointments.filter(a => a.status === 'BOOKED' || a.status === 'CONFIRMED')
+    () => appointments
+      .filter(a => isAppointmentLive(a.slotAt, a.status) || isAppointmentUpcoming(a.slotAt, a.status))
       .sort((a, b) => (a.slotAt && b.slotAt ? a.slotAt.localeCompare(b.slotAt) : 0)),
     [appointments]);
-  const completedVisits = useMemo(
-    () => appointments.filter(a => a.status === 'COMPLETED')
+
+  // Missed/expired visits
+  const missedVisits = useMemo(
+    () => appointments
+      .filter(a => isAppointmentExpired(a.slotAt, a.status))
       .sort((a, b) => (a.slotAt && b.slotAt ? b.slotAt.localeCompare(a.slotAt) : 0)),
     [appointments]);
+
+  // All past visits (completed, missed, cancelled)
+  const pastVisits = useMemo(
+    () => appointments
+      .filter(a => !isAppointmentLive(a.slotAt, a.status) && !isAppointmentUpcoming(a.slotAt, a.status))
+      .sort((a, b) => (a.slotAt && b.slotAt ? b.slotAt.localeCompare(a.slotAt) : 0)),
+    [appointments]);
+
   const next = upcoming[0] ?? null;
-  const recentVisit = completedVisits[0] ?? null;
+  const latestMissed = missedVisits[0] ?? null;
+  const recentVisit = pastVisits[0] ?? null;
 
   const todayLabel = useMemo(() =>
     new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }),
@@ -164,7 +165,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
             <h1 style={{
               font: `600 32px/1.1 ${FONT}`, letterSpacing: '-0.02em', margin: 0,
             }}>
-              {loading ? 'Your dashboard' : dashboardContext(next)}
+              {loading ? 'Your dashboard' : dashboardContext(next, latestMissed)}
             </h1>
           </div>
           <div style={{
@@ -208,11 +209,11 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ font: `500 12px ${FONT}`, color: '#0f766e' }}>
-                    {formatSlot(next.slotAt)}
+                    {formatAppointmentSlot(next.slotAt)}
                   </span>
                   <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#cdddd7' }} />
-                  <span style={{ font: `500 12px ${FONT}`, color: '#8aa39d' }}>
-                    {timeUntil(next.slotAt) ?? ''}
+                  <span style={{ font: `500 12px ${FONT}`, color: isAppointmentLive(next.slotAt, next.status) ? '#059669' : '#8aa39d' }}>
+                    {isAppointmentLive(next.slotAt, next.status) ? 'Live now · in session' : (formatTimeRelative(next.slotAt) || '')}
                   </span>
                 </div>
                 <div style={{
@@ -228,7 +229,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
                   display: 'flex', alignItems: 'center', gap: 12,
                   marginTop: 24, flexWrap: 'wrap',
                 }}>
-                  {next.consultationType === 'VIDEO' && (
+                  {next.consultationType === 'VIDEO' && isAppointmentLive(next.slotAt, next.status) && (
                     <button
                       onClick={() => navigate(`/consultation/${next.id}`)}
                       style={{
@@ -241,7 +242,6 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
                       onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#0f766e')}
                     >
-                      {/* Pulsing dot is semantic — live/active indicator for video, not decoration. */}
                       <span style={{
                         width: 8, height: 8, borderRadius: '50%',
                         background: '#7ff0d4', animation: 'pd-pulse 1.5s infinite',
@@ -251,6 +251,82 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
                   )}
                   <button
                     onClick={() => navigate(`/appointments/${next.id}`)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      background: 'transparent', color: '#0b3f3a',
+                      border: '1px solid #d3e2dd', borderRadius: 10,
+                      padding: '12px 20px',
+                      font: `500 14px ${FONT}`, cursor: 'pointer',
+                      transition: 'border-color 160ms ease',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#b8d4cc')}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#d3e2dd')}
+                  >
+                    View details
+                  </button>
+                </div>
+              </div>
+            ) : latestMissed ? (
+              <div style={{
+                padding: 32,
+                background: '#fff', border: '1px solid #fecaca',
+                borderRadius: 16,
+                boxShadow: '0 2px 10px rgba(220, 38, 38, 0.04)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{
+                    font: `600 12px ${FONT}`, color: '#b91c1c',
+                    backgroundColor: '#fef2f2', border: '1px solid #fecaca',
+                    padding: '3px 10px', borderRadius: 9999,
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                  }}>
+                    <AlertCircle size={13} /> Missed consultation
+                  </span>
+                  <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#fca5a5' }} />
+                  <span style={{ font: `500 12px ${FONT}`, color: '#991b1b' }}>
+                    {formatAppointmentSlot(latestMissed.slotAt)}
+                  </span>
+                  <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#fca5a5' }} />
+                  <span style={{ font: `500 12px ${FONT}`, color: '#7f1d1d' }}>
+                    {formatTimeRelative(latestMissed.slotAt)}
+                  </span>
+                </div>
+                <div style={{
+                  font: `600 24px ${FONT}`, letterSpacing: '-0.01em',
+                  margin: '14px 0 4px', color: '#0b3f3a',
+                }}>
+                  {latestMissed.doctorName}
+                </div>
+                <div style={{ font: `400 14px ${FONT}`, color: '#52736d' }}>
+                  {latestMissed.doctorSpecialty}{latestMissed.doctorHospital ? ` · ${latestMissed.doctorHospital}` : ''}
+                </div>
+                <div style={{
+                  marginTop: 16, padding: '12px 16px', borderRadius: 10,
+                  backgroundColor: '#fef2f2', border: '1px solid #fee2e2',
+                  fontSize: '13px', color: '#991b1b', lineHeight: 1.5,
+                }}>
+                  The scheduled consultation window expired without attendance. Clinical care is important &mdash; please reschedule your visit or book another attending specialist.
+                </div>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  marginTop: 20, flexWrap: 'wrap',
+                }}>
+                  <button
+                    onClick={() => navigate('/book')}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 8,
+                      background: '#0f766e', color: '#fff', border: 'none',
+                      borderRadius: 10, padding: '12px 20px',
+                      font: `500 14px ${FONT}`, cursor: 'pointer',
+                      transition: 'background-color 160ms ease',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#0f766e')}
+                  >
+                    <Calendar size={15} strokeWidth={1.75} /> Reschedule consultation
+                  </button>
+                  <button
+                    onClick={() => navigate(`/appointments/${latestMissed.id}`)}
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: 6,
                       background: 'transparent', color: '#0b3f3a',
@@ -332,7 +408,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
                     font: `400 13px ${FONT}`, color: '#52736d',
                   }}>
                     <span>
-                      <span style={{ color: '#0b3f3a', fontWeight: 500 }}>{formatSlot(a.slotAt)}</span>
+                      <span style={{ color: '#0b3f3a', fontWeight: 500 }}>{formatAppointmentSlot(a.slotAt)}</span>
                       &nbsp;·&nbsp; {a.doctorName}
                     </span>
                     <span style={{ color: '#8aa39d' }}>
@@ -350,23 +426,66 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
                 <div style={{ ...eyebrow, marginBottom: 16 }}>Recent</div>
                 {recentVisit ? (
                   <>
-                    <div style={{ font: `600 15px ${FONT}`, color: '#0b3f3a' }}>
-                      {recentVisit.doctorName}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                      <div style={{ font: `600 15px ${FONT}`, color: '#0b3f3a' }}>
+                        {recentVisit.doctorName}
+                      </div>
+                      {isAppointmentExpired(recentVisit.slotAt, recentVisit.status) && (
+                        <span style={{
+                          fontSize: '11px', fontWeight: 600, color: '#b91c1c',
+                          backgroundColor: '#fef2f2', border: '1px solid #fecaca',
+                          padding: '2px 8px', borderRadius: 9999,
+                        }}>
+                          Missed
+                        </span>
+                      )}
+                      {recentVisit.status === 'COMPLETED' && (
+                        <span style={{
+                          fontSize: '11px', fontWeight: 600, color: '#059669',
+                          backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0',
+                          padding: '2px 8px', borderRadius: 9999,
+                        }}>
+                          Completed
+                        </span>
+                      )}
+                      {recentVisit.status === 'CANCELLED' && (
+                        <span style={{
+                          fontSize: '11px', fontWeight: 600, color: '#6b7280',
+                          backgroundColor: '#f3f4f6', border: '1px solid #e5e7eb',
+                          padding: '2px 8px', borderRadius: 9999,
+                        }}>
+                          Cancelled
+                        </span>
+                      )}
                     </div>
-                    <div style={{ font: `400 13px ${FONT}`, color: '#8aa39d', marginTop: 4 }}>
-                      {recentVisit.doctorSpecialty} · {formatSlot(recentVisit.slotAt)}
+                    <div style={{ font: `400 13px ${FONT}`, color: '#8aa39d' }}>
+                      {recentVisit.doctorSpecialty} · {formatAppointmentSlot(recentVisit.slotAt)}
                     </div>
-                    <button
-                      onClick={() => setSelectedSummaryAppt(recentVisit)}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        font: `500 13px ${FONT}`, color: '#0f766e',
-                        marginTop: 12, padding: 0,
-                      }}
-                    >
-                      Read summary <ArrowRight size={13} strokeWidth={1.75} />
-                    </button>
+                    {recentVisit.status === 'COMPLETED' ? (
+                      <button
+                        onClick={() => setSelectedSummaryAppt(recentVisit)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          font: `500 13px ${FONT}`, color: '#0f766e',
+                          marginTop: 12, padding: 0,
+                        }}
+                      >
+                        Read summary <ArrowRight size={13} strokeWidth={1.75} />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => navigate('/book')}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          font: `500 13px ${FONT}`, color: '#0f766e',
+                          marginTop: 12, padding: 0,
+                        }}
+                      >
+                        Book again <ArrowRight size={13} strokeWidth={1.75} />
+                      </button>
+                    )}
                   </>
                 ) : (
                   <div style={{ font: `400 13px ${FONT}`, color: '#8aa39d' }}>

@@ -14,8 +14,13 @@ const TABS: { value: DoctorStatus; label: string; icon: React.ReactNode }[] = [
   { value: 'REJECTED', label: 'Rejected', icon: <AlertTriangle size={14} /> },
 ];
 
-export const AdminDoctors: React.FC = () => {
-  const [tab, setTab] = useState<DoctorStatus>('PENDING');
+export interface AdminDoctorsProps {
+  embedded?: boolean;
+  initialStatus?: DoctorStatus;
+}
+
+export const AdminDoctors: React.FC<AdminDoctorsProps> = ({ embedded = false, initialStatus = 'PENDING' }) => {
+  const [tab, setTab] = useState<DoctorStatus>(initialStatus);
   const [rows, setRows] = useState<DoctorMe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,14 +64,18 @@ export const AdminDoctors: React.FC = () => {
     } finally { setActing(false); }
   };
 
-  return (
-    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '48px auto', padding: '0 24px', boxSizing: 'border-box' }}>
-      <motion.h1 {...fadeInUp} style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
-        Doctor verification
-      </motion.h1>
-      <p style={{ color: '#5e7b76', margin: '6px 0 20px 0', fontSize: '14px' }}>
-        Approve new doctors so they appear in patient-facing search, or reject with a reason so they can edit and resubmit.
-      </p>
+  const content = (
+    <div>
+      {!embedded && (
+        <>
+          <motion.h1 {...fadeInUp} style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
+            Doctor verification
+          </motion.h1>
+          <p style={{ color: '#5e7b76', margin: '6px 0 20px 0', fontSize: '14px' }}>
+            Approve new doctors so they appear in patient-facing search, or reject with a reason so they can edit and resubmit.
+          </p>
+        </>
+      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -258,6 +267,16 @@ export const AdminDoctors: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <PageTransition style={{ width: '100%', maxWidth: '1440px', margin: '48px auto', padding: '0 24px', boxSizing: 'border-box' }}>
+      {content}
     </PageTransition>
   );
 };

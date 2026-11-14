@@ -1285,15 +1285,16 @@ export const DoctorDashboard: React.FC = () => {
                                 fontSize: '11px', fontWeight: 500,
                                 padding: '2px 10px', borderRadius: '6px',
                                 color: queueStatus[item.id] === 'COMPLETED' ? '#065f46'
-                                     : queueStatus[item.id] === 'NO_SHOW' ? '#92400e'
+                                     : (queueStatus[item.id] === 'NO_SHOW' || queueStatus[item.id] === 'EXPIRED') ? '#92400e'
                                      : '#6b7280',
                                 backgroundColor: queueStatus[item.id] === 'COMPLETED' ? '#ecfdf5'
-                                     : queueStatus[item.id] === 'NO_SHOW' ? '#fffbeb'
+                                     : (queueStatus[item.id] === 'NO_SHOW' || queueStatus[item.id] === 'EXPIRED') ? '#fffbeb'
                                      : '#f6f7f8',
                               }}
                             >
                               {queueStatus[item.id] === 'COMPLETED' ? 'Completed'
                                 : queueStatus[item.id] === 'NO_SHOW' ? 'No-show'
+                                : queueStatus[item.id] === 'EXPIRED' ? 'Expired / Missed'
                                 : (queueStatus[item.id] ?? '').toString().toLowerCase().replace('_', ' ')}
                             </span>
                           </div>

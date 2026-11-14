@@ -1,18 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageTransition } from '../motion/PageTransition';
-import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw, AlertCircle } from 'lucide-react';
 import type { Appointment } from '../types';
 import { appointmentsApi } from '../services/api';
 import { CancelRefundModal } from './CancelRefundModal';
+import { getAppointmentStatusDetails, formatAppointmentSlot } from '../utils/appointmentStatus';
 
 function formatSlot(iso?: string): string {
-  if (!iso) return 'TBA';
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    weekday: 'long', month: 'long', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+  return formatAppointmentSlot(iso);
 }
 
 function urgencyColor(u: Appointment['urgency']): string {
@@ -47,11 +43,8 @@ export const AppointmentDetail: React.FC = () => {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const canCancel =
-    appt &&
-    appt.status !== 'CANCELLED' &&
-    appt.status !== 'COMPLETED' &&
-    appt.status !== 'NO_SHOW';
+  const details = appt ? getAppointmentStatusDetails(appt) : null;
+  const canCancel = details ? details.canCancel : false;
 
   return (
     <PageTransition style={{ maxWidth: '720px', margin: '20px auto 28px', padding: '0 20px' }}>
@@ -142,9 +135,30 @@ export const AppointmentDetail: React.FC = () => {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <Clock size={16} color="#0f766e" />
-              <span><strong>Status:</strong> {appt.status}</span>
+              <span><strong>Status:</strong> {details?.label || appt.status}</span>
             </div>
           </div>
+
+          {/* Expired / Missed Notice */}
+          {details?.key === 'EXPIRED' && (
+            <div
+              style={{
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+              }}
+            >
+              <AlertCircle size={18} color="#dc2626" />
+              <div style={{ fontSize: '13px', color: '#991b1b' }}>
+                <strong>Appointment Expired:</strong> Scheduled slot ({formatSlot(appt.slotAt)}) has passed without attendance. Consultation room is closed.
+              </div>
+            </div>
+          )}
 
           {/* Refund Status Notice if cancelled */}
           {(appt.status === 'CANCELLED' || refundSummary) && (
@@ -177,7 +191,7 @@ export const AppointmentDetail: React.FC = () => {
           )}
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {appt.consultationType === 'VIDEO' && appt.status !== 'CANCELLED' && appt.status !== 'COMPLETED' && (
+            {details?.canJoinCall && appt.consultationType === 'VIDEO' && (
               <button
                 onClick={() => navigate(`/consultation/${appt.id}`)}
                 className="btn btn-primary hover-lift"
@@ -196,6 +210,15 @@ export const AppointmentDetail: React.FC = () => {
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
               >
                 <FileText size={16} /> View Consultation Summary
+              </button>
+            )}
+            {(details?.key === 'EXPIRED' || details?.key === 'CANCELLED') && (
+              <button
+                onClick={() => navigate('/book')}
+                className="btn btn-primary hover-lift"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Calendar size={16} /> Book New Consultation
               </button>
             )}
             <button
