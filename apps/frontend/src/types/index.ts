@@ -362,6 +362,18 @@ export interface PharmacyOrder {
   updatedAt: string;
 }
 
+// ---------- AI Queue Advisor ----------
+
+export interface QueueAdvisorResponse {
+  overall_assessment: string;
+  priority_recommendation: string;
+  suggested_order_ids: string[];
+  emergency_count: number;
+  urgent_count: number;
+  routine_count: number;
+  clinical_alerts: string[];
+}
+
 // ---------- Video Consultations & Summaries ----------
 
 export type ConsultationSessionStatus = 'SCHEDULED' | 'WAITING' | 'IN_PROGRESS' | 'COMPLETED';
@@ -402,3 +414,13 @@ export interface ConsultationEndRequest {
   prescribedActions?: string;
   followUp?: string;
 }
+
+export interface TranscriptEntry {
+  id: string;
+  speaker: string;
+  senderRole: string;
+  text: string;
+  time: string;
+  isSpeech?: boolean;
+}
+

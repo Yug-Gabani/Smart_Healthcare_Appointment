@@ -51,6 +51,9 @@ public class ConsultationService {
     @Value("${app.ai.service-url:http://localhost:8001}")
     private String aiServiceUrl;
 
+    @Value("${spring.profiles.active:dev}")
+    private String activeProfile;
+
     // In-memory signaling bus for peer-to-peer WebRTC SDP & ICE candidate exchange.
     // Key: appointmentId, Value: synchronized list of recent signal messages with monotonic timestamps.
     private final Map<UUID, List<ConsultationSignalMessage>> signalQueues = new ConcurrentHashMap<>();
@@ -115,11 +118,12 @@ public class ConsultationService {
         // Timing activation rule:
         // Room opens 30 mins before slotAt until slotAt + 12 hours.
         // Doctors have override capability to start the room at any time for testing/prep.
-        // If doctor has already opened or started the room, patient can join immediately.
+        // If doctor has already opened or started the room, or in dev/test environment, patient can join immediately.
         boolean inWindow = now.isAfter(slotAt.minusMinutes(30)) && now.isBefore(slotAt.plusHours(12));
         boolean roomAlreadyStarted = session.getStatus() == ConsultationSessionStatus.WAITING
                 || session.getStatus() == ConsultationSessionStatus.IN_PROGRESS;
-        boolean canJoin = isDoctor || inWindow || roomAlreadyStarted;
+        boolean isDevOrTest = "dev".equalsIgnoreCase(activeProfile) || "test".equalsIgnoreCase(activeProfile);
+        boolean canJoin = isDoctor || inWindow || roomAlreadyStarted || isDevOrTest;
 
         String joinMessage;
         if (session.getStatus() == ConsultationSessionStatus.COMPLETED) {
@@ -187,46 +191,51 @@ public class ConsultationService {
         // Attempt LangChain + LangGraph AI Meeting Summarization via ai-service / OpenRouter
         AiSummaryResponse aiSummary = tryGenerateAiSummary(patientName, doctorName, chiefComplaint, transcript, doctorNotes);
 
-        String observations = (req != null && req.observations() != null && !req.observations().isBlank())
-                ? req.observations()
-                : (aiSummary != null && aiSummary.observations() != null && !aiSummary.observations().isBlank())
+        // Prioritize LangChain + LangGraph AI Meeting Summarization outputs from dialogue transcript
+        String observations = (aiSummary != null && aiSummary.observations() != null && !aiSummary.observations().isBlank())
                 ? aiSummary.observations()
+                : (req != null && req.observations() != null && !req.observations().isBlank())
+                ? req.observations()
                 : "Patient appeared alert and oriented. Symptoms evaluated over secure video consult. Visual assessment noted stable condition with no acute respiratory distress.";
 
-        String advice = (req != null && req.doctorNotes() != null && !req.doctorNotes().isBlank())
-                ? req.doctorNotes()
-                : (aiSummary != null && aiSummary.doctor_advice() != null && !aiSummary.doctor_advice().isBlank())
+        String advice = (aiSummary != null && aiSummary.doctor_advice() != null && !aiSummary.doctor_advice().isBlank())
                 ? aiSummary.doctor_advice()
+                : (req != null && req.doctorNotes() != null && !req.doctorNotes().isBlank())
+                ? req.doctorNotes()
                 : "Continue prescribed hydration and symptomatic relief. Monitor body temperature and rest. Maintain current treatment course as discussed.";
 
-        String actions = (req != null && req.prescribedActions() != null && !req.prescribedActions().isBlank())
-                ? req.prescribedActions()
-                : (aiSummary != null && aiSummary.prescribed_actions() != null && !aiSummary.prescribed_actions().isBlank())
+        String actions = (aiSummary != null && aiSummary.prescribed_actions() != null && !aiSummary.prescribed_actions().isBlank())
                 ? aiSummary.prescribed_actions()
+                : (req != null && req.prescribedActions() != null && !req.prescribedActions().isBlank())
+                ? req.prescribedActions()
                 : "Adhere to the digital prescription issued in the portal. Complete any ordered blood tests or follow-up laboratory work.";
 
-        String followUp = (req != null && req.followUp() != null && !req.followUp().isBlank())
-                ? req.followUp()
-                : (aiSummary != null && aiSummary.follow_up() != null && !aiSummary.follow_up().isBlank())
+        String followUp = (aiSummary != null && aiSummary.follow_up() != null && !aiSummary.follow_up().isBlank())
                 ? aiSummary.follow_up()
+                : (req != null && req.followUp() != null && !req.followUp().isBlank())
+                ? req.followUp()
                 : "Schedule follow-up review in 7–10 days if symptoms persist. Seek immediate emergency care if chest tightness, severe fever, or shortness of breath develops.";
+
+        String communicationSummary = (aiSummary != null && aiSummary.communication_summary() != null && !aiSummary.communication_summary().isBlank())
+                ? aiSummary.communication_summary()
+                : "Video telehealth consultation conducted between " + patientName + " and " + doctorName + " for '" + chiefComplaint + "'. Clinical evaluation and symptom review completed with medical advice and prescriptions provided.";
+
+        String finalObservations = communicationSummary + "\n\nClinical Observations & Telemetry: " + observations;
 
         session.setStatus(ConsultationSessionStatus.COMPLETED);
         session.setEndedAt(OffsetDateTime.now());
         session.setTranscript(transcript);
         session.setSummaryChiefComplaint(chiefComplaint);
-        session.setSummaryObservations(observations);
+        session.setSummaryObservations(finalObservations);
         session.setSummaryDoctorAdvice(advice);
         session.setSummaryPrescribedActions(actions);
         session.setSummaryFollowUp(followUp);
 
         session = sessionRepository.save(session);
 
-        // Automatically advance the appointment status to COMPLETED
+        // Automatically advance the appointment status to COMPLETED and save the whole communication summary in notes
         appt.setStatus(AppointmentStatus.COMPLETED);
-        if (appt.getNotes() == null || appt.getNotes().isBlank()) {
-            appt.setNotes("Video consultation completed. Summary generated.");
-        }
+        appt.setNotes(communicationSummary);
         appointmentRepository.save(appt);
 
         // Broadcast an END_CALL message so connected peers immediately transition to summary screen
@@ -311,6 +320,7 @@ public class ConsultationService {
 
     public record AiSummaryResponse(
             String chief_complaint,
+            String communication_summary,
             String observations,
             String doctor_advice,
             String prescribed_actions,

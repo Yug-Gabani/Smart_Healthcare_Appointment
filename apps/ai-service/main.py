@@ -2,8 +2,9 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from graph import consultation_graph, ConsultationState
+from queue_advisor import QueuePatientItem, QueueAdvisorResult, analyze_doctor_queue
 
 app = FastAPI(
     title="PulseCare AI Service",
@@ -30,6 +31,7 @@ class ConsultationSummaryRequest(BaseModel):
 
 class ConsultationSummaryResponse(BaseModel):
     chief_complaint: str
+    communication_summary: Optional[str] = Field("", description="Full holistic summary of the video call communication")
     observations: str
     doctor_advice: str
     prescribed_actions: str
@@ -59,6 +61,7 @@ def summarize_consultation(payload: ConsultationSummaryRequest):
             "chief_complaint": payload.chief_complaint or "Telehealth consultation",
             "transcript": payload.transcript or "",
             "doctor_notes": payload.doctor_notes or "",
+            "communication_summary": None,
             "observations": None,
             "doctor_advice": None,
             "prescribed_actions": None,
@@ -71,6 +74,7 @@ def summarize_consultation(payload: ConsultationSummaryRequest):
 
         return ConsultationSummaryResponse(
             chief_complaint=payload.chief_complaint or "Teleconsultation follow-up",
+            communication_summary=final_state.get("communication_summary") or "",
             observations=final_state.get("observations") or "Clinical assessment completed.",
             doctor_advice=final_state.get("doctor_advice") or "Follow doctor instructions.",
             prescribed_actions=final_state.get("prescribed_actions") or "Review digital prescription.",
@@ -79,6 +83,23 @@ def summarize_consultation(payload: ConsultationSummaryRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LangGraph summarization error: {str(e)}")
+
+
+class QueueAdvisorRequest(BaseModel):
+    doctor_name: Optional[str] = Field("Doctor", description="Attending clinician name")
+    queue: List[QueuePatientItem] = Field(default_factory=list, description="Current appointment queue")
+
+
+@app.post("/queue-advisor", response_model=QueueAdvisorResult)
+def queue_advisor(payload: QueueAdvisorRequest):
+    """
+    LangChain Clinical Triage Advisor for Doctor Queue.
+    Evaluates emergency severity, red-flag symptoms, and recommends optimal priority ordering.
+    """
+    try:
+        return analyze_doctor_queue(payload.queue, doctor_name=payload.doctor_name or "Doctor")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Queue Advisor error: {str(e)}")
 
 
 if __name__ == "__main__":

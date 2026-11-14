@@ -15,6 +15,7 @@ import type {
   ConsultationSession,
   ConsultationSignalMessage,
   ConsultationEndRequest,
+  QueueAdvisorResponse,
   Role,
   ScheduleTemplate,
   Slot,
@@ -507,6 +508,67 @@ export const consultationsApi = {
     request<ConsultationSignalMessage[]>(
       `/v1/consultations/appointments/${appointmentId}/signals?since=${since}`
     ),
+};
+
+// ---------- AI Clinical Queue Advisor ----------
+
+export const aiAdvisorApi = {
+  getQueueAdvice: async (payload: {
+    doctor_name: string;
+    queue: Array<{
+      id: string;
+      patient_id?: string;
+      patient_name: string;
+      chief_complaint?: string;
+      urgency: string;
+      confidence?: number;
+      slot?: string;
+      mode?: string;
+    }>;
+  }): Promise<QueueAdvisorResponse> => {
+    try {
+      const res = await fetch('/ai/queue-advisor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch {
+      // Deterministic fallback if ai-service port is offline or not yet started
+      const queue = payload.queue || [];
+      const emgCount = queue.filter(q => q.urgency === 'EMG' || q.urgency === 'EMERGENCY').length;
+      const urgCount = queue.filter(q => q.urgency === 'URG' || q.urgency === 'URGENT').length;
+      const rtnCount = queue.filter(q => q.urgency === 'RTN' || q.urgency === 'ROUTINE').length;
+
+      const priorityOrder = [...queue].sort((a, b) => {
+        const rank: Record<string, number> = { EMG: 0, EMERGENCY: 0, URG: 1, URGENT: 1, RTN: 2, ROUTINE: 2 };
+        return (rank[a.urgency] ?? 2) - (rank[b.urgency] ?? 2);
+      });
+
+      const topEmg = priorityOrder.find(q => q.urgency === 'EMG' || q.urgency === 'EMERGENCY');
+
+      return {
+        overall_assessment: emgCount > 0
+          ? `High alert: ${emgCount} emergency and ${urgCount} urgent case(s) detected in current queue.`
+          : urgCount > 0
+          ? `Moderate triage workload: ${urgCount} urgent case(s) identified.`
+          : 'Queue is clinically stable. All patients are routine reviews.',
+        priority_recommendation: topEmg
+          ? `Immediate evaluation recommended: Prioritize ${topEmg.patient_name} (${topEmg.patient_id}) presenting with '${topEmg.chief_complaint}'.`
+          : urgCount > 0
+          ? `Attend to urgent patient ${priorityOrder[0]?.patient_name} before routine appointments.`
+          : 'Follow standard slot timetable. No emergency escalations detected.',
+        suggested_order_ids: priorityOrder.map(q => q.id),
+        emergency_count: emgCount,
+        urgent_count: urgCount,
+        routine_count: rtnCount,
+        clinical_alerts: topEmg
+          ? [`🚨 Immediate Emergency: ${topEmg.patient_name} - ${topEmg.chief_complaint}`]
+          : [],
+      };
+    }
+  },
 };
 
 // ---------- Payments & Razorpay Gateway ----------
