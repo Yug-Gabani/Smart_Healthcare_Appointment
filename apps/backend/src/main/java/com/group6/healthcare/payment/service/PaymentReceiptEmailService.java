@@ -48,7 +48,13 @@ public class PaymentReceiptEmailService {
     @Autowired(required = false)
     private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
 
-    @Value("${spring.mail.username:abhibrata.sarkar2020@gmail.com}")
+    @Value("${spring.mail.username:}")
+    private String mailUsername;
+
+    @Value("${spring.mail.password:}")
+    private String mailPassword;
+
+    @Value("${spring.mail.from:abhibrata.sarkar2020@gmail.com}")
     private String mailFrom;
 
     @KafkaListener(
@@ -101,19 +107,24 @@ public class PaymentReceiptEmailService {
         try {
             sendEmailReceipt(event, pdfBytes);
             if (auditService != null) {
+                boolean hasCredentials = mailSender != null
+                        && mailUsername != null && !mailUsername.isBlank()
+                        && mailPassword != null && !mailPassword.isBlank();
+                String auditMsg = hasCredentials
+                        ? "Official medical PDF receipt dispatched via SMTP to " + event.userEmail()
+                        : "Simulated dispatch (SMTP credentials pending): PDF receipt generated for " + event.userEmail();
+
                 auditService.recordLog(
                         event.razorpayOrderId(),
                         event.appointmentId(),
                         NotificationAuditLog.Channel.EMAIL,
                         event.userEmail(),
                         NotificationAuditLog.Status.DISPATCHED,
-                        "Official medical PDF receipt dispatched via SMTP to " + event.userEmail()
+                        auditMsg
                 );
             }
         } catch (Exception ex) {
             log.error("[KAFKA CONSUMER] Email dispatch failed: {}", ex.getMessage(), ex);
-            // Evict from processed set so Kafka can retry redelivery if needed
-            processedPayments.remove(event.razorpayPaymentId());
             if (auditService != null) {
                 auditService.recordLog(
                         event.razorpayOrderId(),
@@ -124,7 +135,13 @@ public class PaymentReceiptEmailService {
                         "Email dispatch error: " + ex.getMessage()
                 );
             }
-            throw new RuntimeException("Email dispatch failed, triggering Kafka retry/DLQ", ex);
+            if (!event.razorpayOrderId().startsWith("order_sim_")
+                    && !event.razorpayOrderId().startsWith("order_sb_")
+                    && !event.razorpayOrderId().startsWith("order_free_")
+                    && !event.razorpayOrderId().startsWith("order_test_")) {
+                processedPayments.remove(event.razorpayPaymentId());
+                throw new RuntimeException("Email dispatch failed, triggering Kafka retry/DLQ", ex);
+            }
         }
 
         // 4. Dispatch WhatsApp Notification (Dual Meta/Twilio Engine)
@@ -182,20 +199,29 @@ public class PaymentReceiptEmailService {
     }
 
     private void sendEmailReceipt(PaymentSuccessEvent event, byte[] pdfBytes) throws Exception {
-        if (mailSender == null) {
-            log.warn("[EMAIL SERVICE] JavaMailSender is not configured or disabled. Skipping email dispatch.");
+        if (event.userEmail() == null || event.userEmail().isBlank()) {
+            log.warn("[EMAIL SERVICE] No recipient email specified in PaymentSuccessEvent.");
             return;
         }
 
-        if (event.userEmail() == null || event.userEmail().isBlank()) {
-            log.warn("[EMAIL SERVICE] No recipient email specified in PaymentSuccessEvent.");
+        String effectiveFrom = (mailUsername != null && !mailUsername.isBlank())
+                ? mailUsername
+                : ((mailFrom != null && !mailFrom.isBlank()) ? mailFrom : "noreply@pulsecare.com");
+
+        boolean hasCredentials = mailSender != null
+                && mailUsername != null && !mailUsername.isBlank()
+                && mailPassword != null && !mailPassword.isBlank();
+
+        if (!hasCredentials) {
+            log.info("[EMAIL SERVICE] (Simulated Delivery) Gmail SMTP password not configured in .env. PDF receipt invoice ({} bytes) generated successfully for recipient: {}",
+                    pdfBytes != null ? pdfBytes.length : 0, event.userEmail());
             return;
         }
 
         MimeMessage mimeMessage = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
 
-        helper.setFrom(mailFrom);
+        helper.setFrom(effectiveFrom, "PulseCare Health Systems");
         helper.setTo(event.userEmail());
         helper.setSubject("🏥 PulseCare Health Systems — Booking Confirmed & Invoice [" + event.razorpayOrderId() + "]");
         helper.setText(buildHtmlEmail(event), true);
@@ -206,7 +232,7 @@ public class PaymentReceiptEmailService {
         }
 
         mailSender.send(mimeMessage);
-        log.info("[EMAIL SERVICE] Sent confirmation email with PDF invoice to {}", event.userEmail());
+        log.info("[EMAIL SERVICE] Sent live confirmation email with PDF invoice to {}", event.userEmail());
     }
 
     private String buildHtmlEmail(PaymentSuccessEvent event) {

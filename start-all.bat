@@ -1,0 +1,6 @@
+@echo off
+title Starting PulseCare Full-Stack System...
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-all.ps1"
+pause
+

@@ -37,10 +37,12 @@ function Sync-Config {
     if ($ymlContent -match $mailPattern) {
         $mailBlock = $Matches[1]
         if ($mailBlock -match '(?m)^\s*username\s*:\s*(?:["'']?)(?:(?:\$\{[^:]+:(?<val>[^}]+)\})|(?<val>[^"''\s#\r\n]+))(?:["'']?)') {
-            $mailUser = $Matches['val'].Trim()
+            $candidateUser = $Matches['val'].Trim()
+            if (-not $candidateUser.StartsWith('${')) { $mailUser = $candidateUser }
         }
         if ($mailBlock -match '(?m)^\s*password\s*:\s*(?:["'']?)(?:(?:\$\{[^:]+:(?<val>[^}]+)\})|(?<val>[^"''\s#\r\n]+))(?:["'']?)') {
-            $mailPass = $Matches['val'].Trim()
+            $candidatePass = $Matches['val'].Trim()
+            if (-not $candidatePass.StartsWith('${')) { $mailPass = $candidatePass }
         }
     }
 
