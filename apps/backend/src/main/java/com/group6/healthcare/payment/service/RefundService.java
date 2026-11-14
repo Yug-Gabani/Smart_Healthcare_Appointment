@@ -195,7 +195,8 @@ public class RefundService {
 
         boolean canCancel = appt.getStatus() != AppointmentStatus.CANCELLED
                 && appt.getStatus() != AppointmentStatus.COMPLETED
-                && appt.getStatus() != AppointmentStatus.NO_SHOW;
+                && appt.getStatus() != AppointmentStatus.NO_SHOW
+                && appt.getStatus() != AppointmentStatus.EXPIRED;
 
         String simNotice = simulatedHours != null
                 ? String.format("Simulation Mode: Simulating cancellation with %.1f hours remaining before slot.", simulatedHours)

@@ -12,7 +12,7 @@ import { Hospitals } from './components/Hospitals';
 import { HospitalDetail } from './components/HospitalDetail';
 import { PatientProfile } from './components/PatientProfile';
 import { DoctorProfile } from './components/DoctorProfile';
-import { AdminDoctors } from './components/AdminDoctors';
+import { AdminDashboard } from './components/AdminDashboard';
 import { PharmacyDashboard } from './components/PharmacyDashboard';
 import { PatientOrders } from './components/PatientOrders';
 import { VideoConsultationRoom } from './components/VideoConsultationRoom';
@@ -125,7 +125,7 @@ export const App: React.FC = () => {
             path="/"
             element={
               currentUser?.role === 'ADMIN' ? (
-                <Navigate to="/admin/doctors" replace />
+                <Navigate to="/admin" replace />
               ) : currentUser?.role === 'PHARMACIST' ? (
                 <Navigate to="/pharmacy" replace />
               ) : currentUser?.role === 'DOCTOR' ? (
@@ -256,13 +256,31 @@ export const App: React.FC = () => {
 
           {/* Admin routes */}
           <Route
+            path="/admin"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['ADMIN']}>
+                  <AdminDashboard />
+                </ProtectedRoute>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: '#0f766e' }}>
+                  <div className="animate-spin" style={{ width: 32, height: 32, border: '3px solid #d9ece7', borderTopColor: '#0f766e', borderRadius: '50%' }} />
+                </div>
+              )
+            }
+          />
+          <Route
             path="/admin/doctors"
             element={
               sessionReady ? (
                 <ProtectedRoute user={currentUser} roles={['ADMIN']}>
-                  <AdminDoctors />
+                  <AdminDashboard defaultTab="DOCTORS" />
                 </ProtectedRoute>
-              ) : null
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: '#0f766e' }}>
+                  <div className="animate-spin" style={{ width: 32, height: 32, border: '3px solid #d9ece7', borderTopColor: '#0f766e', borderRadius: '50%' }} />
+                </div>
+              )
             }
           />
 

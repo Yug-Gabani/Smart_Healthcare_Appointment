@@ -1,4 +1,7 @@
 import type {
+  AdminAppointmentItem,
+  AdminOverviewData,
+  AdminPaymentItem,
   Appointment,
   Attachment,
   ConsultationType,
@@ -387,6 +390,17 @@ export const adminDoctorsApi = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
+};
+
+// ---------- Admin — Platform Dashboard & Finance Operations ----------
+
+export const adminApi = {
+  getOverview: (): Promise<AdminOverviewData> =>
+    request<AdminOverviewData>('/v1/admin/overview'),
+  getAppointments: (): Promise<AdminAppointmentItem[]> =>
+    request<AdminAppointmentItem[]>('/v1/admin/appointments'),
+  getPayments: (): Promise<AdminPaymentItem[]> =>
+    request<AdminPaymentItem[]>('/v1/admin/payments'),
 };
 
 // ---------- Files & Medical Attachments ----------

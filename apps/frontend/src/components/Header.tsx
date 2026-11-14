@@ -6,6 +6,7 @@ import {
   ChevronDown,
   User as UserIcon,
   LogOut,
+  Shield,
 } from 'lucide-react';
 import type { User } from '../types';
 
@@ -19,7 +20,6 @@ interface HeaderProps {
 }
 
 const EASE_HEADER = [0.2, 0.65, 0.3, 0.9] as const;
-const CUBIC_BEZIER_STR = 'cubic-bezier(0.2, 0.65, 0.3, 0.9)';
 
 function getInitials(name?: string): string {
   if (!name) return 'U';
@@ -42,6 +42,8 @@ export const Header: React.FC<HeaderProps> = ({
 
   const isDoctor = currentUser?.role === 'DOCTOR';
   const isPatient = currentUser?.role === 'PATIENT';
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const isPharmacist = currentUser?.role === 'PHARMACIST';
 
   // Smooth scroll tracking via Framer Motion
   const { scrollY, scrollYProgress } = useScroll();
@@ -55,8 +57,18 @@ export const Header: React.FC<HeaderProps> = ({
   const [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
+    let wasScrolled = window.scrollY > 24;
+    setIsScrolled(wasScrolled);
+
     return scrollY.on('change', (latest) => {
-      setIsScrolled(latest > 24);
+      // Deadband hysteresis: activate at 32px, deactivate at 12px
+      if (!wasScrolled && latest > 32) {
+        wasScrolled = true;
+        setIsScrolled(true);
+      } else if (wasScrolled && latest < 12) {
+        wasScrolled = false;
+        setIsScrolled(false);
+      }
     });
   }, [scrollY]);
 
@@ -151,6 +163,13 @@ export const Header: React.FC<HeaderProps> = ({
   const isDoctorPrescriptions = isDoctor && ((location.pathname.startsWith('/doctor') && doctorHash === '#prescriptions') || location.pathname.startsWith('/prescriptions'));
   const isDoctorTranscripts = isDoctor && location.pathname.startsWith('/doctor') && doctorHash === '#transcripts';
 
+  // Active tab detection for Admin
+  const adminHash = location.hash;
+  const isAdminOverview = isAdmin && location.pathname.startsWith('/admin') && (!adminHash || adminHash === '#overview' || adminHash === '');
+  const isAdminDoctors = isAdmin && (location.pathname === '/admin/doctors' || (location.pathname.startsWith('/admin') && adminHash === '#doctors'));
+  const isAdminConsultations = isAdmin && location.pathname.startsWith('/admin') && (adminHash === '#consultations' || adminHash === '#appointments');
+  const isAdminPayments = isAdmin && location.pathname.startsWith('/admin') && adminHash === '#payments';
+
   const wordmarkChars = ['p', 'u', 'l', 's', 'e', 'c', 'a', 'r', 'e'];
 
   const guestNavItems = [
@@ -232,6 +251,53 @@ export const Header: React.FC<HeaderProps> = ({
         { id: 'prescriptions', label: 'Prescriptions', href: '/doctor#prescriptions', isActive: isDoctorPrescriptions, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/doctor#prescriptions'); } },
         { id: 'transcripts', label: 'Transcripts', href: '/doctor#transcripts', isActive: isDoctorTranscripts, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/doctor#transcripts'); } },
       ]
+    : isAdmin
+    ? [
+        {
+          id: 'admin-overview',
+          label: 'Overview',
+          href: '/admin#overview',
+          isActive: isAdminOverview,
+          onClick: (e: React.MouseEvent) => {
+            e.preventDefault();
+            navigate('/admin#overview');
+          },
+        },
+        {
+          id: 'admin-doctors',
+          label: 'Doctor Verification',
+          href: '/admin#doctors',
+          isActive: isAdminDoctors,
+          onClick: (e: React.MouseEvent) => {
+            e.preventDefault();
+            navigate('/admin#doctors');
+          },
+        },
+        {
+          id: 'admin-consultations',
+          label: 'Consultations',
+          href: '/admin#consultations',
+          isActive: isAdminConsultations,
+          onClick: (e: React.MouseEvent) => {
+            e.preventDefault();
+            navigate('/admin#consultations');
+          },
+        },
+        {
+          id: 'admin-payments',
+          label: 'Financial Ledger',
+          href: '/admin#payments',
+          isActive: isAdminPayments,
+          onClick: (e: React.MouseEvent) => {
+            e.preventDefault();
+            navigate('/admin#payments');
+          },
+        },
+      ]
+    : isPharmacist
+    ? [
+        { id: 'pharmacy', label: 'Pharmacy Queue', href: '/pharmacy', isActive: location.pathname.startsWith('/pharmacy'), onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/pharmacy'); } },
+      ]
     : [];
 
   return (
@@ -242,13 +308,13 @@ export const Header: React.FC<HeaderProps> = ({
           top: 0,
           zIndex: 50,
           width: '100%',
-          backgroundColor: isScrolled ? 'rgba(255, 255, 255, 0.92)' : '#eaf6f2',
-          backdropFilter: isScrolled ? 'blur(10px) saturate(1.4)' : 'none',
-          WebkitBackdropFilter: isScrolled ? 'blur(10px) saturate(1.4)' : 'none',
+          backgroundColor: isScrolled ? 'rgba(255, 255, 255, 0.94)' : '#eaf6f2',
+          backdropFilter: isScrolled ? 'blur(12px) saturate(1.4)' : 'none',
+          WebkitBackdropFilter: isScrolled ? 'blur(12px) saturate(1.4)' : 'none',
           borderBottom: isScrolled ? '1px solid #d9ece7' : '1px solid transparent',
           boxShadow: isScrolled ? '0 2px 10px rgba(20, 60, 55, 0.06)' : 'none',
-          height: isScrolled ? '56px' : '72px',
-          transition: `height 220ms ${CUBIC_BEZIER_STR}, background-color 220ms ${CUBIC_BEZIER_STR}, border-color 220ms ${CUBIC_BEZIER_STR}, box-shadow 220ms ${CUBIC_BEZIER_STR}`,
+          height: '64px',
+          transition: 'background-color 200ms ease, border-color 200ms ease, box-shadow 200ms ease',
         }}
       >
         {/* Main Header Inner Content */}
@@ -279,12 +345,10 @@ export const Header: React.FC<HeaderProps> = ({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: isScrolled ? '8px' : '10px',
+              gap: '10px',
               cursor: 'pointer',
               flexShrink: 0,
               userSelect: 'none',
-              transform: isScrolled ? 'translateX(-2px)' : 'translateX(0)',
-              transition: `transform 220ms ${CUBIC_BEZIER_STR}, gap 220ms ${CUBIC_BEZIER_STR}`,
             }}
             title="pulsecare Home"
           >
@@ -302,8 +366,8 @@ export const Header: React.FC<HeaderProps> = ({
                 rotate: { duration: 0.38, ease: [0.34, 1.56, 0.64, 1] },
               }}
               style={{
-                width: isScrolled ? '24px' : '30px',
-                height: isScrolled ? '24px' : '30px',
+                width: '28px',
+                height: '28px',
                 borderRadius: '50%',
                 backgroundColor: '#0f766e',
                 display: 'flex',
@@ -312,17 +376,15 @@ export const Header: React.FC<HeaderProps> = ({
                 flexShrink: 0,
                 position: 'relative',
                 boxShadow: '0 2px 8px rgba(15, 118, 110, 0.24)',
-                transition: `width 220ms ${CUBIC_BEZIER_STR}, height 220ms ${CUBIC_BEZIER_STR}`,
               }}
             >
               {/* Primary ECG line SVG with load draw-in and hover redraw */}
               <svg
-                width={isScrolled ? 14 : 17}
-                height={isScrolled ? 14 : 17}
+                width={16}
+                height={16}
                 viewBox="0 0 24 24"
                 fill="none"
                 style={{
-                  transition: `width 220ms ${CUBIC_BEZIER_STR}, height 220ms ${CUBIC_BEZIER_STR}`,
                   overflow: 'visible',
                 }}
               >
@@ -366,13 +428,12 @@ export const Header: React.FC<HeaderProps> = ({
             <div
               style={{
                 fontFamily: "'Space Grotesk', sans-serif",
-                fontSize: isScrolled ? '17px' : '20px',
+                fontSize: '19px',
                 fontWeight: 700,
                 color: '#0b3f3a',
                 letterSpacing: '-0.02em',
                 lineHeight: 1,
                 display: 'inline-flex',
-                transition: `font-size 220ms ${CUBIC_BEZIER_STR}`,
               }}
             >
               {wordmarkChars.map((char, idx) => (
@@ -407,7 +468,7 @@ export const Header: React.FC<HeaderProps> = ({
                   boxShadow: 'inset 0 1px 3px rgba(15, 118, 110, 0.06), 0 2px 8px rgba(20, 60, 55, 0.04)',
                   position: 'relative',
                   gap: '2px',
-                  transition: `background-color 220ms ${CUBIC_BEZIER_STR}, border-color 220ms ${CUBIC_BEZIER_STR}`,
+                  transition: 'background-color 200ms ease, border-color 200ms ease',
                 }}
               >
                 {currentNavItems.map((item, idx) => (
@@ -427,16 +488,16 @@ export const Header: React.FC<HeaderProps> = ({
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      padding: isScrolled ? '6px 16px' : '7px 20px',
+                      padding: '6px 16px',
                       borderRadius: '9999px',
                       textDecoration: 'none',
                       cursor: 'pointer',
-                      fontSize: isScrolled ? '12.5px' : '13.5px',
+                      fontSize: '13px',
                       fontWeight: item.isActive ? 600 : 500,
                       color: item.isActive ? '#ffffff' : '#52736d',
                       fontFamily: "'Space Grotesk', sans-serif",
                       letterSpacing: '-0.01em',
-                      transition: 'color 160ms ease, padding 200ms ease',
+                      transition: 'color 160ms ease',
                       whiteSpace: 'nowrap',
                       zIndex: 1,
                     }}
@@ -486,8 +547,8 @@ export const Header: React.FC<HeaderProps> = ({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: isScrolled ? '14px' : '18px',
-              transition: `gap 220ms ${CUBIC_BEZIER_STR}`,
+              gap: '16px',
+              flexShrink: 0,
             }}
           >
             {!currentUser && (
@@ -499,13 +560,13 @@ export const Header: React.FC<HeaderProps> = ({
                       style={{
                         background: 'transparent',
                         border: 'none',
-                        fontSize: isScrolled ? '13px' : '14px',
+                        fontSize: '13.5px',
                         fontWeight: 500,
                         color: '#52736d',
                         cursor: 'pointer',
                         padding: '6px 10px',
                         fontFamily: "'Space Grotesk', sans-serif",
-                        transition: `color 150ms ease, font-size 220ms ${CUBIC_BEZIER_STR}`,
+                        transition: 'color 150ms ease',
                       }}
                       onMouseEnter={e => (e.currentTarget.style.color = '#0b3f3a')}
                       onMouseLeave={e => (e.currentTarget.style.color = '#52736d')}
@@ -519,13 +580,13 @@ export const Header: React.FC<HeaderProps> = ({
                         backgroundColor: '#0f766e',
                         color: '#ffffff',
                         border: 'none',
-                        borderRadius: '14px',
-                        padding: isScrolled ? '6px 14px' : '8px 18px',
-                        fontSize: isScrolled ? '13px' : '14px',
+                        borderRadius: '12px',
+                        padding: '7px 16px',
+                        fontSize: '13.5px',
                         fontWeight: 600,
                         cursor: 'pointer',
                         fontFamily: "'Space Grotesk', sans-serif",
-                        transition: `background-color 150ms ease, padding 220ms ${CUBIC_BEZIER_STR}, font-size 220ms ${CUBIC_BEZIER_STR}`,
+                        transition: 'background-color 150ms ease',
                         boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
                       }}
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
@@ -536,30 +597,29 @@ export const Header: React.FC<HeaderProps> = ({
                   </>
                 )}
 
-                {/* Coral "Book now" CTA: fade + scale 0.95->1, 200ms delay + 4s breathing shadow + shrink compression */}
+                {/* Coral "Book now" CTA */}
                 <motion.button
                   onClick={onGetCare}
                   className="coral-book-btn"
                   initial={reduced ? false : { opacity: 0, scale: 0.95 }}
                   animate={{
                     opacity: 1,
-                    scale: isScrolled ? 0.96 : 1,
+                    scale: 1,
                   }}
                   transition={{
                     opacity: { duration: 0.35, delay: reduced ? 0 : 0.5, ease: 'easeOut' },
-                    scale: { duration: 0.22, ease: EASE_HEADER },
                   }}
                   style={{
                     backgroundColor: '#ff6b5b',
                     color: '#ffffff',
                     border: 'none',
-                    borderRadius: isScrolled ? '10px' : '14px',
-                    padding: isScrolled ? '7px 16px' : '10px 22px',
-                    fontSize: isScrolled ? '13px' : '14px',
+                    borderRadius: '12px',
+                    padding: '8px 18px',
+                    fontSize: '13.5px',
                     fontWeight: 600,
                     cursor: 'pointer',
                     fontFamily: "'Space Grotesk', sans-serif",
-                    transition: `background-color 150ms ease, border-radius 220ms ${CUBIC_BEZIER_STR}, padding 220ms ${CUBIC_BEZIER_STR}`,
+                    transition: 'background-color 150ms ease',
                     whiteSpace: 'nowrap',
                   }}
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#e85949')}
@@ -582,7 +642,7 @@ export const Header: React.FC<HeaderProps> = ({
                   style={{ position: 'relative', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
                   title="Notifications"
                 >
-                  <Bell size={isScrolled ? 17 : 19} color="#0b3f3a" style={{ transition: `all 220ms ${CUBIC_BEZIER_STR}` }} />
+                  <Bell size={18} color="#0b3f3a" />
                   <span style={{
                     position: 'absolute',
                     top: '-4px',
@@ -611,7 +671,7 @@ export const Header: React.FC<HeaderProps> = ({
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      padding: isScrolled ? '4px 8px' : '5px 10px',
+                      padding: '5px 10px',
                       borderRadius: '12px',
                       border: userDropdownOpen ? '1px solid #0f766e' : '1px solid transparent',
                       backgroundColor: userDropdownOpen ? '#eaf6f2' : 'transparent',
@@ -631,8 +691,8 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     {/* User Avatar Circle */}
                     <div style={{
-                      width: isScrolled ? '26px' : '28px',
-                      height: isScrolled ? '26px' : '28px',
+                      width: '28px',
+                      height: '28px',
                       borderRadius: '50%',
                       backgroundColor: '#0f766e',
                       color: '#ffffff',
@@ -646,7 +706,7 @@ export const Header: React.FC<HeaderProps> = ({
                       {getInitials(currentUser.fullName)}
                     </div>
                     <span style={{
-                      fontSize: isScrolled ? '13px' : '14px',
+                      fontSize: '13.5px',
                       fontWeight: 600,
                       color: '#0b3f3a',
                       maxWidth: '160px',
@@ -654,7 +714,7 @@ export const Header: React.FC<HeaderProps> = ({
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
                     }}>
-                      {currentUser.fullName || (isDoctor ? 'Doctor' : 'Patient')}
+                      {currentUser.fullName || (isDoctor ? 'Doctor' : isAdmin ? 'Platform Admin' : 'Patient')}
                     </span>
                     <motion.div
                       animate={{ rotate: userDropdownOpen ? 180 : 0 }}
@@ -719,35 +779,67 @@ export const Header: React.FC<HeaderProps> = ({
                         </div>
 
                         {/* Profile Button */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setUserDropdownOpen(false);
-                            navigate(isDoctor ? '/doctor/profile' : '/profile');
-                          }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            width: '100%',
-                            padding: '9px 12px',
-                            borderRadius: '10px',
-                            border: 'none',
-                            backgroundColor: 'transparent',
-                            color: '#0b3f3a',
-                            fontSize: '13px',
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                            fontFamily: "'Space Grotesk', sans-serif",
-                            textAlign: 'left',
-                            transition: 'background-color 140ms ease, color 140ms ease',
-                          }}
-                          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#eaf6f2'}
-                          onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                        >
-                          <UserIcon size={15} color="#0f766e" />
-                          <span>Profile</span>
-                        </button>
+                        {isAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUserDropdownOpen(false);
+                              navigate('/admin');
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              width: '100%',
+                              padding: '9px 12px',
+                              borderRadius: '10px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              color: '#0b3f3a',
+                              fontSize: '13px',
+                              fontWeight: 500,
+                              cursor: 'pointer',
+                              fontFamily: "'Space Grotesk', sans-serif",
+                              textAlign: 'left',
+                              transition: 'background-color 140ms ease, color 140ms ease',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#eaf6f2'}
+                            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <Shield size={15} color="#0f766e" />
+                            <span>Operations & Admin</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUserDropdownOpen(false);
+                              navigate(isDoctor ? '/doctor/profile' : '/profile');
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              width: '100%',
+                              padding: '9px 12px',
+                              borderRadius: '10px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              color: '#0b3f3a',
+                              fontSize: '13px',
+                              fontWeight: 500,
+                              cursor: 'pointer',
+                              fontFamily: "'Space Grotesk', sans-serif",
+                              textAlign: 'left',
+                              transition: 'background-color 140ms ease, color 140ms ease',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#eaf6f2'}
+                            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <UserIcon size={15} color="#0f766e" />
+                            <span>Profile</span>
+                          </button>
+                        )}
 
                         {/* Divider */}
                         <div style={{ height: '1px', backgroundColor: '#eef5f3', margin: '6px 4px' }} />
@@ -852,7 +944,7 @@ export const Header: React.FC<HeaderProps> = ({
             transition={{ duration: 0.24, ease: EASE_HEADER }}
             style={{
               position: 'fixed',
-              top: isScrolled ? '56px' : '72px',
+              top: '64px',
               left: 0,
               right: 0,
               zIndex: 49,
@@ -911,13 +1003,43 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: '15px', color: '#0b3f3a' }}>
-                        {currentUser.fullName || (isDoctor ? 'Doctor' : 'Patient')}
+                        {currentUser.fullName || (isDoctor ? 'Doctor' : isAdmin ? 'Administrator' : 'Patient')}
                       </div>
                       <div style={{ fontSize: '12px', color: '#52796f' }}>
                         {currentUser.email}
                       </div>
                     </div>
                   </div>
+
+                  {/* Role-specific Nav Items in Mobile Drawer */}
+                  {currentNavItems.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={(e) => {
+                        item.onClick(e);
+                        setMobileMenuOpen(false);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        border: item.isActive ? '1px solid #0f766e' : '1px solid #d9ece7',
+                        backgroundColor: item.isActive ? '#eaf6f2' : '#ffffff',
+                        color: item.isActive ? '#0f766e' : '#0b3f3a',
+                        fontWeight: item.isActive ? 700 : 500,
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        fontFamily: "'Space Grotesk', sans-serif",
+                      }}
+                    >
+                      <span>{item.label}</span>
+                      {item.isActive && (
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#0f766e' }} />
+                      )}
+                    </button>
+                  ))}
 
                   <button
                     onClick={() => {

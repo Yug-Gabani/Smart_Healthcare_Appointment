@@ -51,5 +51,7 @@ public interface DoctorRepository extends JpaRepository<Doctor, UUID> {
         """)
     List<Doctor> findByStatus(@Param("status") com.group6.healthcare.clinic.entity.DoctorStatus status);
 
+    long countByStatus(com.group6.healthcare.clinic.entity.DoctorStatus status);
+
     Optional<Doctor> findByUserId(UUID userId);
 }

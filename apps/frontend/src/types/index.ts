@@ -9,7 +9,8 @@ export type AppointmentStatus =
   | 'CONFIRMED'
   | 'COMPLETED'
   | 'CANCELLED'
-  | 'NO_SHOW';
+  | 'NO_SHOW'
+  | 'EXPIRED';
 
 export interface User {
   id: string;
@@ -422,5 +423,114 @@ export interface TranscriptEntry {
   text: string;
   time: string;
   isSpeech?: boolean;
+}
+
+// ---------- Admin Dashboard & Operations ----------
+
+export interface AdminStats {
+  totalDoctors?: number;
+  approvedDoctors?: number;
+  pendingDoctors?: number;
+  rejectedDoctors?: number;
+  totalPatients?: number;
+  totalAppointments?: number;
+  bookedAppointments?: number;
+  completedAppointments?: number;
+  cancelledAppointments?: number;
+  totalRevenuePaise?: number;
+  totalRefundPaise?: number;
+  totalHospitals?: number;
+  // Legacy / convenience aliases
+  totalDoctorsVerified?: number;
+  totalDoctorsPending?: number;
+  grossRevenuePaise?: number;
+  grossRefundsPaise?: number;
+}
+
+export interface RecentConsultation {
+  id: string;
+  appointmentId?: string;
+  patientName?: string;
+  patientEmail?: string;
+  doctorName?: string;
+  doctorSpecialty?: string;
+  specialty?: string;
+  consultationType?: ConsultationType | string;
+  status?: AppointmentStatus | string;
+  urgency?: UrgencyLevel | string;
+  slotAt?: string;
+  feeRupees?: number;
+  amountPaise?: number;
+  createdAt?: string;
+}
+
+export interface PendingDoctorSummary {
+  id: string;
+  doctorId?: string;
+  fullName?: string;
+  specialty?: string;
+  hospital?: string;
+  hospitalName?: string;
+  registrationNumber?: string;
+  yearsExperience?: number;
+  submittedAt?: string;
+  registeredAt?: string;
+}
+
+export interface SystemHealth {
+  databaseStatus?: string;
+  totalHospitalsLoaded?: number;
+  hospitalsCount?: number;
+  outboxPendingCount?: number;
+  pendingOutboxEvents?: number;
+  platformStatus?: string;
+  serverTime?: string;
+}
+
+export interface AdminOverviewData {
+  stats: AdminStats;
+  recentConsultations: RecentConsultation[];
+  pendingDoctors: PendingDoctorSummary[];
+  systemHealth: SystemHealth;
+}
+
+export interface AdminAppointmentItem {
+  id: string;
+  patientId?: string;
+  patientName?: string;
+  patientEmail?: string;
+  doctorId?: string;
+  doctorName?: string;
+  doctorSpecialty?: string;
+  hospitalName?: string;
+  consultationType?: ConsultationType | string;
+  urgency?: UrgencyLevel | string;
+  status?: AppointmentStatus | string;
+  chiefComplaint?: string;
+  slotAt?: string;
+  feeRupees?: number;
+  amountPaise?: number;
+  refundPercentage?: number;
+  refundAmountPaise?: number;
+  cancellationReason?: string;
+  createdAt?: string;
+  paymentStatus?: string;
+}
+
+export interface AdminPaymentItem {
+  id: string;
+  orderId?: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  patientId?: string;
+  patientName?: string;
+  patientEmail?: string;
+  doctorId?: string;
+  doctorName?: string;
+  amountPaise?: number;
+  currency?: string;
+  status?: string;
+  createdAt?: string;
+  appointmentId?: string;
 }
 

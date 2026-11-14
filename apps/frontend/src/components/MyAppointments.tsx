@@ -3,34 +3,28 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { PageTransition } from '../motion/PageTransition';
 import { listItem } from '../motion/presets';
-import { Calendar, Clock, Loader2, MapPin, Video, FileText, XCircle, Star } from 'lucide-react';
-import type { Appointment, AppointmentStatus } from '../types';
+import { Calendar, Clock, Loader2, MapPin, Video, FileText, XCircle, Star, AlertCircle } from 'lucide-react';
+import type { Appointment } from '../types';
 import { appointmentsApi } from '../services/api';
 import { DoctorReviewModal } from './DoctorReviewModal';
 import { CancelRefundModal } from './CancelRefundModal';
 import { MeetingSummaryModal } from './MeetingSummaryModal';
+import {
+  isAppointmentExpired,
+  formatAppointmentSlot,
+  getAppointmentStatusDetails,
+} from '../utils/appointmentStatus';
 
 type Tab = 'upcoming' | 'past' | 'cancelled';
 
-function isUpcoming(a: Appointment): boolean {
-  if (a.status === 'CANCELLED' || a.status === 'NO_SHOW') return false;
-  if (a.status === 'COMPLETED') return false;
-  return true;
-}
-
 function tabFor(a: Appointment): Tab {
-  if (a.status === 'CANCELLED' || a.status === 'NO_SHOW') return 'cancelled';
-  if (a.status === 'COMPLETED') return 'past';
+  if (a.status === 'CANCELLED') return 'cancelled';
+  if (a.status === 'COMPLETED' || a.status === 'NO_SHOW' || isAppointmentExpired(a.slotAt, a.status)) return 'past';
   return 'upcoming';
 }
 
 function formatSlot(iso?: string): string {
-  if (!iso) return 'TBA';
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    weekday: 'short', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+  return formatAppointmentSlot(iso);
 }
 
 function urgencyColor(u: Appointment['urgency']): string {
@@ -43,14 +37,6 @@ function urgencyBg(u: Appointment['urgency']): string {
   if (u === 'EMERGENCY') return 'rgba(220, 38, 38, 0.08)';
   if (u === 'URGENT') return 'rgba(217, 119, 6, 0.1)';
   return 'rgba(5, 150, 105, 0.08)';
-}
-
-function statusLabel(s: AppointmentStatus): string {
-  if (s === 'BOOKED') return 'Booked';
-  if (s === 'CONFIRMED') return 'Confirmed';
-  if (s === 'COMPLETED') return 'Completed';
-  if (s === 'CANCELLED') return 'Cancelled';
-  return 'No show';
 }
 
 export const MyAppointments: React.FC = () => {
@@ -185,7 +171,8 @@ export const MyAppointments: React.FC = () => {
         }}>
           <AnimatePresence>
             {filtered.map(appt => {
-              const canCancel = isUpcoming(appt);
+              const details = getAppointmentStatusDetails(appt);
+              const canCancel = details.canCancel;
               return (
                 <motion.div
                   key={appt.id}
@@ -251,9 +238,16 @@ export const MyAppointments: React.FC = () => {
                           style={{
                             padding: '3px 10px', borderRadius: '9999px',
                             fontSize: '12px', fontWeight: 600,
-                            color: '#0b3f3a', backgroundColor: '#eaf6f2',
+                            color: details.badgeColor, backgroundColor: details.badgeBg,
+                            border: `1px solid ${details.badgeBorder}`,
+                            display: 'inline-flex', alignItems: 'center', gap: '5px',
                           }}
-                        >{statusLabel(appt.status)}</span>
+                        >
+                          {details.key === 'LIVE_NOW' && (
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#10b981', display: 'inline-block' }} />
+                          )}
+                          {details.label}
+                        </span>
                       </div>
                     </div>
 
@@ -284,6 +278,18 @@ export const MyAppointments: React.FC = () => {
                       </div>
                     </div>
 
+                    {details.key === 'EXPIRED' && (
+                      <div style={{
+                        padding: '10px 14px', borderRadius: '10px',
+                        backgroundColor: '#fef2f2', border: '1px solid #fee2e2',
+                        fontSize: '12.5px', color: '#991b1b', marginBottom: '14px',
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                      }}>
+                        <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                        <span><strong>Consultation Expired:</strong> Scheduled slot elapsed without attendance. Consultation room is closed.</span>
+                      </div>
+                    )}
+
                     {appt.chiefComplaint && (
                       <div style={{ fontSize: '14px', marginBottom: '12px', color: '#0b3f3a' }}>
                         <strong>Reported concern:</strong> {appt.chiefComplaint}
@@ -292,7 +298,7 @@ export const MyAppointments: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: 'auto', paddingTop: '16px' }}>
-                    {appt.consultationType === 'VIDEO' && appt.status !== 'CANCELLED' && appt.status !== 'COMPLETED' && (
+                    {details.canJoinCall && appt.consultationType === 'VIDEO' && (
                       <button
                         onClick={() => navigate(`/consultation/${appt.id}`)}
                         className="btn btn-primary hover-lift"
@@ -304,13 +310,22 @@ export const MyAppointments: React.FC = () => {
                         <Video size={14} /> Join Video
                       </button>
                     )}
-                    {appt.consultationType === 'VIDEO' && appt.status === 'COMPLETED' && (
+                    {details.key === 'COMPLETED' && appt.consultationType === 'VIDEO' && (
                       <button
                         onClick={() => setSummaryAppt(appt)}
                         className="btn btn-secondary hover-lift"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                       >
                         <FileText size={14} /> Meeting Summary
+                      </button>
+                    )}
+                    {(details.key === 'EXPIRED' || details.key === 'CANCELLED') && (
+                      <button
+                        onClick={() => navigate('/book')}
+                        className="btn btn-primary hover-lift"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <Calendar size={14} /> Book Again
                       </button>
                     )}
                     <button
