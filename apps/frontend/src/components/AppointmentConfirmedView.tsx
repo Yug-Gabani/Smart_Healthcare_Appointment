@@ -556,7 +556,7 @@ export const AppointmentConfirmedView: React.FC<AppointmentConfirmedViewProps> =
     ? `INV-${paymentInfo.orderId.replace('order_', '').slice(0, 8).toUpperCase()}`
     : `INV-${confirmed.id.slice(0, 8).toUpperCase()}`;
 
-  const meetingLink = `https://pulsecare.health/room/${confirmed.id.slice(0, 8)}`;
+  const meetingLink = `${window.location.origin}/consultation/${confirmed.id}`;
 
   const urgencyBg = (urgency?: string) => {
     switch (urgency) {
@@ -1056,6 +1056,31 @@ export const AppointmentConfirmedView: React.FC<AppointmentConfirmedViewProps> =
                       {copiedKey === 'link' ? 'Copied' : 'Copy'}
                     </button>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/consultation/${confirmed.id}`)}
+                    className="hover-lift"
+                    style={{
+                      width: '100%',
+                      borderRadius: '10px',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      padding: '12px 18px',
+                      marginBottom: '10px',
+                      backgroundColor: '#0f766e',
+                      color: '#ffffff',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      boxShadow: '0 4px 12px rgba(15, 118, 110, 0.25)',
+                    }}
+                  >
+                    <Video size={17} /> Enter Video Consultation Room Now
+                  </button>
 
                   <button
                     type="button"

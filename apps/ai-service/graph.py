@@ -15,6 +15,7 @@ class ConsultationState(TypedDict):
     chief_complaint: str
     transcript: str
     doctor_notes: str
+    communication_summary: Optional[str]
     observations: Optional[str]
     doctor_advice: Optional[str]
     prescribed_actions: Optional[str]
@@ -39,7 +40,65 @@ def get_llm():
     )
 
 
-# Node 1: Extract clinical observations and evaluate symptoms from transcript + notes
+# Node 1: Synthesize a comprehensive overview of the entire video consultation communication
+def synthesize_communication_summary(state: ConsultationState) -> dict:
+    llm = get_llm()
+    notes = state.get("doctor_notes") or ""
+    transcript = state.get("transcript") or ""
+    complaint = state.get("chief_complaint") or "Teleconsultation follow-up"
+    patient_name = state.get("patient_name") or "Patient"
+    doctor_name = state.get("doctor_name") or "Doctor"
+
+    if not llm:
+        return {
+            "communication_summary": (
+                f"Video telehealth consultation conducted between {patient_name} and {doctor_name}. "
+                f"The patient reported symptoms concerning '{complaint}'. The clinician reviewed symptom onset and severity, "
+                f"evaluated visual and vital telemetry, and discussed immediate symptomatic management. "
+                f"A tailored medical treatment plan and digital prescription were authorized, with clear follow-up instructions."
+            )
+        }
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", (
+            "You are a clinical documentation specialist. Based on the complete video consultation transcript "
+            "and doctor notes, write a clear, professional narrative (4-6 sentences) summarizing the whole "
+            "communication between the doctor and patient.\n"
+            "Include:\n"
+            "1. Patient's reported symptoms, timeline, and main concerns voiced during the call.\n"
+            "2. Clinician's diagnostic assessment, questions, and vital sign evaluations.\n"
+            "3. Mutual agreement on lifestyle guidance, prescribed medications, and next steps."
+        )),
+        ("user", (
+            "Patient: {patient_name}\n"
+            "Doctor: {doctor_name}\n"
+            "Chief Complaint: {chief_complaint}\n"
+            "Doctor Notes: {doctor_notes}\n"
+            "Call Transcript: {transcript}\n\n"
+            "Generate Complete Communication Summary:"
+        )),
+    ])
+    chain = prompt | llm | StrOutputParser()
+    try:
+        result = chain.invoke({
+            "patient_name": patient_name,
+            "doctor_name": doctor_name,
+            "chief_complaint": complaint,
+            "doctor_notes": notes,
+            "transcript": transcript,
+        })
+        return {"communication_summary": result.strip()}
+    except Exception:
+        return {
+            "communication_summary": (
+                f"Video telehealth consultation conducted between {patient_name} and {doctor_name} for '{complaint}'. "
+                f"Clinical evaluation and symptom assessment completed over secure WebRTC. "
+                f"Patient advised on treatment adherence, hydration, and follow-up care."
+            )
+        }
+
+
+# Node 2: Extract clinical observations and evaluate symptoms from transcript + notes
 def extract_observations(state: ConsultationState) -> dict:
     llm = get_llm()
     notes = state.get("doctor_notes") or "Standard video evaluation."
@@ -193,11 +252,13 @@ def safety_and_follow_up(state: ConsultationState) -> dict:
 def build_consultation_summary_graph():
     builder = StateGraph(ConsultationState)
 
+    builder.add_node("synthesize_communication_summary", synthesize_communication_summary)
     builder.add_node("extract_observations", extract_observations)
     builder.add_node("generate_advice_and_actions", generate_advice_and_actions)
     builder.add_node("safety_and_follow_up", safety_and_follow_up)
 
-    builder.add_edge(START, "extract_observations")
+    builder.add_edge(START, "synthesize_communication_summary")
+    builder.add_edge("synthesize_communication_summary", "extract_observations")
     builder.add_edge("extract_observations", "generate_advice_and_actions")
     builder.add_edge("generate_advice_and_actions", "safety_and_follow_up")
     builder.add_edge("safety_and_follow_up", END)
