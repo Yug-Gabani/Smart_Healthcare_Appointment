@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { PageTransition } from '../motion/PageTransition';
-import { listItem, slideInRight, EASE_ENTER, EASE_EXIT } from '../motion/presets';
+import { listItem, EASE_ENTER, EASE_EXIT } from '../motion/presets';
 import { CustomSelect } from './CustomSelect';
 import {
   Search,
@@ -364,6 +364,12 @@ export const DoctorDashboard: React.FC = () => {
   const [saveBanner, setSaveBanner] = useState<boolean>(false);
 
   const handleOpenItem = (item: QueueItem) => {
+    /* Toggle behaviour for the inline accordion row: clicking the same row collapses
+     * it instead of re-opening. Clicking a different row switches selection. */
+    if (selectedItem?.id === item.id) {
+      setSelectedItem(null);
+      return;
+    }
     setSelectedItem(item);
     setOverrideScore(item.urgency === 'EMG' ? 'Emergency' : item.urgency === 'URG' ? 'Urgent' : 'Routine');
     setOverrideReason('');
@@ -497,6 +503,474 @@ export const DoctorDashboard: React.FC = () => {
     return <Navigate to="/doctor/profile" replace />;
   }
 
+  /* =============================================================================
+   * Inline detail panel — rendered as a second <tr> immediately under the selected
+   * queue row (accordion pattern). Replaces the previous right-side drawer so the
+   * clinician keeps peripheral awareness of adjacent patients in the queue and
+   * doesn't context-switch into a modal viewport.
+   *
+   * Layout: 2fr | 1fr grid. Left = triage + override + why + questionnaire + past
+   * visits + attachments (the clinical picture). Right = sticky actions column.
+   * The whole block sits in a `canvas`-tinted cell so it reads as a distinct
+   * region from the row above without needing a shadow or heavy border.
+   * ============================================================================= */
+  const renderDetailPanel = (item: QueueItem) => {
+    const urgColor = item.urgency === 'EMG' ? '#dc2626' : item.urgency === 'URG' ? '#d97706' : '#059669';
+    const urgLabel = item.urgency === 'EMG' ? 'Emergency' : item.urgency === 'URG' ? 'Urgent' : 'Routine';
+
+    return (
+      <motion.tr
+        key={`${item.id}-expanded`}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18, ease: EASE_ENTER }}
+      >
+        <td colSpan={7} style={{
+          padding: 0,
+          background: '#f6fbf9',
+          borderBottom: '1px solid #d9ece7',
+        }}>
+          <div style={{
+            padding: '24px 28px',
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)',
+            gap: 28,
+            alignItems: 'start',
+          }}>
+
+            {/* === LEFT COLUMN: clinical picture === */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+              {/* Patient header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: '#0b3f3a' }}>
+                    {item.patientName}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#52736d', marginTop: 2 }}>
+                    {item.patientId} &middot; Appointment {item.slot} &middot;{' '}
+                    {item.mode === 'VID' ? 'Video consult' : 'In-person consult'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  aria-label="Collapse"
+                  style={{
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    color: '#52736d', padding: 4, display: 'inline-flex',
+                  }}
+                >
+                  <X size={18} strokeWidth={1.75} />
+                </button>
+              </div>
+
+              {/* Save banner */}
+              <AnimatePresence>
+                {saveBanner && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.18, ease: EASE_ENTER }}
+                    style={{
+                      background: '#ecfdf5', color: '#065f46',
+                      border: '1px solid #a7f3d0',
+                      padding: '10px 14px', borderRadius: 10,
+                      fontSize: 13, fontWeight: 500,
+                    }}
+                  >
+                    Clinical override saved
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Triage advisory */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #d9ece7',
+                borderRadius: 14,
+                padding: 18,
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#8aa39d', marginBottom: 10 }}>
+                  Triage advisory
+                </div>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  fontSize: 14, fontWeight: 600, color: urgColor,
+                  marginBottom: 14,
+                }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: urgColor }} />
+                  <span>Urgency &middot; {urgLabel}</span>
+                  <span style={{ color: '#8aa39d', fontWeight: 400 }}>&middot; {item.confidence}% confidence</span>
+                </div>
+
+                {/* Override controls */}
+                <div style={{
+                  paddingTop: 14,
+                  borderTop: '1px solid #e5efeb',
+                  display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#8aa39d' }}>
+                    Override urgency
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <select
+                      value={overrideScore}
+                      onChange={e => setOverrideScore(e.target.value)}
+                      style={{
+                        flex: 1,
+                        background: '#ffffff',
+                        border: '1px solid #d9ece7',
+                        borderRadius: 8, padding: '8px 10px',
+                        fontSize: 13, color: '#0b3f3a', outline: 'none',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <option value="Routine">Routine</option>
+                      <option value="Urgent">Urgent</option>
+                      <option value="Emergency">Emergency</option>
+                    </select>
+                    <button
+                      onClick={handleSaveOverride}
+                      disabled={actionBusy === 'OVERRIDE_URGENCY'}
+                      style={{
+                        background: '#0f766e', color: '#ffffff',
+                        border: 'none', borderRadius: 8,
+                        padding: '8px 16px',
+                        fontSize: 13, fontWeight: 500,
+                        cursor: actionBusy === 'OVERRIDE_URGENCY' ? 'wait' : 'pointer',
+                        opacity: actionBusy === 'OVERRIDE_URGENCY' ? 0.6 : 1,
+                        transition: 'background-color 160ms ease',
+                      }}
+                      onMouseEnter={e => { if (actionBusy !== 'OVERRIDE_URGENCY') e.currentTarget.style.backgroundColor = '#0d655e'; }}
+                      onMouseLeave={e => { if (actionBusy !== 'OVERRIDE_URGENCY') e.currentTarget.style.backgroundColor = '#0f766e'; }}
+                    >
+                      {actionBusy === 'OVERRIDE_URGENCY' ? 'Saving' : 'Save with reason'}
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Clinical reason (e.g., patient vitals stable)"
+                    value={overrideReason}
+                    onChange={e => setOverrideReason(e.target.value)}
+                    style={{
+                      background: '#ffffff',
+                      border: '1px solid #d9ece7',
+                      borderRadius: 8, padding: '8px 10px',
+                      fontSize: 13, color: '#0b3f3a', outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                  {actionError && (
+                    <div style={{
+                      fontSize: 12, color: '#dc2626',
+                      background: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      borderRadius: 8, padding: '8px 12px',
+                    }}>{actionError}</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Why / symptoms */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#8aa39d', marginBottom: 8 }}>
+                  Why
+                </div>
+                <ul style={{
+                  margin: 0, paddingLeft: 18,
+                  fontSize: 14, color: '#0b3f3a', lineHeight: 1.7,
+                }}>
+                  {item.symptoms.length > 0
+                    ? item.symptoms.map((sym, idx) => <li key={idx}>{sym}</li>)
+                    : <li style={{ color: '#8aa39d', listStyle: 'none', marginLeft: -18 }}>No chief complaint recorded</li>
+                  }
+                </ul>
+              </div>
+
+              {/* Questionnaire */}
+              {item.questionnaire.length > 0 && (
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px solid #d9ece7',
+                  borderRadius: 14, padding: 16,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#8aa39d', marginBottom: 10 }}>
+                    Questionnaire responses
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {item.questionnaire.map((q, idx) => (
+                      <div key={idx} style={{ paddingBottom: 10, borderBottom: idx < item.questionnaire.length - 1 ? '1px solid #eef5f3' : 'none' }}>
+                        <div style={{ fontSize: 12, color: '#52736d' }}>{q.q}</div>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: '#0b3f3a', marginTop: 4 }}>{q.a}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Past visits */}
+              {item.pastVisits.length > 0 && (
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px solid #d9ece7',
+                  borderRadius: 14, padding: 16,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#8aa39d', marginBottom: 10 }}>
+                    Past visits &middot; {item.pastVisits.length}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {item.pastVisits.map((pv, idx) => (
+                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#0b3f3a' }}>
+                        <span>{pv.date} &middot; {pv.doctor}</span>
+                        <span style={{ color: '#52736d' }}>{pv.diagnosis}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Attachments */}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: '#8aa39d', marginBottom: 10 }}>
+                  Attached files &middot; {item.attachments?.length || 0}
+                </div>
+                {item.attachments && item.attachments.length > 0 ? (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                    gap: 10,
+                  }}>
+                    {item.attachments.map((att) => {
+                      const isImg = att.mimeType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(att.fileName);
+                      return (
+                        <a
+                          key={att.id}
+                          href={att.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'flex', flexDirection: 'column',
+                            borderRadius: 10,
+                            border: '1px solid #d9ece7',
+                            overflow: 'hidden',
+                            textDecoration: 'none',
+                            background: '#ffffff',
+                            transition: 'border-color 160ms ease',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#b8d4cc')}
+                          onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#d9ece7')}
+                        >
+                          <div style={{
+                            height: 80,
+                            background: '#eaf6f2',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            overflow: 'hidden', position: 'relative',
+                          }}>
+                            {isImg ? (
+                              <img src={att.fileUrl} alt={att.fileName}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              <FileText size={26} color="#0f766e" strokeWidth={1.75} />
+                            )}
+                            <span style={{
+                              position: 'absolute', bottom: 4, right: 4,
+                              background: 'rgba(11,63,58,0.7)', color: '#ffffff',
+                              borderRadius: 4, padding: '2px 6px',
+                              fontSize: 10, fontWeight: 500,
+                            }}>
+                              {att.fileCategory === 'SYMPTOM_IMAGE' ? 'Photo'
+                                : att.fileCategory === 'PRIOR_PRESCRIPTION' ? 'Rx' : 'Report'}
+                            </span>
+                          </div>
+                          <div style={{ padding: '8px 10px' }}>
+                            <div style={{
+                              fontSize: 12, fontWeight: 500, color: '#0b3f3a',
+                              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            }} title={att.fileName}>
+                              {att.fileName}
+                            </div>
+                            <div style={{
+                              fontSize: 11, color: '#52736d',
+                              display: 'flex', alignItems: 'center', gap: 4, marginTop: 2,
+                            }}>
+                              <ExternalLink size={10} strokeWidth={1.75} /> View
+                            </div>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{
+                    fontSize: 13, color: '#8aa39d',
+                    padding: 14,
+                    background: '#ffffff',
+                    borderRadius: 10,
+                    border: '1px dashed #d9ece7',
+                    textAlign: 'center',
+                  }}>
+                    No files uploaded for this consultation
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* === RIGHT COLUMN: actions === */}
+            <div style={{
+              position: 'sticky', top: 24,
+              background: '#ffffff',
+              border: '1px solid #d9ece7',
+              borderRadius: 14,
+              padding: 18,
+              display: 'flex', flexDirection: 'column', gap: 10,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#8aa39d', marginBottom: 4 }}>
+                {tab === 'past' ? `Final status · ${queueStatus[item.id] ?? '—'}` : 'Actions'}
+              </div>
+
+              {/* Video consult — primary action when mode is VID. Also available on past
+                  tab as a "Join summary" entry point. */}
+              {item.mode === 'VID' && (
+                <button
+                  onClick={() => navigate(`/consultation/${item.id}`)}
+                  style={{
+                    width: '100%',
+                    background: '#0f766e', color: '#ffffff',
+                    border: 'none', borderRadius: 10,
+                    padding: '12px 16px',
+                    fontSize: 14, fontWeight: 500,
+                    cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    transition: 'background-color 160ms ease',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
+                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#0f766e')}
+                >
+                  <Video size={16} strokeWidth={1.75} />
+                  {tab === 'past' ? 'View summary' : 'Start video consult'}
+                </button>
+              )}
+
+              {tab === 'active' ? (
+                <>
+                  <button
+                    onClick={() => runAction('ACCEPT')}
+                    disabled={!!actionBusy}
+                    style={{
+                      width: '100%',
+                      background: '#ffffff', color: '#0b3f3a',
+                      border: '1px solid #d3e2dd', borderRadius: 10,
+                      padding: '12px 16px',
+                      fontSize: 14, fontWeight: 500,
+                      cursor: actionBusy ? 'wait' : 'pointer',
+                      opacity: actionBusy ? 0.6 : 1,
+                      transition: 'border-color 160ms ease',
+                    }}
+                    onMouseEnter={e => { if (!actionBusy) e.currentTarget.style.borderColor = '#b8d4cc'; }}
+                    onMouseLeave={e => { if (!actionBusy) e.currentTarget.style.borderColor = '#d3e2dd'; }}
+                  >
+                    {actionBusy === 'ACCEPT' ? 'Accepting' : 'Accept & confirm'}
+                  </button>
+                  <button
+                    onClick={() => runAction('COMPLETE', { notes: 'Consultation completed' })}
+                    disabled={!!actionBusy}
+                    style={{
+                      width: '100%',
+                      background: '#ffffff', color: '#065f46',
+                      border: '1px solid #a7f3d0', borderRadius: 10,
+                      padding: '12px 16px',
+                      fontSize: 14, fontWeight: 500,
+                      cursor: actionBusy ? 'wait' : 'pointer',
+                      opacity: actionBusy ? 0.6 : 1,
+                      transition: 'background-color 160ms ease',
+                    }}
+                    onMouseEnter={e => { if (!actionBusy) e.currentTarget.style.backgroundColor = '#ecfdf5'; }}
+                    onMouseLeave={e => { if (!actionBusy) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+                  >
+                    {actionBusy === 'COMPLETE' ? 'Saving' : 'Mark complete'}
+                  </button>
+                  <button
+                    onClick={() => runAction('NO_SHOW')}
+                    disabled={!!actionBusy}
+                    style={{
+                      width: '100%',
+                      background: '#ffffff', color: '#991b1b',
+                      border: '1px solid #fecaca', borderRadius: 10,
+                      padding: '12px 16px',
+                      fontSize: 14, fontWeight: 500,
+                      cursor: actionBusy ? 'wait' : 'pointer',
+                      opacity: actionBusy ? 0.6 : 1,
+                      transition: 'background-color 160ms ease',
+                    }}
+                    onMouseEnter={e => { if (!actionBusy) e.currentTarget.style.backgroundColor = '#fef2f2'; }}
+                    onMouseLeave={e => { if (!actionBusy) e.currentTarget.style.backgroundColor = '#ffffff'; }}
+                  >
+                    {actionBusy === 'NO_SHOW' ? 'Saving' : 'No-show'}
+                  </button>
+                  <button
+                    onClick={() => setRxEditorFor(item)}
+                    disabled={!!actionBusy}
+                    style={{
+                      width: '100%',
+                      background: '#0f766e', color: '#ffffff',
+                      border: 'none', borderRadius: 10,
+                      padding: '12px 16px',
+                      fontSize: 14, fontWeight: 500,
+                      cursor: actionBusy ? 'wait' : 'pointer',
+                      opacity: actionBusy ? 0.6 : 1,
+                      transition: 'background-color 160ms ease',
+                    }}
+                    onMouseEnter={e => { if (!actionBusy) e.currentTarget.style.backgroundColor = '#0d655e'; }}
+                    onMouseLeave={e => { if (!actionBusy) e.currentTarget.style.backgroundColor = '#0f766e'; }}
+                  >
+                    Write prescription
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setRxEditorFor(item)}
+                    style={{
+                      width: '100%',
+                      background: '#0f766e', color: '#ffffff',
+                      border: 'none', borderRadius: 10,
+                      padding: '12px 16px',
+                      fontSize: 14, fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'background-color 160ms ease',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0d655e')}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = '#0f766e')}
+                  >
+                    Prescription
+                  </button>
+                  <button
+                    onClick={() => setSelectedItem(null)}
+                    style={{
+                      width: '100%',
+                      background: 'transparent', color: '#0b3f3a',
+                      border: '1px solid #d3e2dd', borderRadius: 10,
+                      padding: '12px 16px',
+                      fontSize: 14, fontWeight: 500,
+                      cursor: 'pointer',
+                      transition: 'border-color 160ms ease',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#b8d4cc')}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#d3e2dd')}
+                  >
+                    Close
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </td>
+      </motion.tr>
+    );
+  };
+
   return (
     <PageTransition style={{
       width: '100%',
@@ -521,12 +995,12 @@ export const DoctorDashboard: React.FC = () => {
         <div>
           <h1 style={{
             fontSize: '28px',
-            fontWeight: 700,
+            fontWeight: 600,
             color: '#0b3f3a',
             margin: 0,
-            letterSpacing: '-0.025em',
+            letterSpacing: '-0.02em',
           }}>
-            Today's queue
+            Today&rsquo;s queue
           </h1>
           <div style={{ fontSize: '14px', color: '#52736d', marginTop: '4px' }}>
             Live queue · updates automatically
@@ -573,108 +1047,43 @@ export const DoctorDashboard: React.FC = () => {
         </div>
       </section>
 
-      {/* KPI STRIP - 4 Tiles with Warm Cream / Brown Aesthetic */}
+      {/* KPI STRIP — four count tiles. All share the same neutral surface; urgency is
+          carried by the number's colour and the small coloured dot. Removing the tinted
+          backgrounds and colored shadows calms the whole top band so the clinician's eye
+          goes to the actual numbers, not to four decorative boxes. */}
       <section style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-        gap: '20px',
+        gap: '16px',
         marginBottom: '28px',
       }}>
-        {/* Tile 1: Today */}
-        <div
-          className="card-hover"
-          style={{
+        {[
+          { label: 'Active',    value: kpiTotal,                                                     color: '#0b3f3a', sub: 'In your queue' },
+          { label: 'Emergency', value: kpiEmergency,                                                 color: '#dc2626', sub: 'Needs now', dot: true },
+          { label: 'Urgent',    value: kpiUrgent,                                                    color: '#b45309', sub: 'Same-day review' },
+          { label: 'Routine',   value: Math.max(0, activeQueue.length - kpiEmergency - kpiUrgent),   color: '#0b3f3a', sub: 'Scheduled visits' },
+        ].map(k => (
+          <div key={k.label} style={{
             backgroundColor: '#ffffff',
-            borderRadius: '16px',
-            padding: '18px 22px',
             border: '1px solid #d9ece7',
-            boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
-          }}
-        >
-          <div style={{ fontSize: '12px', color: '#52736d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Active
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: '4px 0' }}>
-            {kpiTotal}
-          </div>
-          <div style={{ fontSize: '13px', color: '#52736d' }}>
-            booked + confirmed
-          </div>
-        </div>
-
-        {/* Tile 2: Emergency */}
-        <div
-          className="card-hover"
-          style={{
-            backgroundColor: '#fef2f2',
             borderRadius: '16px',
-            padding: '18px 22px',
-            border: '1px solid #fecaca',
-            boxShadow: '0 4px 16px rgba(220, 38, 38, 0.06)',
-          }}
-        >
-          <div style={{ fontSize: '12px', color: '#dc2626', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Emergency
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#dc2626', margin: '4px 0' }}>
-            {kpiEmergency}
-          </div>
-          <div style={{
-            fontSize: '13px',
-            color: '#dc2626',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            fontWeight: 500,
+            padding: '20px 24px',
           }}>
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#dc2626' }} />
-            needs now
+            <div style={{ fontSize: '12px', color: '#8aa39d', fontWeight: 500 }}>
+              {k.label}
+            </div>
+            <div style={{ fontSize: '28px', fontWeight: 600, color: k.color, margin: '4px 0', fontVariantNumeric: 'tabular-nums' }}>
+              {k.value}
+            </div>
+            <div style={{
+              fontSize: '13px', color: '#52736d',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+              {k.dot && <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#dc2626' }} />}
+              {k.sub}
+            </div>
           </div>
-        </div>
-
-        {/* Tile 3: Pending questions */}
-        <div
-          className="card-hover"
-          style={{
-            backgroundColor: '#fffbeb',
-            borderRadius: '16px',
-            padding: '18px 22px',
-            border: '1px solid #fde68a',
-            boxShadow: '0 4px 16px rgba(217, 119, 6, 0.06)',
-          }}
-        >
-          <div style={{ fontSize: '12px', color: '#b45309', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Urgent
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#b45309', margin: '4px 0' }}>
-            {kpiUrgent}
-          </div>
-          <div style={{ fontSize: '13px', color: '#b45309' }}>
-            same-day review
-          </div>
-        </div>
-
-        {/* Tile 4: Routine */}
-        <div
-          className="card-hover"
-          style={{
-            backgroundColor: '#ffffff',
-            borderRadius: '16px',
-            padding: '18px 22px',
-            border: '1px solid #d9ece7',
-            boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
-          }}
-        >
-          <div style={{ fontSize: '12px', color: '#52736d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Routine
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: '4px 0' }}>
-            {Math.max(0, activeQueue.length - kpiEmergency - kpiUrgent)}
-          </div>
-          <div style={{ fontSize: '13px', color: '#52736d' }}>
-            scheduled visits
-          </div>
-        </div>
+        ))}
       </section>
 
       {/* TAB STRIP: Active queue vs past appointments */}
@@ -693,12 +1102,13 @@ export const DoctorDashboard: React.FC = () => {
               key={t.k}
               onClick={() => { setTab(t.k); setSelectedItem(null); }}
               style={{
-                padding: '10px 20px', fontSize: '14px',
-                fontWeight: active ? 700 : 500,
+                padding: '12px 20px', fontSize: '14px',
+                fontWeight: active ? 600 : 400,
                 color: active ? '#0b3f3a' : '#52736d',
                 background: 'transparent', border: 'none',
                 borderBottom: active ? '2px solid #0f766e' : '2px solid transparent',
                 marginBottom: '-1px', cursor: 'pointer',
+                transition: 'color 160ms ease',
               }}
             >
               {t.label}
@@ -861,22 +1271,21 @@ export const DoctorDashboard: React.FC = () => {
           alignItems: 'center',
           justifyContent: 'space-between',
           fontSize: '14px',
-          fontWeight: 600,
-          boxShadow: '0 6px 20px rgba(220, 38, 38, 0.22)',
+          fontWeight: 500,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '16px' }}>▲</span>
-            <span>EMERGENCY · Patient {emergencyItem.patientId} · {emergencyItem.rationale}</span>
+            <span style={{ fontSize: '14px', opacity: 0.9 }}>▲</span>
+            <span>Emergency &middot; Patient {emergencyItem.patientId} &middot; {emergencyItem.rationale}</span>
           </div>
           <button
             onClick={() => handleOpenItem(emergencyItem)}
             style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
+              backgroundColor: 'rgba(255, 255, 255, 0.18)',
               color: '#ffffff',
               border: 'none',
-              borderRadius: '9999px',
+              borderRadius: '8px',
               fontSize: '13px',
-              fontWeight: 700,
+              fontWeight: 500,
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
@@ -986,21 +1395,19 @@ export const DoctorDashboard: React.FC = () => {
           }}>
             <thead>
               <tr style={{
-                borderBottom: '2px solid #d9ece7',
+                borderBottom: '1px solid #d9ece7',
                 backgroundColor: '#ffffff',
-                color: '#52736d',
-                fontSize: '11px',
-                fontWeight: 700,
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
+                color: '#8aa39d',
+                fontSize: '12px',
+                fontWeight: 500,
               }}>
-                <th style={{ padding: '14px 20px', width: '110px' }}>URGENCY</th>
-                <th style={{ padding: '14px 20px', width: '90px' }}>SLOT</th>
-                <th style={{ padding: '14px 20px', width: '100px' }}>PATIENT</th>
-                <th style={{ padding: '14px 20px', width: '80px' }}>MODE</th>
-                <th style={{ padding: '14px 20px' }}>AI RATIONALE</th>
-                <th style={{ padding: '14px 20px', width: '90px' }}>CONF</th>
-                <th style={{ padding: '14px 20px', width: '90px', textAlign: 'right' }}>ACTION</th>
+                <th style={{ padding: '12px 20px', width: '110px', textAlign: 'left' }}>Urgency</th>
+                <th style={{ padding: '12px 20px', width: '90px',  textAlign: 'left' }}>Slot</th>
+                <th style={{ padding: '12px 20px', width: '100px', textAlign: 'left' }}>Patient</th>
+                <th style={{ padding: '12px 20px', width: '80px',  textAlign: 'left' }}>Mode</th>
+                <th style={{ padding: '12px 20px',                 textAlign: 'left' }}>Rationale</th>
+                <th style={{ padding: '12px 20px', width: '90px',  textAlign: 'left' }}>Confidence</th>
+                <th style={{ padding: '12px 20px', width: '90px',  textAlign: 'right' }}>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -1042,9 +1449,10 @@ export const DoctorDashboard: React.FC = () => {
                   const dotColor = isEmergency ? '#dc2626' : isUrgent ? '#d97706' : '#10b981';
                   const labelText = isEmergency ? 'EMG' : isUrgent ? 'URG' : 'RTN';
 
+                  const isExpanded = selectedItem?.id === item.id;
                   return (
+                    <React.Fragment key={item.id}>
                     <motion.tr
-                      key={item.id}
                       layout
                       variants={listItem}
                       initial={isNew ? { backgroundColor: '#fff2d4' } : "initial"}
@@ -1069,11 +1477,14 @@ export const DoctorDashboard: React.FC = () => {
                     >
                       {/* Urgency + (on Past tab) real status */}
                       <td style={{ padding: '12px 20px', whiteSpace: 'nowrap' }}>
+                        {/* EMG / URG / RTN clinician shorthand — kept as 3-letter codes
+                            (the app's signature), dropped from weight 700 to 600 so they
+                            read as labels, not shouted. */}
                         <div
                           className="badge-morph"
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: '6px',
-                            fontWeight: 700, fontSize: '12px', color: dotColor,
+                            fontWeight: 600, fontSize: '12px', color: dotColor,
                           }}
                         >
                           <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: dotColor }} />
@@ -1084,18 +1495,19 @@ export const DoctorDashboard: React.FC = () => {
                             <span
                               className="badge-morph"
                               style={{
-                                fontSize: '10px', fontWeight: 700,
-                                textTransform: 'uppercase', letterSpacing: '0.04em',
-                                padding: '2px 8px', borderRadius: '9999px',
+                                fontSize: '11px', fontWeight: 500,
+                                padding: '2px 10px', borderRadius: '6px',
                                 color: queueStatus[item.id] === 'COMPLETED' ? '#065f46'
                                      : queueStatus[item.id] === 'NO_SHOW' ? '#92400e'
                                      : '#6b7280',
-                                backgroundColor: queueStatus[item.id] === 'COMPLETED' ? '#d1fae5'
-                                     : queueStatus[item.id] === 'NO_SHOW' ? '#fef3c7'
-                                     : '#f3f4f6',
+                                backgroundColor: queueStatus[item.id] === 'COMPLETED' ? '#ecfdf5'
+                                     : queueStatus[item.id] === 'NO_SHOW' ? '#fffbeb'
+                                     : '#f6f7f8',
                               }}
                             >
-                              {queueStatus[item.id]}
+                              {queueStatus[item.id] === 'COMPLETED' ? 'Completed'
+                                : queueStatus[item.id] === 'NO_SHOW' ? 'No-show'
+                                : (queueStatus[item.id] ?? '').toString().toLowerCase().replace('_', ' ')}
                             </span>
                           </div>
                         )}
@@ -1108,7 +1520,7 @@ export const DoctorDashboard: React.FC = () => {
 
                       {/* Patient */}
                       <td style={{ padding: '12px 20px', color: '#0b3f3a' }}>
-                        <div style={{ fontWeight: 700 }}>{item.patientName}</div>
+                        <div style={{ fontWeight: 600 }}>{item.patientName}</div>
                         <div style={{ fontSize: '11px', color: '#8aa39d', fontFamily: 'monospace', marginTop: 2 }}>
                           {item.patientId}
                         </div>
@@ -1156,10 +1568,12 @@ export const DoctorDashboard: React.FC = () => {
                             e.currentTarget.style.borderColor = '#d9ece7';
                           }}
                         >
-                          Open
+                          {isExpanded ? 'Close' : 'Open'}
                         </button>
                       </td>
                     </motion.tr>
+                    {isExpanded && renderDetailPanel(item)}
+                    </React.Fragment>
                   );
                 })}
               </AnimatePresence>
@@ -1213,7 +1627,7 @@ export const DoctorDashboard: React.FC = () => {
       {currentSection === 'availability' && (
         <div>
           <section style={{ marginBottom: '28px' }}>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.025em' }}>
+            <h1 style={{ fontSize: '28px', fontWeight: 600, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
               Clinical Availability & Slot Inventory
             </h1>
             <div style={{ fontSize: '14px', color: '#52736d', marginTop: '4px' }}>
@@ -1226,19 +1640,19 @@ export const DoctorDashboard: React.FC = () => {
             <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '18px 22px', border: '1px solid #d9ece7', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f766e', marginBottom: '8px' }}>
                 <Clock size={16} />
-                <span style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Consultation Hours</span>
+                <span style={{ fontSize: '12px', fontWeight: 500, color: '#8aa39d' }}>Consultation hours</span>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: '#0b3f3a' }}>09:30 AM – 05:30 PM</div>
-              <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>Mon – Sat · 30 min per visit</div>
+              <div style={{ fontSize: '20px', fontWeight: 600, color: '#0b3f3a' }}>09:30 AM – 05:30 PM</div>
+              <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>Mon – Sat &middot; 30 min per visit</div>
             </div>
 
             <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '18px 22px', border: '1px solid #d9ece7', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#059669', marginBottom: '8px' }}>
                 <CheckCircle2 size={16} />
-                <span style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Forward Inventory</span>
+                <span style={{ fontSize: '12px', fontWeight: 500, color: '#8aa39d' }}>Forward inventory</span>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: '#0b3f3a' }}>
-                {totalOpenSlots} Active Slots
+              <div style={{ fontSize: '20px', fontWeight: 600, color: '#0b3f3a', fontVariantNumeric: 'tabular-nums' }}>
+                {totalOpenSlots} active slots
               </div>
               <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>
                 {totalClosedSlots > 0 ? `${totalClosedSlots} closed · ` : ''}7-day rolling window
@@ -1248,10 +1662,13 @@ export const DoctorDashboard: React.FC = () => {
             <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '18px 22px', border: '1px solid #d9ece7', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f766e', marginBottom: '8px' }}>
                 <Calendar size={16} />
-                <span style={{ fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Telehealth & In-Person</span>
+                <span style={{ fontSize: '12px', fontWeight: 500, color: '#8aa39d' }}>Telehealth and in-person</span>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: '#059669' }}>● Online & Active</div>
-              <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>Accepting both video & clinic visits</div>
+              <div style={{ fontSize: '20px', fontWeight: 600, color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#059669' }} />
+                Online and active
+              </div>
+              <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>Accepting video and clinic visits</div>
             </div>
           </div>
 
@@ -1259,9 +1676,9 @@ export const DoctorDashboard: React.FC = () => {
           <div style={{ backgroundColor: '#ffffff', borderRadius: '18px', border: '1px solid #d9ece7', padding: '24px', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0b3f3a', margin: 0 }}>Upcoming 7 Days Slots</h2>
-                <div style={{ fontSize: '13px', color: '#52736d', marginTop: '3px' }}>
-                  Click any slot to toggle between <strong>OPEN</strong> and <strong>CLOSED</strong>. Closed slots cannot be booked by patients.
+                <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#0b3f3a', margin: 0 }}>Upcoming 7 days</h2>
+                <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>
+                  Click any slot to toggle between <strong style={{ fontWeight: 600 }}>open</strong> and <strong style={{ fontWeight: 600 }}>closed</strong>. Closed slots cannot be booked by patients.
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1455,7 +1872,7 @@ export const DoctorDashboard: React.FC = () => {
       {currentSection === 'patients' && (
         <div>
           <section style={{ marginBottom: '28px' }}>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.025em' }}>
+            <h1 style={{ fontSize: '28px', fontWeight: 600, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
               Patient Directory
             </h1>
             <div style={{ fontSize: '14px', color: '#52736d', marginTop: '4px' }}>
@@ -1533,7 +1950,7 @@ export const DoctorDashboard: React.FC = () => {
       {currentSection === 'transcripts' && (
         <div>
           <section style={{ marginBottom: '28px' }}>
-            <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#0b3f3a', margin: 0, letterSpacing: '-0.025em' }}>
+            <h1 style={{ fontSize: '28px', fontWeight: 600, color: '#0b3f3a', margin: 0, letterSpacing: '-0.02em' }}>
               Consultation Transcripts & Clinical Notes
             </h1>
             <div style={{ fontSize: '14px', color: '#52736d', marginTop: '4px' }}>
@@ -1547,6 +1964,7 @@ export const DoctorDashboard: React.FC = () => {
             gap: '16px',
             width: '100%',
           }}>
+<<<<<<< HEAD
             {rawPastAppts.length === 0 ? (
               <div
                 style={{
@@ -1566,6 +1984,67 @@ export const DoctorDashboard: React.FC = () => {
                   Once you conduct and conclude a video consultation with a patient, the complete conversation transcript
                   and LangChain AI communication summary will appear here automatically.
                 </p>
+=======
+            {[
+              {
+                id: 'tr-01',
+                patient: 'Hari Patel (#8b17)',
+                date: 'Today · 07:30 PM',
+                mode: 'Video Consultation',
+                status: 'Reviewed & Approved',
+                summary: 'Patient presented with a 3-day history of 101°F fever and throat discomfort. Denies shortness of breath or chest pain. Advised oral hydration, Paracetamol 650mg SOS, and CBC if fever persists beyond 48 hours.',
+                consent: 'Explicit Audio Recording Consent Verified (DPDP / DR-11)',
+              },
+              {
+                id: 'tr-02',
+                patient: 'Sarah Jenkins (#4500)',
+                date: 'Yesterday · 11:30 AM',
+                mode: 'In-person Clinic Visit',
+                status: 'Clinician Verified',
+                summary: 'Regular asthma follow-up. Peak flow measurements stable at 420 L/min. Continued Budesonide/Formoterol 200/6 inhaler 1 puff twice daily. Next review in 3 months.',
+                consent: 'Explicit In-Clinic Transcription Consent Verified',
+              },
+            ].map(item => (
+              <div key={item.id} style={{
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid #d9ece7',
+                padding: '22px 24px',
+                boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                height: '100%',
+                boxSizing: 'border-box',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div>
+                    <span style={{ fontSize: '16px', fontWeight: 700, color: '#0b3f3a' }}>{item.patient}</span>
+                    <span style={{ fontSize: '13px', color: '#52736d', marginLeft: '10px' }}>{item.date} · {item.mode}</span>
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
+                    ✓ {item.status}
+                  </span>
+                </div>
+                <div style={{ backgroundColor: '#eaf6f2', borderRadius: '12px', padding: '14px 16px', fontSize: '13px', lineHeight: '1.6', color: '#0b3f3a', marginBottom: '12px', border: '1px solid #d9ece7' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 500, color: '#8aa39d', marginBottom: '4px' }}>
+                    AI Clinical Summary (Advisory Only)
+                  </div>
+                  {item.summary}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#52736d', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669' }}>
+                    <ShieldCheck size={14} />
+                    <span>{item.consent}</span>
+                  </div>
+                  <button
+                    onClick={() => alert('Transcript and clinical summary ready for export.')}
+                    style={{ background: 'none', border: 'none', color: '#0f766e', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Export / Print Notes →
+                  </button>
+                </div>
+>>>>>>> origin/main_v2
               </div>
             ) : (
               rawPastAppts.map(item => {
@@ -1727,6 +2206,7 @@ export const DoctorDashboard: React.FC = () => {
         </div>
       )}
 
+<<<<<<< HEAD
       {/* CLINICAL REVIEW SIDE DRAWER (Slides from right, 480px width) */}
       <AnimatePresence>
         {selectedItem && (
@@ -2305,6 +2785,8 @@ export const DoctorDashboard: React.FC = () => {
           </>
         )}
       </AnimatePresence>
+=======
+>>>>>>> origin/main_v2
 
       {rxEditorFor && (
         <PrescriptionEditor
