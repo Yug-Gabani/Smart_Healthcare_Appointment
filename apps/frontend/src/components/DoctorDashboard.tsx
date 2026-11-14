@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { PageTransition } from '../motion/PageTransition';
-import { listItem, EASE_ENTER, EASE_EXIT } from '../motion/presets';
+import { listItem, EASE_ENTER, EASE_EXIT, slideInRight } from '../motion/presets';
 import { CustomSelect } from './CustomSelect';
 import {
   Search,
@@ -1964,7 +1964,6 @@ export const DoctorDashboard: React.FC = () => {
             gap: '16px',
             width: '100%',
           }}>
-<<<<<<< HEAD
             {rawPastAppts.length === 0 ? (
               <div
                 style={{
@@ -1984,67 +1983,6 @@ export const DoctorDashboard: React.FC = () => {
                   Once you conduct and conclude a video consultation with a patient, the complete conversation transcript
                   and LangChain AI communication summary will appear here automatically.
                 </p>
-=======
-            {[
-              {
-                id: 'tr-01',
-                patient: 'Hari Patel (#8b17)',
-                date: 'Today · 07:30 PM',
-                mode: 'Video Consultation',
-                status: 'Reviewed & Approved',
-                summary: 'Patient presented with a 3-day history of 101°F fever and throat discomfort. Denies shortness of breath or chest pain. Advised oral hydration, Paracetamol 650mg SOS, and CBC if fever persists beyond 48 hours.',
-                consent: 'Explicit Audio Recording Consent Verified (DPDP / DR-11)',
-              },
-              {
-                id: 'tr-02',
-                patient: 'Sarah Jenkins (#4500)',
-                date: 'Yesterday · 11:30 AM',
-                mode: 'In-person Clinic Visit',
-                status: 'Clinician Verified',
-                summary: 'Regular asthma follow-up. Peak flow measurements stable at 420 L/min. Continued Budesonide/Formoterol 200/6 inhaler 1 puff twice daily. Next review in 3 months.',
-                consent: 'Explicit In-Clinic Transcription Consent Verified',
-              },
-            ].map(item => (
-              <div key={item.id} style={{
-                backgroundColor: '#ffffff',
-                borderRadius: '16px',
-                border: '1px solid #d9ece7',
-                padding: '22px 24px',
-                boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                height: '100%',
-                boxSizing: 'border-box',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                  <div>
-                    <span style={{ fontSize: '16px', fontWeight: 700, color: '#0b3f3a' }}>{item.patient}</span>
-                    <span style={{ fontSize: '13px', color: '#52736d', marginLeft: '10px' }}>{item.date} · {item.mode}</span>
-                  </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
-                    ✓ {item.status}
-                  </span>
-                </div>
-                <div style={{ backgroundColor: '#eaf6f2', borderRadius: '12px', padding: '14px 16px', fontSize: '13px', lineHeight: '1.6', color: '#0b3f3a', marginBottom: '12px', border: '1px solid #d9ece7' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 500, color: '#8aa39d', marginBottom: '4px' }}>
-                    AI Clinical Summary (Advisory Only)
-                  </div>
-                  {item.summary}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#52736d', flexWrap: 'wrap', gap: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669' }}>
-                    <ShieldCheck size={14} />
-                    <span>{item.consent}</span>
-                  </div>
-                  <button
-                    onClick={() => alert('Transcript and clinical summary ready for export.')}
-                    style={{ background: 'none', border: 'none', color: '#0f766e', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
-                  >
-                    Export / Print Notes →
-                  </button>
-                </div>
->>>>>>> origin/main_v2
               </div>
             ) : (
               rawPastAppts.map(item => {
@@ -2206,7 +2144,6 @@ export const DoctorDashboard: React.FC = () => {
         </div>
       )}
 
-<<<<<<< HEAD
       {/* CLINICAL REVIEW SIDE DRAWER (Slides from right, 480px width) */}
       <AnimatePresence>
         {selectedItem && (
@@ -2785,8 +2722,6 @@ export const DoctorDashboard: React.FC = () => {
           </>
         )}
       </AnimatePresence>
-=======
->>>>>>> origin/main_v2
 
       {rxEditorFor && (
         <PrescriptionEditor

@@ -90,7 +90,6 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
   const next = upcoming[0] ?? null;
   const recentVisit = completedVisits[0] ?? null;
 
-<<<<<<< HEAD
   useEffect(() => {
     if (completedVisits.length === 0) return;
     completedVisits.forEach(v => {
@@ -106,11 +105,10 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
       }
     });
   }, [completedVisits]);
-=======
+
   const todayLabel = useMemo(() =>
     new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }),
     []);
->>>>>>> origin/main_v2
 
   const todos = useMemo(() => ([
     { id: 101, text: 'Complete your medical history', done: !!(profile?.bloodGroup || profile?.allergies || profile?.conditions) },
@@ -400,7 +398,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
             <div style={{ height: 1, background: '#dde9e5', margin: '36px 0 26px' }} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <div style={{ ...cap, display: 'inline-flex', alignItems: 'center', gap: 6, color: '#0f766e' }}>
+                <div style={{ ...eyebrow, display: 'inline-flex', alignItems: 'center', gap: 6, color: '#0f766e' }}>
                   <Sparkles size={13} color="#0f766e" /> Consultation AI Summaries & Clinical Records
                 </div>
                 {completedVisits.length > 0 && (
