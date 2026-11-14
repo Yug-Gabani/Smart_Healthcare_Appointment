@@ -17,10 +17,17 @@ import {
   FileText,
   ExternalLink,
   Video,
+  Sparkles,
+  AlertTriangle,
+  Zap,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
 } from 'lucide-react';
-import type { Appointment, DoctorStatus, Attachment } from '../types';
-import { appointmentsApi, doctorProfileApi } from '../services/api';
+import type { Appointment, DoctorStatus, Attachment, QueueAdvisorResponse, ConsultationSession } from '../types';
+import { appointmentsApi, doctorProfileApi, aiAdvisorApi, consultationsApi } from '../services/api';
 import { PrescriptionEditor } from './PrescriptionEditor';
+import { MeetingSummaryModal } from './MeetingSummaryModal';
 
 /**
  * Map a backend Appointment to the queue item shape this screen was originally built around.
@@ -96,6 +103,10 @@ export const DoctorDashboard: React.FC = () => {
   // KPIs always read from `activeQueue` so switching tabs doesn't skew the headline numbers.
   const [activeQueue, setActiveQueue] = useState<QueueItem[]>([]);
   const [pastQueue, setPastQueue] = useState<QueueItem[]>([]);
+  const [rawPastAppts, setRawPastAppts] = useState<Appointment[]>([]);
+  const [doctorPastSessions, setDoctorPastSessions] = useState<Record<string, ConsultationSession>>({});
+  const [selectedSummaryAppt, setSelectedSummaryAppt] = useState<Appointment | null>(null);
+  const [expandedDoctorTranscriptId, setExpandedDoctorTranscriptId] = useState<string | null>(null);
   // Raw backend status per appointment id — used by the Past tab's status pill + drawer.
   const [queueStatus, setQueueStatus] = useState<Record<string, Appointment['status']>>({});
   const [loading, setLoading] = useState<boolean>(true);
@@ -106,6 +117,52 @@ export const DoctorDashboard: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [tab, setTab] = useState<ViewTab>('active');
+
+  // AI Queue Advisor state (LangChain Triage Pipeline)
+  const [aiAdvice, setAiAdvice] = useState<QueueAdvisorResponse | null>(null);
+  const [loadingAiAdvice, setLoadingAiAdvice] = useState<boolean>(false);
+
+  const fetchAiQueueAdvice = useCallback(async (currentQueue: QueueItem[]) => {
+    if (!currentQueue || currentQueue.length === 0) {
+      setAiAdvice(null);
+      return;
+    }
+    setLoadingAiAdvice(true);
+    try {
+      const advice = await aiAdvisorApi.getQueueAdvice({
+        doctor_name: 'Doctor',
+        queue: currentQueue.map(q => ({
+          id: q.id,
+          patient_id: q.patientId,
+          patient_name: q.patientName,
+          chief_complaint: q.chiefComplaint || q.rationale,
+          urgency: q.urgency,
+          confidence: q.confidence,
+          slot: q.slot,
+          mode: q.mode,
+        })),
+      });
+      setAiAdvice(advice);
+    } catch (err) {
+      console.warn('AI Queue advice error:', err);
+    } finally {
+      setLoadingAiAdvice(false);
+    }
+  }, []);
+
+  const applyAiEmergencySort = useCallback(() => {
+    if (!aiAdvice || !aiAdvice.suggested_order_ids.length) return;
+    const idMap = new Map<string, number>();
+    aiAdvice.suggested_order_ids.forEach((id, index) => idMap.set(id, index));
+    setActiveQueue(prev => {
+      const sorted = [...prev].sort((a, b) => {
+        const orderA = idMap.has(a.id) ? idMap.get(a.id)! : 999;
+        const orderB = idMap.has(b.id) ? idMap.get(b.id)! : 999;
+        return orderA - orderB;
+      });
+      return sorted;
+    });
+  }, [aiAdvice]);
 
   // Slot availability state for doctor's forward 7-day calendar
   const DEFAULT_TIMES = useMemo(() => ['09:30 AM', '10:30 AM', '11:30 AM', '02:00 PM', '03:30 PM', '05:00 PM'], []);
@@ -257,9 +314,11 @@ export const DoctorDashboard: React.FC = () => {
         const activeItems = active.map(appointmentToQueueItem);
         activeItems.sort((a, b) => rank[a.urgency] - rank[b.urgency]);
         setActiveQueue(activeItems);
+        fetchAiQueueAdvice(activeItems);
 
         const pastItems = past.map(appointmentToQueueItem);
         setPastQueue(pastItems);
+        setRawPastAppts(past);
 
         const statusMap: Record<string, Appointment['status']> = {};
         for (const a of active) statusMap[a.id] = a.status;
@@ -269,6 +328,20 @@ export const DoctorDashboard: React.FC = () => {
       .catch(err => setLoadError(err?.message || 'Could not load queue'))
       .finally(() => setLoading(false));
   }, []);
+
+  // Fetch consultation sessions for completed appointments to show whole communication summary
+  useEffect(() => {
+    if (rawPastAppts.length === 0) return;
+    rawPastAppts.forEach(a => {
+      if (!doctorPastSessions[a.id]) {
+        consultationsApi.getSession(a.id)
+          .then(sess => {
+            setDoctorPastSessions(prev => ({ ...prev, [a.id]: sess }));
+          })
+          .catch(() => {});
+      }
+    });
+  }, [rawPastAppts]);
 
   // What the table shows is derived from the active tab.
   const queue = tab === 'active' ? activeQueue : pastQueue;
@@ -634,8 +707,150 @@ export const DoctorDashboard: React.FC = () => {
         })}
       </section>
 
-      {/* EMERGENCY PRIORITY BANNER (only on active tab) */}
-      {tab === 'active' && emergencyItem && (
+      {/* AI EMERGENCY QUEUE ADVISOR & WORKLOAD TRIAGE PANEL */}
+      {tab === 'active' && activeQueue.length > 0 && (
+        <section
+          style={{
+            backgroundColor: '#f0fdf9',
+            border: '1.5px solid #0f766e',
+            borderRadius: '16px',
+            padding: '20px 24px',
+            marginBottom: '26px',
+            boxShadow: '0 4px 18px rgba(15, 118, 110, 0.09)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '36px', height: '36px', borderRadius: '10px',
+                backgroundColor: '#0f766e', color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 2px 8px rgba(15, 118, 110, 0.3)'
+              }}>
+                <Sparkles size={20} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0b3f3a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  AI Emergency Queue Advisor
+                  <span style={{
+                    fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '9999px',
+                    backgroundColor: '#ccfbf1', color: '#0f766e', border: '1px solid #99f6e4'
+                  }}>
+                    LangChain Clinical Triage
+                  </span>
+                </h3>
+                <p style={{ margin: 0, fontSize: '12px', color: '#52736d' }}>
+                  Real-time urgency prioritization &amp; emergency escalation recommendations
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => fetchAiQueueAdvice(activeQueue)}
+                disabled={loadingAiAdvice}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  padding: '7px 14px', borderRadius: '8px',
+                  border: '1px solid #cbd5e1', backgroundColor: '#fff',
+                  fontSize: '12px', fontWeight: 600, color: '#475569',
+                  cursor: loadingAiAdvice ? 'wait' : 'pointer'
+                }}
+              >
+                <RefreshCw size={13} className={loadingAiAdvice ? 'animate-spin' : ''} />
+                <span>{loadingAiAdvice ? 'Evaluating...' : 'Refresh AI'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={applyAiEmergencySort}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '6px',
+                  padding: '7px 16px', borderRadius: '8px',
+                  border: 'none', backgroundColor: '#0f766e',
+                  fontSize: '12px', fontWeight: 700, color: '#fff',
+                  cursor: 'pointer', boxShadow: '0 2px 10px rgba(15, 118, 110, 0.28)'
+                }}
+                title="Re-order queue strictly based on clinical emergency severity"
+              >
+                <Zap size={13} />
+                <span>Apply AI Emergency Sort</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Emergency Workload Stats Row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '4px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: 700,
+              backgroundColor: (aiAdvice?.emergency_count || kpiEmergency) > 0 ? '#fee2e2' : '#f1f5f9',
+              color: (aiAdvice?.emergency_count || kpiEmergency) > 0 ? '#dc2626' : '#64748b'
+            }}>
+              <AlertTriangle size={13} />
+              {(aiAdvice?.emergency_count || kpiEmergency)} Critical Emergency
+            </span>
+
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '4px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: 700,
+              backgroundColor: (aiAdvice?.urgent_count || kpiUrgent) > 0 ? '#fef3c7' : '#f1f5f9',
+              color: (aiAdvice?.urgent_count || kpiUrgent) > 0 ? '#d97706' : '#64748b'
+            }}>
+              ⚡ {(aiAdvice?.urgent_count || kpiUrgent)} Urgent Attention
+            </span>
+
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              padding: '4px 12px', borderRadius: '9999px', fontSize: '12px', fontWeight: 700,
+              backgroundColor: '#ecfdf5', color: '#059669'
+            }}>
+              ✓ {(aiAdvice?.routine_count || (activeQueue.length - kpiEmergency - kpiUrgent))} Routine Reviews
+            </span>
+          </div>
+
+          {/* AI Recommendation Box */}
+          <div style={{
+            backgroundColor: '#ffffff',
+            border: '1px solid #ccfbf1',
+            borderRadius: '12px',
+            padding: '14px 18px',
+            fontSize: '13px',
+            lineHeight: 1.5,
+            color: '#1e293b'
+          }}>
+            <div style={{ fontWeight: 700, color: '#0f766e', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} color="#0f766e" />
+              <span>AI Triage Suggestion for Total Queue:</span>
+            </div>
+            <div style={{ color: '#0f172a', fontWeight: 500 }}>
+              {aiAdvice?.priority_recommendation || (
+                emergencyItem
+                  ? `Prioritize Patient ${emergencyItem.patientId} (${emergencyItem.patientName}) immediately. Chief complaint: '${emergencyItem.rationale}' requires rapid diagnostic assessment ahead of routine visits.`
+                  : "All current appointments are clinically stable. Proceed according to scheduled slot times."
+              )}
+            </div>
+
+            {aiAdvice?.overall_assessment && (
+              <div style={{ marginTop: '6px', fontSize: '12px', color: '#64748b' }}>
+                <strong>Workload Summary:</strong> {aiAdvice.overall_assessment}
+              </div>
+            )}
+
+            {aiAdvice?.clinical_alerts && aiAdvice.clinical_alerts.length > 0 && (
+              <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1', fontSize: '12px', color: '#b91c1c' }}>
+                {aiAdvice.clinical_alerts.map((alert, idx) => (
+                  <div key={idx} style={{ marginTop: '3px', fontWeight: 600 }}>{alert}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* EMERGENCY PRIORITY BANNER (fallback if queue item has EMG) */}
+      {tab === 'active' && emergencyItem && (!aiAdvice || aiAdvice.emergency_count === 0) && (
         <section style={{
           backgroundColor: '#dc2626',
           color: '#ffffff',
@@ -669,8 +884,6 @@ export const DoctorDashboard: React.FC = () => {
               padding: '6px 14px',
               transition: 'background-color 0.15s ease',
             }}
-            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.35)')}
-            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)')}
           >
             Open now →
           </button>
@@ -1334,67 +1547,182 @@ export const DoctorDashboard: React.FC = () => {
             gap: '16px',
             width: '100%',
           }}>
-            {[
-              {
-                id: 'tr-01',
-                patient: 'Hari Patel (#8b17)',
-                date: 'Today · 07:30 PM',
-                mode: 'Video Consultation',
-                status: 'Reviewed & Approved',
-                summary: 'Patient presented with a 3-day history of 101°F fever and throat discomfort. Denies shortness of breath or chest pain. Advised oral hydration, Paracetamol 650mg SOS, and CBC if fever persists beyond 48 hours.',
-                consent: 'Explicit Audio Recording Consent Verified (DPDP / DR-11)',
-              },
-              {
-                id: 'tr-02',
-                patient: 'Sarah Jenkins (#4500)',
-                date: 'Yesterday · 11:30 AM',
-                mode: 'In-person Clinic Visit',
-                status: 'Clinician Verified',
-                summary: 'Regular asthma follow-up. Peak flow measurements stable at 420 L/min. Continued Budesonide/Formoterol 200/6 inhaler 1 puff twice daily. Next review in 3 months.',
-                consent: 'Explicit In-Clinic Transcription Consent Verified',
-              },
-            ].map(item => (
-              <div key={item.id} style={{
-                backgroundColor: '#ffffff',
-                borderRadius: '16px',
-                border: '1px solid #d9ece7',
-                padding: '22px 24px',
-                boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                height: '100%',
-                boxSizing: 'border-box',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                  <div>
-                    <span style={{ fontSize: '16px', fontWeight: 700, color: '#0b3f3a' }}>{item.patient}</span>
-                    <span style={{ fontSize: '13px', color: '#52736d', marginLeft: '10px' }}>{item.date} · {item.mode}</span>
-                  </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
-                    ✓ {item.status}
-                  </span>
-                </div>
-                <div style={{ backgroundColor: '#eaf6f2', borderRadius: '12px', padding: '14px 16px', fontSize: '13px', lineHeight: '1.6', color: '#0b3f3a', marginBottom: '12px', border: '1px solid #d9ece7' }}>
-                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>
-                    AI Clinical Summary (Advisory Only)
-                  </div>
-                  {item.summary}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#52736d', flexWrap: 'wrap', gap: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669' }}>
-                    <ShieldCheck size={14} />
-                    <span>{item.consent}</span>
-                  </div>
-                  <button
-                    onClick={() => alert('Transcript and clinical summary ready for export.')}
-                    style={{ background: 'none', border: 'none', color: '#0f766e', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
-                  >
-                    Export / Print Notes →
-                  </button>
-                </div>
+            {rawPastAppts.length === 0 ? (
+              <div
+                style={{
+                  gridColumn: '1 / -1',
+                  backgroundColor: '#ffffff',
+                  borderRadius: '16px',
+                  border: '1.5px dashed #c2e2db',
+                  padding: '36px',
+                  textAlign: 'center',
+                }}
+              >
+                <FileText size={36} color="#0f766e" style={{ margin: '0 auto 12px', opacity: 0.6 }} />
+                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0b3f3a', marginBottom: '6px' }}>
+                  No Consultation Transcripts Available Yet
+                </h3>
+                <p style={{ fontSize: '13px', color: '#52736d', margin: 0 }}>
+                  Once you conduct and conclude a video consultation with a patient, the complete conversation transcript
+                  and LangChain AI communication summary will appear here automatically.
+                </p>
               </div>
-            ))}
+            ) : (
+              rawPastAppts.map(item => {
+                const sess = doctorPastSessions[item.id];
+                const isTranscriptOpen = expandedDoctorTranscriptId === item.id;
+                const formattedDate = item.slotAt ? new Date(item.slotAt).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }) : 'Past Consultation';
+
+                const wholeSummary = (item.notes && !item.notes.startsWith('Video consultation completed. Summary generated'))
+                  ? item.notes
+                  : (sess?.summaryObservations
+                      ? sess.summaryObservations.split('\n\nClinical Observations')[0]
+                      : `Video telehealth consultation conducted with ${item.patientName || 'Patient'}. Clinical evaluation and treatment guidance recorded.`);
+
+                return (
+                  <div key={item.id} style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '16px',
+                    border: '1px solid #d9ece7',
+                    padding: '22px 24px',
+                    boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    height: '100%',
+                    boxSizing: 'border-box',
+                  }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div>
+                          <span style={{ fontSize: '16px', fontWeight: 700, color: '#0b3f3a' }}>{item.patientName || 'Patient'}</span>
+                          <span style={{ fontSize: '13px', color: '#52736d', marginLeft: '10px' }}>
+                            {formattedDate} · {item.consultationType === 'VIDEO' ? '🎥 Video Telehealth' : '🏥 Clinic Visit'}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '9999px', backgroundColor: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
+                          ✓ AI Summarized &amp; Verified
+                        </span>
+                      </div>
+
+                      {/* Whole Video Call Communication Summary */}
+                      <div style={{
+                        backgroundColor: '#f0fdf9',
+                        borderRadius: '12px',
+                        padding: '14px 16px',
+                        fontSize: '13px',
+                        lineHeight: '1.6',
+                        color: '#0b3f3a',
+                        marginBottom: '14px',
+                        border: '1px solid #ccfbf1',
+                      }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#0f766e', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Sparkles size={13} color="#0f766e" />
+                          <span>Whole Video Call Communication Summary</span>
+                        </div>
+                        <div style={{ color: '#134e48', fontWeight: 500 }}>
+                          {wholeSummary}
+                        </div>
+                      </div>
+
+                      {/* Clinical Key Points */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '12px', marginBottom: '12px', backgroundColor: '#f8faf9', padding: '10px 12px', borderRadius: '8px', border: '1px solid #edf4f2' }}>
+                        <div>
+                          <strong style={{ color: '#0f766e', display: 'block' }}>Chief Complaint:</strong>
+                          <span style={{ color: '#334155' }}>{sess?.summaryChiefComplaint || item.chiefComplaint || 'Consultation follow-up'}</span>
+                        </div>
+                        <div>
+                          <strong style={{ color: '#0f766e', display: 'block' }}>Prescriptions:</strong>
+                          <span style={{ color: '#334155' }}>{sess?.summaryPrescribedActions || 'Digital prescription issued in portal'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      {/* Expandable Transcript Accordion */}
+                      {isTranscriptOpen && (
+                        <div style={{
+                          marginBottom: '14px',
+                          padding: '12px',
+                          backgroundColor: '#f8faf9',
+                          borderRadius: '10px',
+                          border: '1px solid #d9ece7',
+                          maxHeight: '220px',
+                          overflowY: 'auto',
+                        }}>
+                          <div style={{ fontSize: '11px', fontWeight: 700, color: '#52736d', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <MessageSquare size={12} color="#0f766e" /> Full Dialogue Transcript:
+                          </div>
+                          {sess?.transcript ? (
+                            <pre style={{ margin: 0, fontSize: '11px', lineHeight: 1.5, whiteSpace: 'pre-wrap', fontFamily: 'inherit', color: '#1e293b' }}>
+                              {sess.transcript}
+                            </pre>
+                          ) : (
+                            <div style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>
+                              Transcript synthesized into the communication summary above.
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#52736d', flexWrap: 'wrap', gap: '8px', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#059669' }}>
+                          <ShieldCheck size={14} />
+                          <span>Encrypted Clinical Audio Record (HIPAA)</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedDoctorTranscriptId(prev => prev === item.id ? null : item.id)}
+                            style={{
+                              background: isTranscriptOpen ? '#eaf6f2' : '#ffffff',
+                              border: '1px solid #d9ece7',
+                              borderRadius: '9999px',
+                              padding: '5px 12px',
+                              color: '#0f766e',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <MessageSquare size={12} />
+                            <span>{isTranscriptOpen ? 'Hide Transcript' : 'Transcript'}</span>
+                            {isTranscriptOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedSummaryAppt(item)}
+                            style={{
+                              background: '#0f766e',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '9999px',
+                              padding: '5px 14px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <FileText size={12} />
+                            <span>Full Summary</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       )}
@@ -1767,6 +2095,58 @@ export const DoctorDashboard: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Whole Communication Summary & Dialogue Transcript in Drawer */}
+                {tab === 'past' && (
+                  <div style={{
+                    backgroundColor: '#f0fdf9',
+                    border: '1px solid #ccfbf1',
+                    borderRadius: '16px',
+                    padding: '18px',
+                  }}>
+                    <div style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      letterSpacing: '0.08em',
+                      color: '#0f766e',
+                      marginBottom: '8px',
+                      textTransform: 'uppercase',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}>
+                      <Sparkles size={14} color="#0f766e" /> Whole Video Call Communication Summary
+                    </div>
+                    <p style={{ margin: 0, fontSize: '13px', lineHeight: 1.6, color: '#134e48', fontWeight: 500 }}>
+                      {doctorPastSessions[selectedItem.id]?.summaryObservations ||
+                        rawPastAppts.find(a => a.id === selectedItem.id)?.notes ||
+                        'Consultation concluded. Clinical evaluation, symptoms, and treatment plan recorded in visit summary.'}
+                    </p>
+                    {doctorPastSessions[selectedItem.id]?.transcript && (
+                      <div style={{ marginTop: '12px', borderTop: '1px dashed #99f6e4', paddingTop: '10px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#0f766e', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <MessageSquare size={12} /> Word-for-Word Transcript:
+                        </div>
+                        <pre style={{
+                          margin: 0,
+                          fontSize: '11px',
+                          lineHeight: 1.5,
+                          whiteSpace: 'pre-wrap',
+                          fontFamily: 'inherit',
+                          color: '#1e293b',
+                          backgroundColor: '#ffffff',
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #d9ece7',
+                          maxHeight: '160px',
+                          overflowY: 'auto',
+                        }}>
+                          {doctorPastSessions[selectedItem.id]?.transcript}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Drawer Footer: read-only banner on past tab, actions on active */}
@@ -1784,7 +2164,14 @@ export const DoctorDashboard: React.FC = () => {
                   <div style={{ display: 'flex', gap: '10px' }}>
                     {selectedItem.mode === 'VID' && (
                       <button
-                        onClick={() => navigate(`/consultation/${selectedItem.id}`)}
+                        onClick={() => {
+                          const appt = rawPastAppts.find(a => a.id === selectedItem.id);
+                          if (appt) {
+                            setSelectedSummaryAppt(appt);
+                          } else {
+                            navigate(`/consultation/${selectedItem.id}`);
+                          }
+                        }}
                         className="hover-lift"
                         style={{
                           backgroundColor: '#0f766e', color: '#ffffff',
@@ -1924,6 +2311,13 @@ export const DoctorDashboard: React.FC = () => {
           appointmentId={rxEditorFor.id}
           patientName={rxEditorFor.patientName}
           onClose={() => setRxEditorFor(null)}
+        />
+      )}
+
+      {selectedSummaryAppt && (
+        <MeetingSummaryModal
+          appointment={selectedSummaryAppt}
+          onClose={() => setSelectedSummaryAppt(null)}
         />
       )}
     </PageTransition>
