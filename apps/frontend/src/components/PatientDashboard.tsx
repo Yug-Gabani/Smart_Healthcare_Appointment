@@ -42,6 +42,8 @@ const eyebrow: React.CSSProperties = {
   font: `500 12px ${FONT}`, color: '#8aa39d', letterSpacing: 0,
 };
 
+const formatSlot = (slotAt?: string | null) => (slotAt ? formatAppointmentSlot(slotAt) : '—');
+
 export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser }) => {
   const navigate = useNavigate();
 
@@ -77,6 +79,13 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
   const missedVisits = useMemo(
     () => appointments
       .filter(a => isAppointmentExpired(a.slotAt, a.status))
+      .sort((a, b) => (a.slotAt && b.slotAt ? b.slotAt.localeCompare(a.slotAt) : 0)),
+    [appointments]);
+
+  // Completed visits (for consultation notes and AI session summaries)
+  const completedVisits = useMemo(
+    () => appointments
+      .filter(a => a.status === 'COMPLETED')
       .sort((a, b) => (a.slotAt && b.slotAt ? b.slotAt.localeCompare(a.slotAt) : 0)),
     [appointments]);
 
