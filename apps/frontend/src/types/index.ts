@@ -30,6 +30,7 @@ export interface Doctor {
   fullName: string;
   specialty: string;
   hospital: string;
+  hospitalId?: string;
   avatarUrl?: string;
   rating: number;
   reviewCount?: number;

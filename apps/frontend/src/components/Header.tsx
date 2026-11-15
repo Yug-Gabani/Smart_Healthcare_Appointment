@@ -150,6 +150,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   // Active tab detection for Patient
   const isPatientDashboard = isPatient && (location.pathname === '/patient' || location.pathname === '/');
+  const isDoctors = location.pathname.startsWith('/doctors');
   const isBookVisit = isPatient && location.pathname === '/book';
   const isMyAppointments = isPatient && location.pathname.startsWith('/appointments');
   const isPrescriptions  = isPatient && location.pathname.startsWith('/prescriptions');
@@ -188,25 +189,33 @@ export const Header: React.FC<HeaderProps> = ({
     {
       id: 'find-care',
       label: 'Find care',
-      href: '#find-care',
+      href: '/doctors',
       onClick: (e: React.MouseEvent) => {
         e.preventDefault();
-        const el = document.getElementById('find-care') || document.getElementById('find-doctors');
-        if (el) el.scrollIntoView({ behavior: 'smooth' });
-        else onGetCare();
+        if (location.pathname === '/') {
+          const el = document.getElementById('find-care') || document.getElementById('find-doctors');
+          if (el) el.scrollIntoView({ behavior: 'smooth' });
+          else navigate('/doctors');
+        } else {
+          navigate('/doctors');
+        }
         setActiveSection('find-care');
       },
-      isActive: activeSection === 'find-care',
+      isActive: isDoctors || activeSection === 'find-care',
     },
     {
       id: 'specialties',
       label: 'Specialties',
-      href: '#specialties',
+      href: '/doctors',
       onClick: (e: React.MouseEvent) => {
         e.preventDefault();
-        const el = document.getElementById('specialties');
-        if (el) el.scrollIntoView({ behavior: 'smooth' });
-        else onGetCare();
+        if (location.pathname === '/') {
+          const el = document.getElementById('specialties');
+          if (el) el.scrollIntoView({ behavior: 'smooth' });
+          else navigate('/doctors');
+        } else {
+          navigate('/doctors');
+        }
         setActiveSection('specialties');
       },
       isActive: activeSection === 'specialties',
@@ -238,6 +247,7 @@ export const Header: React.FC<HeaderProps> = ({
     : isPatient
     ? [
         { id: 'dashboard', label: 'Dashboard', href: '/patient', isActive: isPatientDashboard, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/patient'); } },
+        { id: 'doctors', label: 'Find Doctors', href: '/doctors', isActive: isDoctors, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/doctors'); } },
         { id: 'book', label: 'Book Visit', href: '/book', isActive: isBookVisit, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/book'); } },
         { id: 'appointments', label: 'My Appointments', href: '/appointments', isActive: isMyAppointments, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/appointments'); } },
         { id: 'prescriptions', label: 'Prescriptions', href: '/prescriptions', isActive: isPrescriptions, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/prescriptions'); } },
