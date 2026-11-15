@@ -31,6 +31,8 @@ public class SecurityConfig {
             "/api/auth/register",
             "/api/auth/login",
             "/api/auth/refresh",
+            "/api/auth/password-reset/request",
+            "/api/auth/password-reset/confirm",
             "/api/ping",
             "/api/v1/payments/**",
             "/api/v1/slots/**",

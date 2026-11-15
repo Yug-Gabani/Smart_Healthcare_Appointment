@@ -103,6 +103,11 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  # Public URL of the frontend. The backend embeds this in password-reset emails
+  # (and any future transactional mail with a deep link). Point it at the Vercel
+  # production domain in prod; localhost is fine for dev.
+  base-url: ${APP_BASE_URL:http://localhost:5173}
+  product-name: ${APP_PRODUCT_NAME:PulseCare}
   security:
     jwt:
       # 32+ char secret. For prod set JWT_SECRET env var; dev default below is NOT secret.
@@ -110,6 +115,11 @@ app:
       access-token-validity-minutes: ${JWT_ACCESS_MINUTES:15}
       refresh-token-validity-days: ${JWT_REFRESH_DAYS:7}
       issuer: smart-healthcare
+    password-reset:
+      # How long a reset link stays valid. Keep this short enough that a stolen
+      # email cannot be replayed hours later, long enough that a user who clicks
+      # from their phone an hour after the mail arrives is still fine.
+      validity-minutes: ${PASSWORD_RESET_VALIDITY_MINUTES:60}
 
   # Remote object storage for file uploads. When all three creds are blank, FileStorageService
   # falls back to writing under ./uploads on local disk so dev runs without a Cloudinary account.
