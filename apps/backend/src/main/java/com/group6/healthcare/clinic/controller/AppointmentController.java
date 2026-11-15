@@ -3,7 +3,9 @@ package com.group6.healthcare.clinic.controller;
 import com.group6.healthcare.auth.service.AppUserPrincipal;
 import com.group6.healthcare.clinic.dto.AppointmentResponse;
 import com.group6.healthcare.clinic.dto.BookAppointmentRequest;
+import com.group6.healthcare.clinic.dto.BookFollowUpRequest;
 import com.group6.healthcare.clinic.dto.PatchAppointmentRequest;
+import com.group6.healthcare.clinic.dto.RescheduleAppointmentRequest;
 import com.group6.healthcare.clinic.service.AppointmentService;
 import com.group6.healthcare.clinic.service.AppointmentService.DoctorQueueScope;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -88,6 +90,36 @@ public class AppointmentController {
             @AuthenticationPrincipal AppUserPrincipal principal,
             @PathVariable UUID id) {
         return ApiResponse.ok(appointmentService.cancel(principal.getId(), id), "Appointment cancelled");
+    }
+
+    @PatchMapping("/{id}/reschedule")
+    @PreAuthorize("hasRole('PATIENT')")
+    @Operation(summary = "Move an appointment to a different slot on the same doctor. " +
+            "Status resets to BOOKED; the doctor re-confirms.")
+    public ApiResponse<AppointmentResponse> reschedule(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @PathVariable UUID id,
+            @Valid @RequestBody RescheduleAppointmentRequest req) {
+        return ApiResponse.ok(
+                appointmentService.reschedule(principal.getId(), id, req.newSlotId()),
+                "Appointment rescheduled"
+        );
+    }
+
+    @PostMapping("/follow-up")
+    @PreAuthorize("hasRole('PATIENT')")
+    @Operation(summary = "Book a doctor-recommended follow-up. The original appointment must be " +
+            "COMPLETED; the follow-up is linked back via parent_appointment_id.")
+    public ResponseEntity<ApiResponse<AppointmentResponse>> bookFollowUp(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @Valid @RequestBody BookFollowUpRequest req) {
+        AppointmentResponse resp = appointmentService.bookFollowUp(
+                principal.getId(),
+                req.originalAppointmentId(),
+                req.slotId(),
+                req.consultationType()
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(resp, "Follow-up booked"));
     }
 
     @PatchMapping("/{id}")

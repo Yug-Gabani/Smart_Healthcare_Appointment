@@ -16,6 +16,7 @@ import { DoctorListingPage } from './components/DoctorListingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { PharmacyDashboard } from './components/PharmacyDashboard';
 import { PatientOrders } from './components/PatientOrders';
+import { PatientHistoryPage } from './components/PatientHistoryPage';
 import { VideoConsultationRoom } from './components/VideoConsultationRoom';
 import { AppointmentReminderBanner } from './components/AppointmentReminderBanner';
 import { AuthPage } from './components/AuthPage';
@@ -236,6 +237,16 @@ export const App: React.FC = () => {
               sessionReady ? (
                 <ProtectedRoute user={currentUser} roles={['PATIENT']}>
                   <PatientProfile />
+                </ProtectedRoute>
+              ) : null
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['PATIENT']}>
+                  <PatientHistoryPage />
                 </ProtectedRoute>
               ) : null
             }

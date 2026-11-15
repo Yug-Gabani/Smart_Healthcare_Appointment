@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageTransition } from '../motion/PageTransition';
-import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw, AlertCircle, CalendarClock } from 'lucide-react';
 import type { Appointment } from '../types';
 import { appointmentsApi } from '../services/api';
 import { CancelRefundModal } from './CancelRefundModal';
+import { SlotPickerModal } from './SlotPickerModal';
 import { getAppointmentStatusDetails, formatAppointmentSlot } from '../utils/appointmentStatus';
 
 function formatSlot(iso?: string): string {
@@ -30,6 +31,7 @@ export const AppointmentDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [refundSummary, setRefundSummary] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export const AppointmentDetail: React.FC = () => {
 
   const details = appt ? getAppointmentStatusDetails(appt) : null;
   const canCancel = details ? details.canCancel : false;
+  const canReschedule = canCancel; // same window: active, before the slot has started
 
   return (
     <PageTransition style={{ maxWidth: '720px', margin: '20px auto 28px', padding: '0 20px' }}>
@@ -227,6 +230,19 @@ export const AppointmentDetail: React.FC = () => {
             >
               View prescriptions
             </button>
+            {canReschedule && (
+              <button
+                onClick={() => setIsRescheduleModalOpen(true)}
+                className="btn btn-secondary hover-lift"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <CalendarClock size={14} /> Reschedule
+              </button>
+            )}
             {canCancel && (
               <button
                 onClick={() => setIsCancelModalOpen(true)}
@@ -243,6 +259,18 @@ export const AppointmentDetail: React.FC = () => {
               </button>
             )}
           </div>
+
+          {appt.rescheduleCount != null && appt.rescheduleCount > 0 && (
+            <div style={{
+              marginTop: 14, fontSize: 12, color: '#8aa39d',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}>
+              <CalendarClock size={12} />
+              Rescheduled {appt.rescheduleCount}
+              {appt.rescheduleCount === 1 ? ' time' : ' times'}
+              {appt.lastRescheduledAt && ` · last change ${new Date(appt.lastRescheduledAt).toLocaleDateString()}`}
+            </div>
+          )}
         </div>
       )}
 
@@ -257,6 +285,23 @@ export const AppointmentDetail: React.FC = () => {
           onSuccess={(res) => {
             setAppt(prev => prev ? { ...prev, status: 'CANCELLED' } : null);
             setRefundSummary(`Refund processed: ₹${(res.refundAmountPaise / 100).toFixed(2)} (${res.refundPercentage}% refund under tier ${res.tier}).`);
+          }}
+        />
+      )}
+
+      {/* Reschedule modal — pick a new slot on the same doctor */}
+      {appt && isRescheduleModalOpen && (
+        <SlotPickerModal
+          isOpen={isRescheduleModalOpen}
+          doctorId={appt.doctorId}
+          doctorName={appt.doctorName}
+          title="Reschedule appointment"
+          confirmLabel="Confirm new time"
+          excludeSlotId={appt.slotId}
+          onClose={() => setIsRescheduleModalOpen(false)}
+          onConfirm={async (newSlotId) => {
+            const updated = await appointmentsApi.reschedule(appt.id, newSlotId);
+            setAppt(updated);
           }}
         />
       )}

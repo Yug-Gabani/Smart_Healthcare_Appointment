@@ -75,6 +75,20 @@ public class Appointment {
     @Column(name = "refund_amount_paise")
     private Long refundAmountPaise;
 
+    @Column(name = "reschedule_count", nullable = false)
+    private int rescheduleCount;
+
+    @Column(name = "last_rescheduled_at")
+    private OffsetDateTime lastRescheduledAt;
+
+    /**
+     * When set, this appointment is a doctor-recommended follow-up to another
+     * one. The link is one-way: an original visit does not know about its
+     * follow-up children here (query by {@code parent_appointment_id} instead).
+     */
+    @Column(name = "parent_appointment_id")
+    private UUID parentAppointmentId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

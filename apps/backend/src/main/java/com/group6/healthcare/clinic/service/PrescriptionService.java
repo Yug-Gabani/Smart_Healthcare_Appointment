@@ -95,6 +95,8 @@ public class PrescriptionService {
                 .doctorId(doctor.getId())
                 .status(PrescriptionStatus.DRAFT)
                 .notes(req.notes())
+                .followUpAfterDays(req.followUpAfterDays())
+                .followUpNotes(req.followUpNotes())
                 .build();
         rx = prescriptionRepository.save(rx);
         replaceItems(rx.getId(), req.items());
@@ -109,6 +111,8 @@ public class PrescriptionService {
             throw new BusinessRuleException("Only DRAFT prescriptions can be edited (status=" + rx.getStatus() + ")");
         }
         rx.setNotes(req.notes());
+        rx.setFollowUpAfterDays(req.followUpAfterDays());
+        rx.setFollowUpNotes(req.followUpNotes());
         prescriptionRepository.save(rx);
         replaceItems(rx.getId(), req.items());
         return load(rx.getId(), doctor);
@@ -306,6 +310,8 @@ public class PrescriptionService {
                 rx.getVoidOf(),
                 rx.getVoidReason(),
                 rx.getNotes(),
+                rx.getFollowUpAfterDays(),
+                rx.getFollowUpNotes(),
                 Collections.unmodifiableList(itemDtos),
                 rx.getCreatedAt(),
                 rx.getUpdatedAt()

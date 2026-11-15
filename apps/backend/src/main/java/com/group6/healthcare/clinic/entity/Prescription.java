@@ -58,6 +58,18 @@ public class Prescription {
     @Column(name = "notes")
     private String notes;
 
+    /**
+     * Doctor's suggestion on the prescription: come back in N days. Null means
+     * no follow-up recommended. Patient can one-click book the follow-up from
+     * their prescription view, which creates a new appointment linked back to
+     * the original via {@code parent_appointment_id}.
+     */
+    @Column(name = "follow_up_after_days")
+    private Integer followUpAfterDays;
+
+    @Column(name = "follow_up_notes")
+    private String followUpNotes;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
