@@ -70,3 +70,44 @@ jobs:
       - name: Build (TypeScript check + Vite production bundle)
         working-directory: apps/frontend
         run: npm run build
+
+  ai-service:
+    name: AI service (Python 3.11 syntax + import check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: apps/ai-service/requirements.txt
+
+      - name: Install dependencies
+        working-directory: apps/ai-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Byte-compile every .py file (catches syntax errors)
+        working-directory: apps/ai-service
+        run: python -m compileall -q .
+
+      - name: Import smoke test (loads FastAPI app without starting server)
+        working-directory: apps/ai-service
+        # OPENROUTER_API_KEY is deliberately absent — main.py must import cleanly
+        # without it (the module only needs the key at request time).
+        run: python -c "import main; assert main.app is not None"
+
+      - name: Run pytest if tests exist
+        working-directory: apps/ai-service
+        run: |
+          if compgen -G "test_*.py" > /dev/null || compgen -G "tests/test_*.py" > /dev/null; then
+            pip install pytest
+            pytest -q
+          else
+            echo "No pytest tests found yet — skipping."
+          fi
