@@ -94,6 +94,10 @@ export interface TriageAssessment {
   urgency: UrgencyLevel;
   rationale: string;
   suggestedSpecialty: string;
+  aiPowered?: boolean;
+  confidence?: number;
+  redFlags?: string[];
+  recommendedActions?: string[];
   createdAt: string;
 }
 
