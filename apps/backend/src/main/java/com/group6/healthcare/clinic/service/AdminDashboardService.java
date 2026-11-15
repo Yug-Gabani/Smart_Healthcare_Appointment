@@ -70,6 +70,7 @@ public class AdminDashboardService {
         long approvedDoctors = doctorRepository.countByStatus(DoctorStatus.APPROVED);
         long pendingDoctors = doctorRepository.countByStatus(DoctorStatus.PENDING);
         long rejectedDoctors = doctorRepository.countByStatus(DoctorStatus.REJECTED);
+        long suspendedDoctors = doctorRepository.countByStatus(DoctorStatus.SUSPENDED);
         long totalPatients = userRepository.countByRole(Role.PATIENT);
 
         long totalAppointments = appointmentRepository.count();
@@ -95,6 +96,7 @@ public class AdminDashboardService {
                 approvedDoctors,
                 pendingDoctors,
                 rejectedDoctors,
+                suspendedDoctors,
                 totalPatients,
                 totalAppointments,
                 bookedAppointments,

@@ -15,6 +15,7 @@ public record AdminOverviewResponse(
             long approvedDoctors,
             long pendingDoctors,
             long rejectedDoctors,
+            long suspendedDoctors,
             long totalPatients,
             long totalAppointments,
             long bookedAppointments,
@@ -23,7 +24,17 @@ public record AdminOverviewResponse(
             long totalRevenuePaise,
             long totalRefundPaise,
             long totalHospitals
-    ) {}
+    ) {
+        public AdminStats(
+                long totalDoctors, long approvedDoctors, long pendingDoctors, long rejectedDoctors,
+                long totalPatients, long totalAppointments, long bookedAppointments,
+                long completedAppointments, long cancelledAppointments, long totalRevenuePaise,
+                long totalRefundPaise, long totalHospitals) {
+            this(totalDoctors, approvedDoctors, pendingDoctors, rejectedDoctors, 0L,
+                 totalPatients, totalAppointments, bookedAppointments, completedAppointments,
+                 cancelledAppointments, totalRevenuePaise, totalRefundPaise, totalHospitals);
+        }
+    }
 
     public record RecentConsultationDto(
             UUID id,

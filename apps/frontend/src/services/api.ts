@@ -381,8 +381,10 @@ export const patientOrdersApi = {
 };
 
 export const adminDoctorsApi = {
-  list: (status: DoctorStatus = 'PENDING'): Promise<DoctorMe[]> =>
-    request<DoctorMe[]>(`/v1/admin/doctors?status=${status}`),
+  list: (status?: DoctorStatus | 'ALL'): Promise<DoctorMe[]> => {
+    const query = status && status !== 'ALL' ? `?status=${status}` : '';
+    return request<DoctorMe[]>(`/v1/admin/doctors${query}`);
+  },
   approve: (id: string): Promise<DoctorMe> =>
     request<DoctorMe>(`/v1/admin/doctors/${id}/approve`, { method: 'POST' }),
   reject: (id: string, reason: string): Promise<DoctorMe> =>
@@ -390,6 +392,13 @@ export const adminDoctorsApi = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
+  suspend: (id: string, reason: string): Promise<DoctorMe> =>
+    request<DoctorMe>(`/v1/admin/doctors/${id}/suspend`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  reinstate: (id: string): Promise<DoctorMe> =>
+    request<DoctorMe>(`/v1/admin/doctors/${id}/reinstate`, { method: 'POST' }),
 };
 
 // ---------- Admin — Platform Dashboard & Finance Operations ----------

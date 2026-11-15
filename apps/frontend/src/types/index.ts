@@ -277,7 +277,7 @@ export interface AuthState {
 
 // ---------- Doctor verification + profile ----------
 
-export type DoctorStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type DoctorStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
 export interface ScheduleTemplate {
   id?: string;
@@ -296,6 +296,7 @@ export interface DoctorMe {
   hospitalId?: string;
   avatarUrl?: string;
   rating: number;
+  reviewCount?: number;
   bio?: string;
   status: DoctorStatus;
   registrationNumber?: string;
@@ -306,6 +307,10 @@ export interface DoctorMe {
   submittedAt?: string;
   reviewedAt?: string;
   scheduleTemplate: ScheduleTemplate[];
+  email?: string;
+  phone?: string;
+  totalAppointments?: number;
+  completedConsultations?: number;
 }
 
 export const COMMON_SPECIALTIES = [
@@ -432,6 +437,7 @@ export interface AdminStats {
   approvedDoctors?: number;
   pendingDoctors?: number;
   rejectedDoctors?: number;
+  suspendedDoctors?: number;
   totalPatients?: number;
   totalAppointments?: number;
   bookedAppointments?: number;
