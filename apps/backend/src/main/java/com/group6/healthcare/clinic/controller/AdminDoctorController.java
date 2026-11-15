@@ -37,9 +37,9 @@ public class AdminDoctorController {
     }
 
     @GetMapping
-    @Operation(summary = "List doctors by status (default: PENDING)")
+    @Operation(summary = "List doctors by status (or all doctors if status is omitted)")
     public ApiResponse<List<DoctorMeResponse>> list(
-            @RequestParam(name = "status", required = false, defaultValue = "PENDING") DoctorStatus status) {
+            @RequestParam(name = "status", required = false) DoctorStatus status) {
         return ApiResponse.ok(adminDoctorService.listByStatus(status));
     }
 
@@ -56,5 +56,20 @@ public class AdminDoctorController {
                                                  @PathVariable UUID doctorId,
                                                  @Valid @RequestBody RejectDoctorRequest req) {
         return ApiResponse.ok(adminDoctorService.reject(doctorId, principal.getId(), req.reason()));
+    }
+
+    @PostMapping("/{doctorId}/suspend")
+    @Operation(summary = "Suspend a doctor with a reason — temporarily hides them from search and booking")
+    public ApiResponse<DoctorMeResponse> suspend(@AuthenticationPrincipal AppUserPrincipal principal,
+                                                  @PathVariable UUID doctorId,
+                                                  @Valid @RequestBody RejectDoctorRequest req) {
+        return ApiResponse.ok(adminDoctorService.suspend(doctorId, principal.getId(), req.reason()));
+    }
+
+    @PostMapping("/{doctorId}/reinstate")
+    @Operation(summary = "Reinstate a suspended or rejected doctor back to active duty")
+    public ApiResponse<DoctorMeResponse> reinstate(@AuthenticationPrincipal AppUserPrincipal principal,
+                                                    @PathVariable UUID doctorId) {
+        return ApiResponse.ok(adminDoctorService.reinstate(doctorId, principal.getId()));
     }
 }

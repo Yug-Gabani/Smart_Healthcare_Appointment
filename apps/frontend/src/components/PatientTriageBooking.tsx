@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   MapPin,
   Video,
@@ -262,15 +262,26 @@ function resolveSpotKey(raw: string | null): string | null {
 type UploadCategory = 'SYMPTOM_IMAGE' | 'PRIOR_PRESCRIPTION' | 'LAB_REPORT';
 
 export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ currentUser }) => {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  /* "Shortcut" mode: patient landed here from a landing-page specialty tile
-   * with ?specialty=X. They skip the 6-question triage flow and go straight
-   * to step 3 (pick a doctor, time & pay). A short required intake textarea
-   * on step 3 still gathers one line of context for the doctor; it is sent
-   * as a minimal triage assessment just before booking so the appointment
-   * still links to a TriageAssessment row. */
+  /* "Shortcut" mode: patient landed here from a specialty tile or doctor profile
+   * with ?specialty=X or ?doctorId=Y. They skip the triage flow and go straight
+   * to step 3 (pick a doctor, time & pay). */
   const shortcutSpecialty = useMemo(() => searchParams.get('specialty') || null, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const shortcutDoctorId = useMemo(() => searchParams.get('doctorId') || null, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [inferredSpecialty, setInferredSpecialty] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (shortcutDoctorId && !shortcutSpecialty) {
+      doctorsApi
+        .get(shortcutDoctorId)
+        .then((doc) => {
+          if (doc?.specialty) setInferredSpecialty(doc.specialty);
+        })
+        .catch(() => {});
+    }
+  }, [shortcutDoctorId, shortcutSpecialty]);
 
   /* React Router doesn't reset scroll position on navigation. Patients often click a
    * specialty tile near the bottom of the landing page, so without this they'd land
@@ -299,7 +310,7 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   }, [searchParams]);
 
   // Overall steps: 1 = intake, 2 = AI review, 3 = pick doctor & time (shortcut lands on 3)
-  const [step, setStep] = useState<1 | 2 | 3>(shortcutSpecialty ? 3 : 1);
+  const [step, setStep] = useState<1 | 2 | 3>(shortcutSpecialty || shortcutDoctorId ? 3 : 1);
   const [subStep, setSubStep] = useState<number>(0);
   const [shortcutIntake, setShortcutIntake] = useState('');
   const [shortcutIntakeError, setShortcutIntakeError] = useState(false);
@@ -478,10 +489,10 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     }
   };
 
-  /* Effective specialty for step 3 — comes from either the triage result or the
-   * shortcut URL param. Used by the doctor fetch and in the UI labels. */
-  const effectiveSpecialty = assessment?.suggestedSpecialty ?? shortcutSpecialty ?? null;
-  const isShortcut = !!shortcutSpecialty && !assessment;
+  /* Effective specialty for step 3 — comes from either the triage result, the
+   * shortcut URL param, or the doctor's inferred specialty. Used by the doctor fetch and in UI labels. */
+  const effectiveSpecialty = assessment?.suggestedSpecialty ?? shortcutSpecialty ?? inferredSpecialty ?? null;
+  const isShortcut = (!!shortcutSpecialty || !!shortcutDoctorId) && !assessment;
 
   /** Per-doctor slot cache. Populated once by the list-load prefetch (in parallel for all
    *  doctors in the specialty) and read instantly on every doctor switch — so switching
@@ -498,7 +509,12 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
     doctorsApi.list(effectiveSpecialty)
       .then(docs => {
         setDoctors(docs);
-        if (docs.length > 0) setSelectedDoctorId(docs[0].id);
+        const preferredDoc = shortcutDoctorId ? docs.find(d => d.id === shortcutDoctorId) : null;
+        if (preferredDoc) {
+          setSelectedDoctorId(preferredDoc.id);
+        } else if (docs.length > 0) {
+          setSelectedDoctorId(docs[0].id);
+        }
         // Prefetch every doctor's slots in parallel; result goes straight into the cache.
         slotsCacheRef.current = {};
         docs.forEach(d => {
@@ -1150,6 +1166,23 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
           <form onSubmit={handleLivePaymentBooking} style={card}>
             {isShortcut ? (
               <>
+                <button
+                  type="button"
+                  onClick={() => navigate(-1)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--primary)',
+                    font: `600 13px ${FONT}`,
+                    cursor: 'pointer',
+                    padding: '0 0 14px 0',
+                  }}
+                >
+                  <ArrowLeft size={14} /> Back to doctor listing
+                </button>
                 <div style={{ display: 'inline-block', font: `600 10px ${FONT}`, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--primary)', background: '#e3f1ed', padding: '4px 10px', borderRadius: 9999, marginBottom: 12 }}>
                   Fast lane · {effectiveSpecialty}
                 </div>

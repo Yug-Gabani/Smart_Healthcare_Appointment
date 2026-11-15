@@ -12,6 +12,7 @@ import { Hospitals } from './components/Hospitals';
 import { HospitalDetail } from './components/HospitalDetail';
 import { PatientProfile } from './components/PatientProfile';
 import { DoctorProfile } from './components/DoctorProfile';
+import { DoctorListingPage } from './components/DoctorListingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { PharmacyDashboard } from './components/PharmacyDashboard';
 import { PatientOrders } from './components/PatientOrders';
@@ -151,6 +152,7 @@ export const App: React.FC = () => {
           />
 
           {/* Patient routes */}
+          <Route path="/doctors" element={<DoctorListingPage />} />
           <Route
             path="/patient"
             element={

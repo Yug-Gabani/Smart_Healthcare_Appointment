@@ -49,7 +49,7 @@ export const SpecialtyGrid: React.FC = () => {
   const navigate = useNavigate();
 
   const go = (specialty: string) => {
-    navigate(`/book?specialty=${encodeURIComponent(specialty)}`);
+    navigate(`/doctors?specialty=${encodeURIComponent(specialty)}`);
   };
 
   return (

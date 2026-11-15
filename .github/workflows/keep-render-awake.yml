@@ -1,0 +1,95 @@
+name: Keep Render awake
+
+# Render's free tier spins the container down after ~15 minutes of no HTTP
+# traffic. Spinning back up ("cold start") takes ~1-2 minutes, which breaks
+# the first request after any quiet period. This workflow pings the backend's
+# health endpoint every 10 minutes so the instance never goes idle.
+#
+# Trade-offs to know:
+#   - Keeping the service hot 24/7 uses ~720 instance-hours/month, which
+#     fits inside the free tier's 750 hour allowance for ONE service.
+#     Pinging a second service would push you over.
+#   - Cron schedules on GitHub Actions can be delayed under load (rarely by
+#     more than 5-10 minutes). Even if a ping slips, the next one lands
+#     before Render's 15-minute idle window expires.
+#   - Scheduled workflows only trigger from the repo's default branch
+#     (main_v2 here), so this file must land on main_v2 to take effect.
+#
+# To change the target URL, edit the RENDER_URL env below, or override it
+# per-run via the "Run workflow" button (workflow_dispatch input).
+
+on:
+  schedule:
+    # Every 10 minutes. Render idles at 15, so 10 gives a safety margin
+    # even if one ping is delayed by cron scheduling.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Override the URL to ping (leave blank to use the default)'
+        required: false
+        default: ''
+
+concurrency:
+  group: keep-render-awake
+  cancel-in-progress: false
+
+env:
+  # Backend Render URL — matches apps/frontend/vercel.json's rewrite destination.
+  # If the Render service is ever renamed, update this value.
+  RENDER_URL: https://smart-healthcare-appointment-lp91.onrender.com
+
+jobs:
+  ping:
+    name: Ping /actuator/health
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Resolve target URL
+        id: target
+        run: |
+          # Prefer the workflow_dispatch input when the human passed one;
+          # otherwise use the env default declared above.
+          URL="${{ github.event.inputs.url }}"
+          if [ -z "$URL" ]; then
+            URL="${RENDER_URL}"
+          fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Pinging: ${URL}/actuator/health"
+
+      - name: Ping health endpoint (with retries for cold start)
+        run: |
+          set +e  # a cold-start timeout is not a workflow failure
+          URL="${{ steps.target.outputs.url }}/actuator/health"
+
+          # Three attempts, 30s each. If the service was asleep, the first
+          # attempt kicks off a cold start and the next one catches it warm.
+          for i in 1 2 3; do
+            echo "::group::Attempt $i"
+            HTTP_CODE=$(curl -sS -o /tmp/body.txt -w "%{http_code}" \
+                             --max-time 30 \
+                             --connect-timeout 10 \
+                             "$URL" || echo "000")
+            echo "HTTP: $HTTP_CODE"
+            head -c 500 /tmp/body.txt || true
+            echo
+            echo "::endgroup::"
+
+            # 2xx means hot. 503 is Spring Boot reporting DOWN (service is
+            # up, one component is unhappy) — still counts as "awake".
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "503" ]; then
+              echo "✓ Render instance is awake (HTTP $HTTP_CODE)"
+              exit 0
+            fi
+
+            if [ $i -lt 3 ]; then
+              echo "Retrying in 20s (cold start usually finishes within ~60s)..."
+              sleep 20
+            fi
+          done
+
+          # All three attempts failed. Log it but don't fail the workflow —
+          # a red X on a keep-alive job is noise, not a signal. If Render is
+          # genuinely broken, the Render dashboard surfaces it.
+          echo "::warning::Render ping did not succeed in 3 attempts. Service may be down or slow to cold-start."
+          exit 0

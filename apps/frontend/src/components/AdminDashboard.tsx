@@ -855,7 +855,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
           </motion.div>
         )}
 
-        {/* Doctor Verification Tab */}
+        {/* Doctor Verification & Roster Directory Tab */}
         {activeTab === 'DOCTORS' && (
           <motion.div
             key="tab-doctors"
@@ -872,7 +872,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
                 padding: '24px',
               }}
             >
-              <AdminDoctors embedded={true} initialStatus="PENDING" />
+              <AdminDoctors embedded={true} initialStatus="ALL" />
             </div>
           </motion.div>
         )}

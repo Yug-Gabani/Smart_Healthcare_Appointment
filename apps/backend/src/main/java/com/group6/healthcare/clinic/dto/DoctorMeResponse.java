@@ -26,5 +26,34 @@ public record DoctorMeResponse(
         String rejectionReason,
         OffsetDateTime submittedAt,
         OffsetDateTime reviewedAt,
-        List<ScheduleTemplateDto> scheduleTemplate
-) {}
+        List<ScheduleTemplateDto> scheduleTemplate,
+        String email,
+        String phone,
+        Long totalAppointments,
+        Long completedConsultations
+) {
+    public DoctorMeResponse(
+            UUID id,
+            UUID userId,
+            String fullName,
+            String specialty,
+            String hospital,
+            UUID hospitalId,
+            String avatarUrl,
+            BigDecimal rating,
+            Integer reviewCount,
+            String bio,
+            DoctorStatus status,
+            String registrationNumber,
+            Integer yearsExperience,
+            BigDecimal consultationFee,
+            String languages,
+            String rejectionReason,
+            OffsetDateTime submittedAt,
+            OffsetDateTime reviewedAt,
+            List<ScheduleTemplateDto> scheduleTemplate) {
+        this(id, userId, fullName, specialty, hospital, hospitalId, avatarUrl, rating, reviewCount,
+             bio, status, registrationNumber, yearsExperience, consultationFee, languages,
+             rejectionReason, submittedAt, reviewedAt, scheduleTemplate, null, null, null, null);
+    }
+}
