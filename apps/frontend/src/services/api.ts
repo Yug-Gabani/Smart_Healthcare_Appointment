@@ -46,7 +46,57 @@ function getToken(): string | null {
   return localStorage.getItem('pulsecare_token');
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+// --------------------------------------------------------------------------
+// Silent refresh-on-401
+//
+// Access tokens expire after ~15 minutes. Without this, every request after
+// that window gets a 401, UIs throw "unauthorized", and the user ends up
+// back at /login mid-booking. To avoid that we intercept 401s here, swap
+// the stored refresh token for a fresh access token via /auth/refresh, and
+// transparently replay the original request.
+//
+// `refreshPromise` deduplicates concurrent 401s — if 5 API calls hit a
+// stale token at once we only run one refresh, everyone else awaits it.
+// `isRetry` guards against infinite loops: a 401 on the retry is treated
+// as a real auth failure (user needs to log in again).
+// --------------------------------------------------------------------------
+let refreshPromise: Promise<string | null> | null = null;
+
+async function performRefresh(): Promise<string | null> {
+  const refreshToken = localStorage.getItem('pulsecare_refresh');
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) {
+      // Refresh token itself is dead; wipe session so user sees /login cleanly.
+      localStorage.removeItem('pulsecare_token');
+      localStorage.removeItem('pulsecare_refresh');
+      localStorage.removeItem('pulsecare_user');
+      return null;
+    }
+    const json = await res.json();
+    const data = json?.data ?? json;
+    if (data?.accessToken) {
+      localStorage.setItem('pulsecare_token', data.accessToken);
+      if (data.refreshToken) {
+        localStorage.setItem('pulsecare_refresh', data.refreshToken);
+      }
+      if (data.user) {
+        localStorage.setItem('pulsecare_user', JSON.stringify(data.user));
+      }
+      return data.accessToken as string;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}, isRetry = false): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -55,6 +105,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+
+  // 401 on a request that had a token AND wasn't already a retry attempt:
+  // try a silent refresh and replay. Skip for auth endpoints themselves.
+  if (res.status === 401 && !isRetry && token && !path.startsWith('/auth/')) {
+    if (!refreshPromise) {
+      refreshPromise = performRefresh().finally(() => { refreshPromise = null; });
+    }
+    const newToken = await refreshPromise;
+    if (newToken) {
+      return request<T>(path, init, true);
+    }
+  }
+
   const text = await res.text();
   const json = text ? JSON.parse(text) : {};
 

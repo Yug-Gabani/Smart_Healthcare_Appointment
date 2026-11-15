@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from graph import consultation_graph, ConsultationState
 from queue_advisor import QueuePatientItem, QueueAdvisorResult, analyze_doctor_queue
+from triage import TriageAssessRequest, TriageAssessResult, assess_triage
+from llm_factory import active_provider, active_model
 
 app = FastAPI(
     title="PulseCare AI Service",
@@ -41,14 +43,14 @@ class ConsultationSummaryResponse(BaseModel):
 
 @app.get("/health")
 def health_check():
-    openrouter_configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
-    model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
+    provider = active_provider()
     return {
         "status": "healthy",
         "service": "ai-service",
         "engine": "LangGraph + LangChain",
-        "openrouter_configured": openrouter_configured,
-        "model": model,
+        "provider": provider,                       # 'google' | 'openrouter' | 'none'
+        "ai_configured": provider != "none",
+        "model": active_model() or "(none configured; deterministic fallback)",
     }
 
 
@@ -100,6 +102,23 @@ def queue_advisor(payload: QueueAdvisorRequest):
         return analyze_doctor_queue(payload.queue, doctor_name=payload.doctor_name or "Doctor")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI Queue Advisor error: {str(e)}")
+
+
+@app.post("/triage-assess", response_model=TriageAssessResult)
+def triage_assess(payload: TriageAssessRequest):
+    """
+    Pre-visit AI triage. Takes the patient's structured intake and returns an
+    advisory urgency + suggested specialty + plain-language rationale + red
+    flags + recommended next actions.
+
+    The backend wraps this with a deterministic safety floor that can only
+    UPGRADE urgency (never downgrade), so even if the LLM misclassifies a
+    chest-pain case as routine, the patient will still be routed to emergency.
+    """
+    try:
+        return assess_triage(payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI triage error: {str(e)}")
 
 
 if __name__ == "__main__":

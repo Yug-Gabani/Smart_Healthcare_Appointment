@@ -66,6 +66,24 @@ public class TriageAssessment {
     @Column(name = "suggested_specialty", nullable = false, length = 128)
     private String suggestedSpecialty;
 
+    /**
+     * True when the assessment came from the LLM via ai-service. False when the
+     * deterministic rule engine wrote it (ai-service unreachable, LLM errored,
+     * or no API key configured). Surfaced in the UI so clinicians and patients
+     * can tell which assessment they are reading.
+     */
+    @Column(name = "ai_powered", nullable = false)
+    private boolean aiPowered;
+
+    @Column(name = "confidence", precision = 3, scale = 2)
+    private java.math.BigDecimal confidence;
+
+    @Column(name = "red_flags_json")
+    private String redFlagsJson;
+
+    @Column(name = "recommended_actions_json")
+    private String recommendedActionsJson;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

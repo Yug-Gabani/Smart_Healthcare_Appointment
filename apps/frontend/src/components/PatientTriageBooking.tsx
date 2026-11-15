@@ -27,6 +27,7 @@ import {
   paymentsApi,
   slotsApi,
 } from '../services/api';
+import { saveBookingDraft, loadBookingDraft, clearBookingDraft } from '../services/bookingDraft';
 import { PageTransition } from '../motion/PageTransition';
 import { AppointmentConfirmedView } from './AppointmentConfirmedView';
 import { CouponFeedbackModal, type CouponSuccessData, type CouponErrorData } from './CouponFeedbackModal';
@@ -354,6 +355,9 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
    * patient lands below the fold and thinks nothing happened. */
   useEffect(() => { window.scrollTo({ top: 0, behavior: 'smooth' }); }, [step, confirmed]);
 
+  // Draft restoration guard — set to true after the first mount-time load attempt.
+  const draftLoadedRef = useRef(false);
+
   /** Which doctor card has its details panel expanded (bio, experience, languages, fee). */
   const [expandedDoctorId, setExpandedDoctorId] = useState('');
 
@@ -379,6 +383,85 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
   const [couponSuccess, setCouponSuccess] = useState<string | null>(null);
   const [couponSuccessModal, setCouponSuccessModal] = useState<CouponSuccessData | null>(null);
   const [couponErrorModal, setCouponErrorModal] = useState<CouponErrorData | null>(null);
+
+  /* ------------------------------------------------------------------ *
+   * Draft persistence so a session timeout mid-booking doesn't wipe
+   * the patient's work. On mount: if a fresh (<24h) draft exists for
+   * this user, restore step/intake/triage/slot selection silently.
+   * Thereafter: debounce-save on every meaningful state change. The
+   * success path in handleLivePaymentBooking clears the draft so the
+   * next visit starts cleanly.
+   * ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (draftLoadedRef.current) return;
+    draftLoadedRef.current = true;
+    if (!currentUser?.id) return;
+    // The URL shortcut flows (?specialty=..., ?doctorId=...) are intentional
+    // deep links — never override them with a stale draft.
+    if (shortcutSpecialty || shortcutDoctorId) return;
+
+    const d = loadBookingDraft(currentUser.id);
+    if (!d) return;
+
+    // Restore everything in place; no modal "do you want to resume?" —
+    // the whole point is to feel like nothing happened.
+    setChiefComplaint(d.intake.chiefComplaint);
+    setSelectedSymptoms(d.intake.selectedSymptoms);
+    setDurationDays(d.intake.durationDays);
+    setPainLevel(d.intake.painLevel);
+    setFever(d.intake.fever);
+    setChestPain(d.intake.chestPain);
+    setShortnessOfBreath(d.intake.shortnessOfBreath);
+    if (d.assessment) setAssessment(d.assessment);
+    if (d.selectedDoctorId) setSelectedDoctorId(d.selectedDoctorId);
+    if (d.selectedSlotId) setSelectedSlotId(d.selectedSlotId);
+    if (d.consultationType) setConsultationType(d.consultationType);
+    if (d.attachments && d.attachments.length > 0) setAttachments(d.attachments);
+    if (d.patientPhone) setPatientPhone(d.patientPhone);
+    setStep(d.step);
+    setSubStep(d.subStep);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
+
+  // Save on every change that matters. Nothing sensitive (no payment info,
+  // no OTP, no CVV) — only intake + triage + slot pick.
+  useEffect(() => {
+    if (!draftLoadedRef.current) return;      // never save before load, avoids race
+    if (!currentUser?.id) return;
+    if (confirmed) return;                    // success path clears the draft explicitly
+    if (shortcutSpecialty || shortcutDoctorId) return;
+    // Don't persist the pristine step-1 default (would resurrect itself forever
+    // after a user cancels and comes back). Only save once they've typed something.
+    const hasMeaningfulProgress =
+      chiefComplaint.trim().length > 0 ||
+      selectedSymptoms.length > 0 ||
+      !!assessment ||
+      !!selectedDoctorId ||
+      !!selectedSlotId;
+    if (!hasMeaningfulProgress) return;
+
+    saveBookingDraft(currentUser.id, {
+      step,
+      subStep,
+      intake: {
+        chiefComplaint, selectedSymptoms, durationDays, painLevel,
+        fever, chestPain, shortnessOfBreath,
+      },
+      assessment,
+      selectedDoctorId,
+      selectedSlotId,
+      consultationType,
+      attachments,
+      patientPhone,
+    });
+  }, [
+    currentUser?.id, confirmed, shortcutSpecialty, shortcutDoctorId,
+    step, subStep,
+    chiefComplaint, selectedSymptoms, durationDays, painLevel,
+    fever, chestPain, shortnessOfBreath,
+    assessment, selectedDoctorId, selectedSlotId, consultationType,
+    attachments, patientPhone,
+  ]);
 
   const calculatePayablePaise = (coupon: DiscountCoupon | null): { payablePaise: number; discountPaise: number } => {
     if (!coupon) return { payablePaise: 50000, discountPaise: 0 };
@@ -711,6 +794,8 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
       });
 
       setConfirmed(booked);
+      // Booking locked in — wipe the draft so a future re-visit starts fresh.
+      if (currentUser?.id) clearBookingDraft(currentUser.id);
     } catch (err: any) {
       setBookingError(err.message || 'Payment verification or booking finalization failed. Please contact clinic support.');
     } finally {
@@ -901,6 +986,9 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
             : null
         }
         onReset={() => {
+          // User explicitly starts over — wipe the draft so the save effect
+          // doesn't immediately re-persist the half-cleared state.
+          if (currentUser?.id) clearBookingDraft(currentUser.id);
           setConfirmed(null);
           setPaymentInfo(null);
           setAppliedCoupon(null);
@@ -1128,8 +1216,19 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
         {/* STEP 2: Urgency Review */}
         {step === 2 && assessment && (
           <div style={card}>
-            <div style={{ font: `600 11px ${FONT}`, letterSpacing: '.09em', textTransform: 'uppercase', color: urgencyColor(assessment.urgency), marginBottom: 8 }}>
-              {friendlyUrgency(assessment.urgency).label}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <div style={{ font: `600 11px ${FONT}`, letterSpacing: '.09em', textTransform: 'uppercase', color: urgencyColor(assessment.urgency) }}>
+                {friendlyUrgency(assessment.urgency).label}
+              </div>
+              {assessment.aiPowered && (
+                <span style={{
+                  font: `500 10px ${FONT}`, letterSpacing: '.06em', textTransform: 'uppercase',
+                  padding: '2px 8px', borderRadius: 9999, background: '#ecfdf5',
+                  color: '#065f46', border: '1px solid #a7f3d0',
+                }}>
+                  AI assessed{assessment.confidence != null ? ' · ' + Math.round(assessment.confidence * 100) + '% confidence' : ''}
+                </span>
+              )}
             </div>
             <p style={{ font: `500 17px/1.5 ${FONT}`, color: 'var(--ink)', letterSpacing: '-.005em', margin: '0 0 14px', maxWidth: 460 }}>
               {friendlyUrgency(assessment.urgency).message}
@@ -1137,6 +1236,44 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
             <div style={{ font: `400 13px ${FONT}`, color: 'var(--ink-muted)' }}>
               Recommended specialty: <strong style={{ color: 'var(--ink)' }}>{assessment.suggestedSpecialty}</strong>
             </div>
+
+            {/* Rationale (AI or rule-based) */}
+            {assessment.rationale && (
+              <p style={{ font: `400 13px/1.65 ${FONT}`, color: 'var(--muted)', margin: '14px 0 0' }}>
+                {assessment.rationale}
+              </p>
+            )}
+
+            {/* Red flags: what the AI noticed as concerning */}
+            {assessment.redFlags && assessment.redFlags.length > 0 && (
+              <div style={{
+                marginTop: 18, padding: '12px 14px', borderRadius: 12,
+                background: assessment.urgency === 'EMERGENCY' ? 'rgba(220,38,38,.06)' : 'rgba(217,119,6,.08)',
+                border: '1px solid ' + (assessment.urgency === 'EMERGENCY' ? 'rgba(220,38,38,.2)' : 'rgba(217,119,6,.2)'),
+              }}>
+                <div style={{ font: `500 12px ${FONT}`, color: 'var(--ink)', marginBottom: 6 }}>
+                  Signals we noticed
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, font: `400 13px/1.7 ${FONT}`, color: 'var(--muted)' }}>
+                  {assessment.redFlags.map((flag, i) => <li key={i}>{flag}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {/* Concrete next actions from the AI */}
+            {assessment.recommendedActions && assessment.recommendedActions.length > 0 && (
+              <div style={{
+                marginTop: 14, padding: '12px 14px', borderRadius: 12,
+                background: '#f6fbf9', border: '1px solid #d9ece7',
+              }}>
+                <div style={{ font: `500 12px ${FONT}`, color: 'var(--ink)', marginBottom: 6 }}>
+                  What to do next
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, font: `400 13px/1.7 ${FONT}`, color: 'var(--ink)' }}>
+                  {assessment.recommendedActions.map((a, i) => <li key={i}>{a}</li>)}
+                </ul>
+              </div>
+            )}
 
             {assessment.urgency === 'EMERGENCY' && (
               <div style={{ borderLeft: '3px solid var(--danger)', paddingLeft: 14, marginTop: 20, font: `600 14px/1.5 ${FONT}`, color: 'var(--danger)' }}>
@@ -1157,6 +1294,10 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
               <button type="button" onClick={() => { setStep(1); setSubStep(5); }} style={btnGhost}><ArrowLeft size={15} /> Back</button>
               <button type="button" onClick={() => setStep(3)} style={btnPrimary}>Pick doctor & payment <ArrowRight size={16} /></button>
+            </div>
+
+            <div style={{ marginTop: 14, font: `400 11px/1.5 ${FONT}`, color: 'var(--ink-muted)' }}>
+              This is advisory, not a diagnosis. A doctor always reviews before any treatment. (DR-15)
             </div>
           </div>
         )}

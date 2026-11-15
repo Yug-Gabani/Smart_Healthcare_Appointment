@@ -1,10 +1,11 @@
 import os
 from typing import TypedDict, Optional
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langgraph.graph import StateGraph, START, END
+
+from llm_factory import get_llm as _factory_get_llm
 
 load_dotenv()
 
@@ -24,19 +25,12 @@ class ConsultationState(TypedDict):
 
 
 def get_llm():
-    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
-    if not api_key:
-        return None
-    return ChatOpenAI(
-        model=model,
-        openai_api_key=api_key,
-        openai_api_base="https://openrouter.ai/api/v1",
-        default_headers={
-            "HTTP-Referer": "https://pulsecare.local",
-            "X-Title": "PulseCare Smart Healthcare Telehealth",
-        },
+    # Each consultation-summary node returns a short paragraph; 768 tokens is
+    # enough and keeps per-request cost predictable across providers.
+    return _factory_get_llm(
         temperature=0.2,
+        max_tokens=768,
+        title="PulseCare Consultation Summary",
     )
 
 
