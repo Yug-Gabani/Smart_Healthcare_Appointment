@@ -1,12 +1,15 @@
 package com.group6.healthcare.auth.controller;
 
+import com.group6.healthcare.auth.dto.ConfirmPasswordResetRequest;
 import com.group6.healthcare.auth.dto.LoginRequest;
 import com.group6.healthcare.auth.dto.MeResponse;
 import com.group6.healthcare.auth.dto.RefreshRequest;
 import com.group6.healthcare.auth.dto.RegisterRequest;
+import com.group6.healthcare.auth.dto.RequestPasswordResetRequest;
 import com.group6.healthcare.auth.dto.TokenResponse;
 import com.group6.healthcare.auth.service.AppUserPrincipal;
 import com.group6.healthcare.auth.service.AuthService;
+import com.group6.healthcare.auth.service.PasswordResetService;
 import com.group6.healthcare.common.dto.ApiResponse;
 import com.group6.healthcare.common.exception.ResourceNotFoundException;
 import com.group6.healthcare.user.repository.UserRepository;
@@ -29,10 +32,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final PasswordResetService passwordResetService;
     private final UserRepository userRepository;
 
-    public AuthController(AuthService authService, UserRepository userRepository) {
+    public AuthController(AuthService authService,
+                          PasswordResetService passwordResetService,
+                          UserRepository userRepository) {
         this.authService = authService;
+        this.passwordResetService = passwordResetService;
         this.userRepository = userRepository;
     }
 
@@ -61,6 +68,23 @@ public class AuthController {
     public ResponseEntity<Void> logout(@AuthenticationPrincipal AppUserPrincipal principal) {
         authService.logout(principal.getId());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/password-reset/request")
+    @Operation(summary = "Request a password reset email (FR-01). " +
+            "Always returns 200 OK — the response body never reveals whether the email " +
+            "exists, to prevent account enumeration.")
+    public ApiResponse<Void> requestPasswordReset(@Valid @RequestBody RequestPasswordResetRequest req) {
+        passwordResetService.requestReset(req.email());
+        return ApiResponse.ok(null, "If that email is registered, a reset link has been sent.");
+    }
+
+    @PostMapping("/password-reset/confirm")
+    @Operation(summary = "Complete a password reset using a token from email (FR-01). " +
+            "On success all other sessions for this user are revoked.")
+    public ApiResponse<Void> confirmPasswordReset(@Valid @RequestBody ConfirmPasswordResetRequest req) {
+        passwordResetService.confirmReset(req.token(), req.newPassword());
+        return ApiResponse.ok(null, "Password updated. You can now log in with the new password.");
     }
 
     @GetMapping("/me")

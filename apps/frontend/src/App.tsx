@@ -19,6 +19,8 @@ import { PatientOrders } from './components/PatientOrders';
 import { VideoConsultationRoom } from './components/VideoConsultationRoom';
 import { AppointmentReminderBanner } from './components/AppointmentReminderBanner';
 import { AuthPage } from './components/AuthPage';
+import { ForgotPasswordPage } from './components/ForgotPasswordPage';
+import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { authApi } from './services/api';
 import type { User } from './types';
@@ -79,7 +81,10 @@ export const App: React.FC = () => {
     navigate(target);
   };
 
-  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup';
+  const isAuthRoute =
+    location.pathname === '/login' ||
+    location.pathname === '/signup' ||
+    location.pathname.startsWith('/auth/');
   const isConsultationRoute = location.pathname.startsWith('/consultation');
 
   return (
@@ -150,6 +155,8 @@ export const App: React.FC = () => {
             path="/signup"
             element={<AuthPage onLoginSuccess={handleLoginSuccess} currentUser={currentUser} />}
           />
+          <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
 
           {/* Patient routes */}
           <Route path="/doctors" element={<DoctorListingPage />} />

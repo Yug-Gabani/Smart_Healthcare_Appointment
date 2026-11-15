@@ -102,6 +102,22 @@ export const authApi = {
     return request<User>('/auth/me');
   },
 
+  async requestPasswordReset(email: string): Promise<void> {
+    // The server intentionally returns the same success response whether or not the
+    // email is registered, so we don't branch on the body here.
+    await request<null>('/auth/password-reset/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+    await request<null>('/auth/password-reset/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    });
+  },
+
   async logout(_accessToken?: string): Promise<void> {
     const token = getToken();
     if (token) {
