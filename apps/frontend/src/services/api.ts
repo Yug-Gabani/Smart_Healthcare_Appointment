@@ -24,6 +24,11 @@ import type {
   Slot,
   TriageAssessment,
   User,
+  Medicine,
+  MedicineCategory,
+  Cart,
+  CommerceOrder,
+  PharmacyCheckoutResponse,
 } from '../types';
 
 export interface TokenResponseData {
@@ -828,3 +833,90 @@ export const paymentsApi = {
   getRefundStatus: (appointmentId: string): Promise<PaymentRefund | null> =>
     request<PaymentRefund | null>(`/v1/payments/appointments/${appointmentId}/refund-status`),
 };
+
+export const pharmacyCommerceApi = {
+  getCategories: (): Promise<MedicineCategory[]> =>
+    request<MedicineCategory[]>('/v1/pharmacy/categories'),
+
+  getMedicines: (params?: {
+    categoryId?: string;
+    search?: string;
+    requiresPrescription?: boolean;
+    page?: number;
+    size?: number;
+  }): Promise<{ content: Medicine[]; totalElements: number; totalPages: number }> => {
+    const query = new URLSearchParams();
+    if (params?.categoryId) query.append('categoryId', params.categoryId);
+    if (params?.search) query.append('search', params.search);
+    if (params?.requiresPrescription !== undefined) {
+      query.append('requiresPrescription', String(params.requiresPrescription));
+    }
+    if (params?.page !== undefined) query.append('page', String(params.page));
+    if (params?.size !== undefined) query.append('size', String(params.size));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return request<{ content: Medicine[]; totalElements: number; totalPages: number }>(`/v1/pharmacy/medicines${qs}`);
+  },
+
+  getFeaturedMedicines: (): Promise<Medicine[]> =>
+    request<Medicine[]>('/v1/pharmacy/medicines/featured'),
+
+  getMedicine: (id: string): Promise<Medicine> =>
+    request<Medicine>(`/v1/pharmacy/medicines/${id}`),
+
+  getCart: (): Promise<Cart> =>
+    request<Cart>('/v1/pharmacy/cart'),
+
+  addToCart: (medicineId: string, quantity: number = 1): Promise<Cart> =>
+    request<Cart>('/v1/pharmacy/cart/items', {
+      method: 'POST',
+      body: JSON.stringify({ medicineId, quantity }),
+    }),
+
+  updateCartItem: (cartItemId: string, quantity: number): Promise<Cart> =>
+    request<Cart>(`/v1/pharmacy/cart/items/${cartItemId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ quantity }),
+    }),
+
+  removeCartItem: (cartItemId: string): Promise<Cart> =>
+    request<Cart>(`/v1/pharmacy/cart/items/${cartItemId}`, {
+      method: 'DELETE',
+    }),
+
+  clearCart: (): Promise<Cart> =>
+    request<Cart>('/v1/pharmacy/cart', {
+      method: 'DELETE',
+    }),
+
+  createCheckoutOrder: (body: {
+    deliveryName: string;
+    deliveryPhone: string;
+    deliveryStreet: string;
+    deliveryCity: string;
+    deliveryState: string;
+    deliveryPincode: string;
+    prescriptionId?: string;
+    notes?: string;
+  }): Promise<PharmacyCheckoutResponse> =>
+    request<PharmacyCheckoutResponse>('/v1/pharmacy/checkout/create-order', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  verifyPayment: (body: {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+  }): Promise<CommerceOrder> =>
+    request<CommerceOrder>('/v1/pharmacy/checkout/verify', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getMyOrders: (): Promise<CommerceOrder[]> =>
+    request<CommerceOrder[]>('/v1/pharmacy/me/orders'),
+
+  getOrderDetails: (orderId: string): Promise<CommerceOrder> =>
+    request<CommerceOrder>(`/v1/pharmacy/me/orders/${orderId}`),
+};
+

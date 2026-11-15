@@ -550,3 +550,107 @@ export interface AdminPaymentItem {
   appointmentId?: string;
 }
 
+// ==========================================
+// Pharmacy E-Commerce Module Types
+// ==========================================
+
+export interface MedicineCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  icon?: string;
+  active: boolean;
+}
+
+export interface Medicine {
+  id: string;
+  categoryId?: string;
+  categoryName?: string;
+  name: string;
+  manufacturer: string;
+  description?: string;
+  composition?: string;
+  dosageInformation?: string;
+  usageInstructions?: string;
+  pricePaise: number;
+  discountedPricePaise?: number;
+  stockQuantity: number;
+  imageUrl?: string;
+  requiresPrescription: boolean;
+  active: boolean;
+  createdAt?: string;
+}
+
+export interface CartItem {
+  id: string;
+  medicineId: string;
+  medicineName: string;
+  manufacturer: string;
+  imageUrl?: string;
+  pricePaise: number;
+  discountedPricePaise?: number;
+  effectivePricePaise: number;
+  quantity: number;
+  availableStock: number;
+  requiresPrescription: boolean;
+  itemTotalPaise: number;
+}
+
+export interface Cart {
+  cartId: string;
+  items: CartItem[];
+  totalItemsCount: number;
+  subtotalPaise: number;
+  discountPaise: number;
+  deliveryFeePaise: number;
+  totalPaise: number;
+  hasPrescriptionItems: boolean;
+}
+
+export interface PharmacyCheckoutResponse {
+  orderId: string;
+  orderNumber: string;
+  razorpayOrderId: string;
+  amountPaise: number;
+  currency: string;
+  keyId: string;
+  orderStatus: string;
+  paymentStatus: string;
+}
+
+export interface CommerceOrderItem {
+  id: string;
+  medicineId?: string;
+  medicineName: string;
+  unitPricePaise: number;
+  quantity: number;
+  totalPaise: number;
+}
+
+export interface CommerceOrder {
+  id: string;
+  orderNumber: string;
+  userId?: string;
+  items: CommerceOrderItem[];
+  subtotalPaise: number;
+  discountPaise: number;
+  deliveryFeePaise: number;
+  totalPaise: number;
+  orderStatus: string;
+  paymentStatus: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  deliveryName: string;
+  deliveryPhone: string;
+  deliveryStreet: string;
+  deliveryCity: string;
+  deliveryState: string;
+  deliveryPincode: string;
+  prescriptionId?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+

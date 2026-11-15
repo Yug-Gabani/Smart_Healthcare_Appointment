@@ -40,6 +40,8 @@ public class SecurityConfig {
             "/api/v1/files/**",
             "/api/v1/reviews/landing",
             "/api/v1/reviews/doctors/**",
+            "/api/v1/pharmacy/categories/**",
+            "/api/v1/pharmacy/medicines/**",
             "/actuator/health",
             "/actuator/info",
             "/v3/api-docs/**",
