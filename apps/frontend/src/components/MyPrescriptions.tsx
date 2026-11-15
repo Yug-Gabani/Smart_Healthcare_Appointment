@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { PageTransition } from '../motion/PageTransition';
 import { listItem } from '../motion/presets';
-import { Download, FileText, Loader2, Package, Pill, ShoppingBag } from 'lucide-react';
+import { CalendarClock, Download, FileText, Loader2, Package, Pill, ShoppingBag } from 'lucide-react';
 import type { PharmacyOrder, PharmacyOrderStatus, Prescription } from '../types';
 import { describePrescriptionItem } from '../types';
-import { patientOrdersApi, prescriptionsApi } from '../services/api';
+import { appointmentsApi, patientOrdersApi, prescriptionsApi } from '../services/api';
+import { SlotPickerModal } from './SlotPickerModal';
 
 function orderStatusLabel(s: PharmacyOrderStatus): string {
   switch (s) {
@@ -32,6 +33,9 @@ export const MyPrescriptions: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ordering, setOrdering] = useState<string | null>(null);  // prescriptionId being ordered
+  // Follow-up booking: which prescription's modal is open, keyed by rx.id
+  const [followUpFor, setFollowUpFor] = useState<Prescription | null>(null);
+  const [followUpBooked, setFollowUpBooked] = useState<Set<string>>(new Set());
 
   const loadAll = () => {
     setLoading(true);
@@ -262,6 +266,66 @@ export const MyPrescriptions: React.FC = () => {
                       <strong>Notes:</strong> {rx.notes}
                     </div>
                   )}
+
+                  {/* Doctor-recommended follow-up — shown only on signed, non-voided prescriptions */}
+                  {!voided && !isSupersededSigned && rx.followUpAfterDays && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: '12px 14px',
+                        borderRadius: 12,
+                        backgroundColor: '#ecfdf5',
+                        border: '1px solid #a7f3d0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 220 }}>
+                        <CalendarClock size={18} color="#065f46" style={{ flexShrink: 0 }} />
+                        <div style={{ fontSize: 13, color: '#065f46', lineHeight: 1.5 }}>
+                          <div style={{ fontWeight: 500 }}>
+                            Follow-up recommended in {rx.followUpAfterDays}
+                            {rx.followUpAfterDays === 1 ? ' day' : ' days'}
+                          </div>
+                          {rx.followUpNotes && (
+                            <div style={{ fontSize: 12, marginTop: 2, color: '#047857' }}>
+                              {rx.followUpNotes}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {followUpBooked.has(rx.id) ? (
+                        <span style={{
+                          fontSize: 12, fontWeight: 500, color: '#065f46',
+                          padding: '6px 12px', background: '#ffffff',
+                          border: '1px solid #a7f3d0', borderRadius: 10,
+                        }}>
+                          Follow-up booked
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setFollowUpFor(rx)}
+                          style={{
+                            padding: '8px 14px',
+                            background: '#0f766e',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: 10,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                          }}
+                        >
+                          Book follow-up
+                        </button>
+                      )}
+                    </div>
+                  )}
                   </div>
 
                   <div style={{ marginTop: 'auto', paddingTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -321,6 +385,31 @@ export const MyPrescriptions: React.FC = () => {
             })}
           </AnimatePresence>
         </div>
+      )}
+
+      {followUpFor && (
+        <SlotPickerModal
+          isOpen={!!followUpFor}
+          doctorId={followUpFor.doctorId}
+          doctorName={followUpFor.doctorName}
+          title="Book follow-up"
+          confirmLabel="Book follow-up"
+          showConsultationTypeToggle
+          defaultConsultationType="VIDEO"
+          onClose={() => setFollowUpFor(null)}
+          onConfirm={async (slotId, consultationType) => {
+            await appointmentsApi.bookFollowUp({
+              originalAppointmentId: followUpFor.appointmentId,
+              slotId,
+              consultationType,
+            });
+            setFollowUpBooked(prev => {
+              const next = new Set(prev);
+              next.add(followUpFor.id);
+              return next;
+            });
+          }}
+        />
       )}
     </PageTransition>
   );

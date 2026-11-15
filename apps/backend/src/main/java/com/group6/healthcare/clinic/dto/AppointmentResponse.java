@@ -31,7 +31,10 @@ public record AppointmentResponse(
         String cancellationReason,
         OffsetDateTime cancelledAt,
         Integer refundPercentage,
-        Long refundAmountPaise
+        Long refundAmountPaise,
+        Integer rescheduleCount,
+        OffsetDateTime lastRescheduledAt,
+        UUID parentAppointmentId
 ) {
     public AppointmentResponse(
             UUID id,
@@ -58,7 +61,8 @@ public record AppointmentResponse(
                 id, patientId, patientName, doctorId, doctorName, doctorSpecialty,
                 doctorHospital, doctorAvatarUrl, slotId, slotAt, assessmentId,
                 consultationType, urgency, status, chiefComplaint, notes,
-                createdAt, updatedAt, attachments, null, null, null, null
+                createdAt, updatedAt, attachments, null, null, null, null,
+                0, null, null
         );
     }
 
@@ -86,7 +90,43 @@ public record AppointmentResponse(
                 id, patientId, patientName, doctorId, doctorName, doctorSpecialty,
                 doctorHospital, doctorAvatarUrl, slotId, slotAt, assessmentId,
                 consultationType, urgency, status, chiefComplaint, notes,
-                createdAt, updatedAt, List.of(), null, null, null, null
+                createdAt, updatedAt, List.of(), null, null, null, null,
+                0, null, null
+        );
+    }
+
+    /** Pre-reschedule backward-compatible overload for callers that don't set the new columns yet. */
+    public AppointmentResponse(
+            UUID id,
+            UUID patientId,
+            String patientName,
+            UUID doctorId,
+            String doctorName,
+            String doctorSpecialty,
+            String doctorHospital,
+            String doctorAvatarUrl,
+            UUID slotId,
+            OffsetDateTime slotAt,
+            UUID assessmentId,
+            ConsultationType consultationType,
+            Urgency urgency,
+            AppointmentStatus status,
+            String chiefComplaint,
+            String notes,
+            OffsetDateTime createdAt,
+            OffsetDateTime updatedAt,
+            List<AttachmentResponse> attachments,
+            String cancellationReason,
+            OffsetDateTime cancelledAt,
+            Integer refundPercentage,
+            Long refundAmountPaise
+    ) {
+        this(
+                id, patientId, patientName, doctorId, doctorName, doctorSpecialty,
+                doctorHospital, doctorAvatarUrl, slotId, slotAt, assessmentId,
+                consultationType, urgency, status, chiefComplaint, notes,
+                createdAt, updatedAt, attachments, cancellationReason, cancelledAt,
+                refundPercentage, refundAmountPaise, 0, null, null
         );
     }
 }

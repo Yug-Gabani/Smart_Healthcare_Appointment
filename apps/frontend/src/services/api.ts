@@ -292,6 +292,20 @@ export const appointmentsApi = {
   get: (id: string): Promise<Appointment> => request<Appointment>(`/v1/appointments/${id}`),
   cancel: (id: string): Promise<Appointment> =>
     request<Appointment>(`/v1/appointments/${id}/cancel`, { method: 'PATCH' }),
+  reschedule: (id: string, newSlotId: string): Promise<Appointment> =>
+    request<Appointment>(`/v1/appointments/${id}/reschedule`, {
+      method: 'PATCH',
+      body: JSON.stringify({ newSlotId }),
+    }),
+  bookFollowUp: (body: {
+    originalAppointmentId: string;
+    slotId: string;
+    consultationType: ConsultationType;
+  }): Promise<Appointment> =>
+    request<Appointment>('/v1/appointments/follow-up', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   doctorQueue: (scope: 'active' | 'past' | 'all' = 'active'): Promise<Appointment[]> =>
     request<Appointment[]>(`/v1/appointments/queue?scope=${scope}`),
   doctorAction: (id: string, body: PatchAppointmentBody): Promise<Appointment> =>
@@ -304,10 +318,14 @@ export const appointmentsApi = {
 export interface CreatePrescriptionBody {
   appointmentId: string;
   notes?: string;
+  followUpAfterDays?: number;
+  followUpNotes?: string;
   items: PrescriptionItem[];
 }
 export interface UpdatePrescriptionBody {
   notes?: string;
+  followUpAfterDays?: number;
+  followUpNotes?: string;
   items: PrescriptionItem[];
 }
 

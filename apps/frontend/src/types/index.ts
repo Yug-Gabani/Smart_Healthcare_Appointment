@@ -117,6 +117,9 @@ export interface Appointment {
   attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
+  rescheduleCount?: number;
+  lastRescheduledAt?: string;
+  parentAppointmentId?: string;
 }
 
 export type PrescriptionStatus = 'DRAFT' | 'SIGNED' | 'VOIDED';
@@ -228,6 +231,8 @@ export interface Prescription {
   voidOf?: string;
   voidReason?: string;
   notes?: string;
+  followUpAfterDays?: number;
+  followUpNotes?: string;
   items: PrescriptionItem[];
   createdAt: string;
   updatedAt: string;
