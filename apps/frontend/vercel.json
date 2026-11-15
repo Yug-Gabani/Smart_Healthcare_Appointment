@@ -6,7 +6,11 @@
       "destination": "https://smart-healthcare-appointment-lp91.onrender.com/api/:path*"
     },
     {
-      "source": "/((?!api).*)",
+      "source": "/ai/:path*",
+      "destination": "https://pulsecare-ai-5s2a.onrender.com:path*"
+    },
+    {
+      "source": "/((?!api|ai).*)",
       "destination": "/index.html"
     }
   ]

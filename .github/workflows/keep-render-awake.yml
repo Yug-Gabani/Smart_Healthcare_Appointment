@@ -38,10 +38,12 @@ env:
   # Backend Render URL — matches apps/frontend/vercel.json's rewrite destination.
   # If the Render service is ever renamed, update this value.
   RENDER_URL: https://smart-healthcare-appointment-lp91.onrender.com
+  # AI service Render URL — matches apps/frontend/vercel.json's /ai rewrite.
+  AI_SERVICE_URL: https://pulsecare-ai-5s2a.onrender.com
 
 jobs:
-  ping:
-    name: Ping /actuator/health
+  ping-backend:
+    name: Ping backend /actuator/health
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -92,4 +94,33 @@ jobs:
           # a red X on a keep-alive job is noise, not a signal. If Render is
           # genuinely broken, the Render dashboard surfaces it.
           echo "::warning::Render ping did not succeed in 3 attempts. Service may be down or slow to cold-start."
+          exit 0
+
+  ping-ai-service:
+    name: Ping ai-service /health
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping ai-service health endpoint
+        run: |
+          set +e
+          URL="${AI_SERVICE_URL}/health"
+          for i in 1 2 3; do
+            echo "::group::Attempt $i"
+            HTTP_CODE=$(curl -sS -o /tmp/ai_body.txt -w "%{http_code}" \
+                             --max-time 30 --connect-timeout 10 "$URL" || echo "000")
+            echo "HTTP: $HTTP_CODE"
+            head -c 300 /tmp/ai_body.txt || true
+            echo
+            echo "::endgroup::"
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✓ ai-service is awake (HTTP $HTTP_CODE)"
+              exit 0
+            fi
+            if [ $i -lt 3 ]; then
+              echo "Retrying in 20s..."
+              sleep 20
+            fi
+          done
+          echo "::warning::ai-service ping did not succeed in 3 attempts."
           exit 0
