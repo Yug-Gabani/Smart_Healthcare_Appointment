@@ -16,4 +16,8 @@ public record CreatePrescriptionRequest(
         @Min(1) @Max(365) Integer followUpAfterDays,
         @Size(max = 1000) String followUpNotes,
         @NotEmpty @Valid List<PrescriptionItemDto> items
-) {}
+) {
+    public CreatePrescriptionRequest(UUID appointmentId, String notes, List<PrescriptionItemDto> items) {
+        this(appointmentId, notes, null, null, items);
+    }
+}

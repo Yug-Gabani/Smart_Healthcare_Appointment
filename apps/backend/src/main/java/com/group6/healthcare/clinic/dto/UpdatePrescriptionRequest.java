@@ -18,4 +18,8 @@ public record UpdatePrescriptionRequest(
         @Min(1) @Max(365) Integer followUpAfterDays,
         @Size(max = 1000) String followUpNotes,
         @NotEmpty @Valid List<PrescriptionItemDto> items
-) {}
+) {
+    public UpdatePrescriptionRequest(String notes, List<PrescriptionItemDto> items) {
+        this(notes, null, null, items);
+    }
+}
