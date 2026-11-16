@@ -1,3 +1,4 @@
+
 name: smart-healthcare
 
 # -----------------------------------------------------------------------------
@@ -10,16 +11,43 @@ name: smart-healthcare
 # With storage profile (MinIO S3 for async PDF receipt storage):
 #   docker compose -f docker/docker-compose.yml --profile storage up -d
 #
-# With full profile (backend + ai-service containers too):
-#   docker compose -f docker/docker-compose.yml --profile full up -d
+# With full profile (backend + ai-service + frontend containers):
+#   docker compose -f docker/docker-compose.yml --profile full up -d --build
 #
-# Kafka is intentionally NOT included. Spring boot Kafka listener auto-startup
-# defaults to false (see application.yml / KAFKA_AUTO_STARTUP), so the app
-# runs cleanly without a broker. Add a broker only if you are developing the
-# payment-receipt async pipeline.
+# Kafka is intentionally NOT included in the running configuration.
+# See the commented Kafka section below for future integration.
+#
+# -----------------------------------------------------------------------------
+# SERVICE OVERVIEW
+#
+# postgres    → PostgreSQL database
+# redis       → Redis cache
+# minio       → S3-compatible object storage (Silo)
+# backend     → Spring Boot REST API
+# ai-service  → Python AI service
+# frontend    → React + Vite development server
+# kafka       → DISABLED (commented out)
+#
 # -----------------------------------------------------------------------------
 
 services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  #
+  # Image: postgres:16-alpine
+  # Host port: 5434
+  # Container port: 5432
+  #
+  # Host connection:
+  #   localhost:5434
+  #
+  # Docker connection:
+  #   postgres:5432
+  #
+  # Data is persisted in postgres_data.
+  # ---------------------------------------------------------------------------
+
   postgres:
     image: postgres:16-alpine
     container_name: healthcare-postgres
@@ -27,95 +55,328 @@ services:
       POSTGRES_DB: healthcare
       POSTGRES_USER: healthcare
       POSTGRES_PASSWORD: healthcare
-    # Host port 5432 clashes with a local Postgres install. Change the left
-    # side to "5434:5432" if you already have Postgres running on 5432, and
-    # point DB_URL at jdbc:postgresql://localhost:5434/healthcare.
+
+    # Host port 5432 clashes with a local Postgres install.
+    # Change the left side to "5434:5432" if needed, and point
+    # DB_URL at jdbc:postgresql://localhost:5434/healthcare.
     ports:
       - "5432:5432"
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U healthcare -d healthcare"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+
+  # ---------------------------------------------------------------------------
+  # Redis
+  #
+  # Image: redis:7-alpine
+  # Host port: 6379
+  # Container port: 6379
+  #
+  # Docker connection:
+  #   redis:6379
+  #
+  # Data is persisted in redis_data.
+  # ---------------------------------------------------------------------------
+
   redis:
     image: redis:7-alpine
     container_name: healthcare-redis
     ports:
       - "6379:6379"
+
     volumes:
       - redis_data:/data
+
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
 
+
+  # ---------------------------------------------------------------------------
+  # S3-Compatible Object Storage (Silo / MinIO-compatible)
+  #
+  # Image: pgsty/silo
+  #
+  # S3 API:
+  #   http://localhost:9000
+  #
+  # Web Console:
+  #   http://localhost:9001
+  #
+  # Credentials:
+  #   Username: minioadmin
+  #   Password: minioadmin
+  #
+  # Used for asynchronous PDF receipt storage and other object storage.
+  #
+  # Replaces quay.io/minio/minio because the previous image pull returned
+  # 401 UNAUTHORIZED.
+  #
+  # Data is persisted in minio_data.
+  # ---------------------------------------------------------------------------
+
   minio:
-    image: quay.io/minio/minio:latest
+    image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z
     container_name: healthcare-minio
     command: server /data --console-address ":9001"
+
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+
     ports:
       - "9000:9000"   # S3 API
       - "9001:9001"   # Web console
+
     volumes:
       - minio_data:/data
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 5
+
     profiles:
       - storage
       - full
+
+
+  # ---------------------------------------------------------------------------
+  # Kafka — INTENTIONALLY DISABLED
+  #
+  # Kafka is not required for normal application development currently.
+  #
+  # Reason:
+  #   Spring Boot Kafka listener auto-startup defaults to false.
+  #
+  # Future use:
+  #   - Asynchronous payment receipt processing.
+  #   - Event-driven communication.
+  #   - Other Kafka-dependent workflows.
+  #
+  # To enable in the future:
+  #   1. Uncomment and configure this service.
+  #   2. Configure Kafka bootstrap servers in the backend.
+  #   3. Enable Kafka listener auto-startup.
+  #   4. Configure topic creation and persistence.
+  #
+  # Current backend settings:
+  #   KAFKA_AUTO_STARTUP=false
+  #   KAFKA_TOPIC_AUTO_CREATE=false
+  #
+  # No Kafka container is started currently.
+  #
+  # ---------------------------------------------------------------------------
+
+  # kafka:
+  #   image: apache/kafka:3.7.0
+  #   container_name: healthcare-kafka
+  #   ports:
+  #     - "9092:9092"
+  #   environment:
+  #     KAFKA_NODE_ID: 1
+  #     KAFKA_PROCESS_ROLES: broker,controller
+  #     KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+  #     KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  #     KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  #     KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+  #     KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+  #     KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+  #   volumes:
+  #     - kafka_data:/var/lib/kafka/data
+
+
+  # ---------------------------------------------------------------------------
+  # Spring Boot Backend
+  #
+  # Build context:
+  #   ../apps/backend
+  #
+  # Dockerfile:
+  #   ../apps/backend/Dockerfile
+  #
+  # Host:
+  #   http://localhost:8080
+  #
+  # Docker-internal connections:
+  #   PostgreSQL → postgres:5432
+  #   Redis      → redis:6379
+  #   AI Service → ai-service:8001
+  #
+  # Kafka is intentionally disabled.
+  #
+  # ---------------------------------------------------------------------------
 
   backend:
     build:
       context: ../apps/backend
       dockerfile: Dockerfile
+
     container_name: healthcare-backend
+
     depends_on:
       postgres:
         condition: service_healthy
+
       redis:
         condition: service_healthy
+
     environment:
       SPRING_PROFILES_ACTIVE: dev
+
       DB_URL: jdbc:postgresql://postgres:5432/healthcare
       DB_USERNAME: healthcare
       DB_PASSWORD: healthcare
+
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      # Kafka is off by default; flip to true when a broker is present.
+
+      # Kafka is intentionally disabled.
       KAFKA_AUTO_STARTUP: "false"
       KAFKA_TOPIC_AUTO_CREATE: "false"
-      # AI service inside the compose network (full profile only).
+
+      # AI service inside the Docker Compose network.
       AI_SERVICE_URL: http://ai-service:8001
+
       SERVER_PORT: "8080"
+
     ports:
       - "8080:8080"
+
     profiles:
       - full
+
+
+  # ---------------------------------------------------------------------------
+  # Python AI Service
+  #
+  # Build context:
+  #   ../apps/ai-service
+  #
+  # Dockerfile:
+  #   ../apps/ai-service/Dockerfile
+  #
+  # Host:
+  #   http://localhost:8001
+  #
+  # Configuration:
+  #   OPENROUTER_API_KEY
+  #   OPENROUTER_MODEL
+  #
+  # The API key is supplied through the local environment.
+  # ---------------------------------------------------------------------------
 
   ai-service:
     build:
       context: ../apps/ai-service
       dockerfile: Dockerfile
+
     container_name: healthcare-ai-service
+
     environment:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
+
     ports:
       - "8001:8001"
+
     profiles:
       - full
+
+
+  # ---------------------------------------------------------------------------
+  # React + Vite Frontend
+  #
+  # Framework:
+  #   React 19 + Vite 8
+  #
+  # Runtime:
+  #   Node.js 22 Alpine
+  #
+  # Source directory:
+  #   ../apps/frontend
+  #
+  # Development command:
+  #   npm install
+  #   npm run dev -- --host 0.0.0.0
+  #
+  # Host:
+  #   http://localhost:5174
+  #
+  # Container:
+  #   Port 5173
+  #
+  # Source code is mounted into /app for live development.
+  # node_modules uses a separate Docker volume to avoid conflicts
+  # between host and container dependencies.
+  #
+  # VITE_API_URL is provided to the frontend.
+  # The frontend API client must read this variable.
+  #
+  # ---------------------------------------------------------------------------
+
+  frontend:
+    image: node:22-alpine
+    container_name: healthcare-frontend
+
+    working_dir: /app
+
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://localhost:8080
+
+    volumes:
+      - ../apps/frontend:/app
+      - frontend_node_modules:/app/node_modules
+
+    command: >
+      sh -c "npm install &&
+             npm run dev -- --host 0.0.0.0"
+
+    ports:
+      - "5174:5173"
+
+    profiles:
+      - full
+
+
+# -----------------------------------------------------------------------------
+# Persistent Docker Volumes
+#
+# postgres_data:
+#   PostgreSQL database files.
+#
+# redis_data:
+#   Redis data.
+#
+# minio_data:
+#   S3-compatible object storage.
+#
+# frontend_node_modules:
+#   Frontend dependencies installed inside the container.
+#
+# Kafka data volume is intentionally not enabled because Kafka is disabled.
+#
+# IMPORTANT:
+#   docker compose down     → preserves named volumes.
+#   docker compose down -v  → deletes named volumes.
+# -----------------------------------------------------------------------------
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  frontend_node_modules:

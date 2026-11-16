@@ -16,6 +16,10 @@ import { DoctorListingPage } from './components/DoctorListingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { PharmacyDashboard } from './components/PharmacyDashboard';
 import { PatientOrders } from './components/PatientOrders';
+import { PharmacyStore } from './components/pharmacy/PharmacyStore';
+import { PharmacyCartPage } from './components/pharmacy/PharmacyCartPage';
+import { PharmacyCheckoutPage } from './components/pharmacy/PharmacyCheckoutPage';
+import { PharmacyCustomerOrdersPage } from './components/pharmacy/PharmacyCustomerOrdersPage';
 import { PatientHistoryPage } from './components/PatientHistoryPage';
 import { VideoConsultationRoom } from './components/VideoConsultationRoom';
 import { AppointmentReminderBanner } from './components/AppointmentReminderBanner';
@@ -311,6 +315,30 @@ export const App: React.FC = () => {
               sessionReady ? (
                 <ProtectedRoute user={currentUser} roles={['PHARMACIST']}>
                   <PharmacyDashboard />
+                </ProtectedRoute>
+              ) : null
+            }
+          />
+
+          {/* Pharmacy E-Commerce Store & Customer Flow */}
+          <Route path="/store" element={<PharmacyStore />} />
+          <Route path="/cart" element={<PharmacyCartPage />} />
+          <Route
+            path="/checkout"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['PATIENT']}>
+                  <PharmacyCheckoutPage />
+                </ProtectedRoute>
+              ) : null
+            }
+          />
+          <Route
+            path="/orders/pharmacy"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['PATIENT']}>
+                  <PharmacyCustomerOrdersPage />
                 </ProtectedRoute>
               ) : null
             }

@@ -7,6 +7,7 @@ import {
   User as UserIcon,
   LogOut,
   Shield,
+  ShoppingBag,
 } from 'lucide-react';
 import type { User } from '../types';
 
@@ -233,6 +234,16 @@ export const Header: React.FC<HeaderProps> = ({
       },
       isActive: activeSection === 'for-hospitals',
     },
+    {
+      id: 'pharmacy-store',
+      label: 'Pharmacy',
+      href: '/store',
+      onClick: (e: React.MouseEvent) => {
+        e.preventDefault();
+        navigate('/store');
+      },
+      isActive: location.pathname.startsWith('/store') || location.pathname === '/cart',
+    },
   ];
 
   // Active navigation items for Floating Capsule Navigation Bar
@@ -252,6 +263,7 @@ export const Header: React.FC<HeaderProps> = ({
         { id: 'appointments', label: 'My Appointments', href: '/appointments', isActive: isMyAppointments, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/appointments'); } },
         { id: 'prescriptions', label: 'Prescriptions', href: '/prescriptions', isActive: isPrescriptions, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/prescriptions'); } },
         { id: 'hospitals', label: 'Hospitals', href: '/hospitals', isActive: isHospitals, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/hospitals'); } },
+        { id: 'pharmacy', label: 'Pharmacy', href: '/store', isActive: location.pathname.startsWith('/store') || location.pathname.startsWith('/orders/pharmacy') || location.pathname === '/cart', onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/store'); } },
       ]
     : isDoctor
     ? [
@@ -848,6 +860,38 @@ export const Header: React.FC<HeaderProps> = ({
                           >
                             <UserIcon size={15} color="#0f766e" />
                             <span>Profile</span>
+                          </button>
+                        )}
+
+                        {isPatient && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUserDropdownOpen(false);
+                              navigate('/orders/pharmacy');
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              width: '100%',
+                              padding: '9px 12px',
+                              borderRadius: '10px',
+                              border: 'none',
+                              backgroundColor: 'transparent',
+                              color: '#0b3f3a',
+                              fontSize: '13px',
+                              fontWeight: 500,
+                              cursor: 'pointer',
+                              fontFamily: "'Space Grotesk', sans-serif",
+                              textAlign: 'left',
+                              transition: 'background-color 140ms ease, color 140ms ease',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#eaf6f2'}
+                            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                          >
+                            <ShoppingBag size={15} color="#0f766e" />
+                            <span>Pharmacy Orders</span>
                           </button>
                         )}
 
