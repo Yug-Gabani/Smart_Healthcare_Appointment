@@ -12,5 +12,6 @@ import java.util.UUID;
 public interface PaymentOutboxRepository extends JpaRepository<PaymentOutbox, UUID> {
     List<PaymentOutbox> findTop50ByStatusInOrderByCreatedAtAsc(List<PaymentOutbox.Status> statuses);
     Optional<PaymentOutbox> findByAggregateId(String aggregateId);
+    long countByStatus(PaymentOutbox.Status status);
 }
 

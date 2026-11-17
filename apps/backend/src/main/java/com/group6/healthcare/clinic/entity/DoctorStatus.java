@@ -12,5 +12,6 @@ package com.group6.healthcare.clinic.entity;
 public enum DoctorStatus {
     PENDING,
     APPROVED,
-    REJECTED
+    REJECTED,
+    SUSPENDED
 }

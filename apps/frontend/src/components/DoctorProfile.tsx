@@ -344,22 +344,25 @@ export const DoctorProfile: React.FC = () => {
 const StatusCard: React.FC<{ me: DoctorMe; onResubmit: () => void; saving: boolean }> = ({ me, onResubmit, saving }) => {
   const palette = useMemo(() => {
     switch (me.status) {
-      case 'PENDING':  return { bg: '#fef3c7', border: '#fde68a', ink: '#92400e', icon: <Clock size={18} /> };
-      case 'APPROVED': return { bg: '#dcfce7', border: '#86efac', ink: '#166534', icon: <Shield size={18} /> };
-      case 'REJECTED': return { bg: '#fee2e2', border: '#fecaca', ink: '#991b1b', icon: <AlertTriangle size={18} /> };
+      case 'PENDING':   return { bg: '#fef3c7', border: '#fde68a', ink: '#92400e', icon: <Clock size={18} /> };
+      case 'APPROVED':  return { bg: '#dcfce7', border: '#86efac', ink: '#166534', icon: <Shield size={18} /> };
+      case 'REJECTED':  return { bg: '#fee2e2', border: '#fecaca', ink: '#991b1b', icon: <AlertTriangle size={18} /> };
+      case 'SUSPENDED': return { bg: '#fff1f2', border: '#fecdd3', ink: '#be123c', icon: <AlertTriangle size={18} /> };
     }
   }, [me.status]);
 
   const label = {
-    PENDING:  'Pending admin review',
-    APPROVED: 'Verified — visible to patients',
-    REJECTED: 'Changes requested by admin',
+    PENDING:   'Pending admin review',
+    APPROVED:  'Verified — visible to patients',
+    REJECTED:  'Changes requested by admin',
+    SUSPENDED: 'Account suspended by administrator',
   }[me.status];
 
   const body = {
-    PENDING:  'Your profile is being reviewed. You cannot edit anything until review is complete.',
-    APPROVED: 'Your profile is live. You can edit at any time; changes do not require re-review.',
-    REJECTED: me.rejectionReason || 'The admin asked for changes. Edit your profile and resubmit.',
+    PENDING:   'Your profile is being reviewed. You cannot edit anything until review is complete.',
+    APPROVED:  'Your profile is live. You can edit at any time; changes do not require re-review.',
+    REJECTED:  me.rejectionReason || 'The admin asked for changes. Edit your profile and resubmit.',
+    SUSPENDED: me.rejectionReason || 'Your practitioner account is currently suspended from patient booking. Please contact administration.',
   }[me.status];
 
   return (

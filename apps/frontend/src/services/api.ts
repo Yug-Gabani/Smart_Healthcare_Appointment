@@ -1,4 +1,7 @@
 import type {
+  AdminAppointmentItem,
+  AdminOverviewData,
+  AdminPaymentItem,
   Appointment,
   Attachment,
   ConsultationType,
@@ -22,6 +25,11 @@ import type {
   Slot,
   TriageAssessment,
   User,
+  Medicine,
+  MedicineCategory,
+  Cart,
+  CommerceOrder,
+  PharmacyCheckoutResponse,
 } from '../types';
 
 export interface TokenResponseData {
@@ -44,7 +52,57 @@ function getToken(): string | null {
   return localStorage.getItem('pulsecare_token');
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+// --------------------------------------------------------------------------
+// Silent refresh-on-401
+//
+// Access tokens expire after ~15 minutes. Without this, every request after
+// that window gets a 401, UIs throw "unauthorized", and the user ends up
+// back at /login mid-booking. To avoid that we intercept 401s here, swap
+// the stored refresh token for a fresh access token via /auth/refresh, and
+// transparently replay the original request.
+//
+// `refreshPromise` deduplicates concurrent 401s — if 5 API calls hit a
+// stale token at once we only run one refresh, everyone else awaits it.
+// `isRetry` guards against infinite loops: a 401 on the retry is treated
+// as a real auth failure (user needs to log in again).
+// --------------------------------------------------------------------------
+let refreshPromise: Promise<string | null> | null = null;
+
+async function performRefresh(): Promise<string | null> {
+  const refreshToken = localStorage.getItem('pulsecare_refresh');
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) {
+      // Refresh token itself is dead; wipe session so user sees /login cleanly.
+      localStorage.removeItem('pulsecare_token');
+      localStorage.removeItem('pulsecare_refresh');
+      localStorage.removeItem('pulsecare_user');
+      return null;
+    }
+    const json = await res.json();
+    const data = json?.data ?? json;
+    if (data?.accessToken) {
+      localStorage.setItem('pulsecare_token', data.accessToken);
+      if (data.refreshToken) {
+        localStorage.setItem('pulsecare_refresh', data.refreshToken);
+      }
+      if (data.user) {
+        localStorage.setItem('pulsecare_user', JSON.stringify(data.user));
+      }
+      return data.accessToken as string;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}, isRetry = false): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -53,6 +111,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+
+  // 401 on a request that had a token AND wasn't already a retry attempt:
+  // try a silent refresh and replay. Skip for auth endpoints themselves.
+  if (res.status === 401 && !isRetry && token && !path.startsWith('/auth/')) {
+    if (!refreshPromise) {
+      refreshPromise = performRefresh().finally(() => { refreshPromise = null; });
+    }
+    const newToken = await refreshPromise;
+    if (newToken) {
+      return request<T>(path, init, true);
+    }
+  }
+
   const text = await res.text();
   const json = text ? JSON.parse(text) : {};
 
@@ -98,6 +169,22 @@ export const authApi = {
 
   async getMe(_accessToken?: string): Promise<User> {
     return request<User>('/auth/me');
+  },
+
+  async requestPasswordReset(email: string): Promise<void> {
+    // The server intentionally returns the same success response whether or not the
+    // email is registered, so we don't branch on the body here.
+    await request<null>('/auth/password-reset/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+    await request<null>('/auth/password-reset/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    });
   },
 
   async logout(_accessToken?: string): Promise<void> {
@@ -274,6 +361,20 @@ export const appointmentsApi = {
   get: (id: string): Promise<Appointment> => request<Appointment>(`/v1/appointments/${id}`),
   cancel: (id: string): Promise<Appointment> =>
     request<Appointment>(`/v1/appointments/${id}/cancel`, { method: 'PATCH' }),
+  reschedule: (id: string, newSlotId: string): Promise<Appointment> =>
+    request<Appointment>(`/v1/appointments/${id}/reschedule`, {
+      method: 'PATCH',
+      body: JSON.stringify({ newSlotId }),
+    }),
+  bookFollowUp: (body: {
+    originalAppointmentId: string;
+    slotId: string;
+    consultationType: ConsultationType;
+  }): Promise<Appointment> =>
+    request<Appointment>('/v1/appointments/follow-up', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   doctorQueue: (scope: 'active' | 'past' | 'all' = 'active'): Promise<Appointment[]> =>
     request<Appointment[]>(`/v1/appointments/queue?scope=${scope}`),
   doctorAction: (id: string, body: PatchAppointmentBody): Promise<Appointment> =>
@@ -286,10 +387,14 @@ export const appointmentsApi = {
 export interface CreatePrescriptionBody {
   appointmentId: string;
   notes?: string;
+  followUpAfterDays?: number;
+  followUpNotes?: string;
   items: PrescriptionItem[];
 }
 export interface UpdatePrescriptionBody {
   notes?: string;
+  followUpAfterDays?: number;
+  followUpNotes?: string;
   items: PrescriptionItem[];
 }
 
@@ -379,8 +484,10 @@ export const patientOrdersApi = {
 };
 
 export const adminDoctorsApi = {
-  list: (status: DoctorStatus = 'PENDING'): Promise<DoctorMe[]> =>
-    request<DoctorMe[]>(`/v1/admin/doctors?status=${status}`),
+  list: (status?: DoctorStatus | 'ALL'): Promise<DoctorMe[]> => {
+    const query = status && status !== 'ALL' ? `?status=${status}` : '';
+    return request<DoctorMe[]>(`/v1/admin/doctors${query}`);
+  },
   approve: (id: string): Promise<DoctorMe> =>
     request<DoctorMe>(`/v1/admin/doctors/${id}/approve`, { method: 'POST' }),
   reject: (id: string, reason: string): Promise<DoctorMe> =>
@@ -388,6 +495,24 @@ export const adminDoctorsApi = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
+  suspend: (id: string, reason: string): Promise<DoctorMe> =>
+    request<DoctorMe>(`/v1/admin/doctors/${id}/suspend`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  reinstate: (id: string): Promise<DoctorMe> =>
+    request<DoctorMe>(`/v1/admin/doctors/${id}/reinstate`, { method: 'POST' }),
+};
+
+// ---------- Admin — Platform Dashboard & Finance Operations ----------
+
+export const adminApi = {
+  getOverview: (): Promise<AdminOverviewData> =>
+    request<AdminOverviewData>('/v1/admin/overview'),
+  getAppointments: (): Promise<AdminAppointmentItem[]> =>
+    request<AdminAppointmentItem[]>('/v1/admin/appointments'),
+  getPayments: (): Promise<AdminPaymentItem[]> =>
+    request<AdminPaymentItem[]>('/v1/admin/payments'),
 };
 
 // ---------- Files & Medical Attachments ----------
@@ -729,3 +854,90 @@ export const paymentsApi = {
   getRefundStatus: (appointmentId: string): Promise<PaymentRefund | null> =>
     request<PaymentRefund | null>(`/v1/payments/appointments/${appointmentId}/refund-status`),
 };
+
+export const pharmacyCommerceApi = {
+  getCategories: (): Promise<MedicineCategory[]> =>
+    request<MedicineCategory[]>('/v1/pharmacy/categories'),
+
+  getMedicines: (params?: {
+    categoryId?: string;
+    search?: string;
+    requiresPrescription?: boolean;
+    page?: number;
+    size?: number;
+  }): Promise<{ content: Medicine[]; totalElements: number; totalPages: number }> => {
+    const query = new URLSearchParams();
+    if (params?.categoryId) query.append('categoryId', params.categoryId);
+    if (params?.search) query.append('search', params.search);
+    if (params?.requiresPrescription !== undefined) {
+      query.append('requiresPrescription', String(params.requiresPrescription));
+    }
+    if (params?.page !== undefined) query.append('page', String(params.page));
+    if (params?.size !== undefined) query.append('size', String(params.size));
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return request<{ content: Medicine[]; totalElements: number; totalPages: number }>(`/v1/pharmacy/medicines${qs}`);
+  },
+
+  getFeaturedMedicines: (): Promise<Medicine[]> =>
+    request<Medicine[]>('/v1/pharmacy/medicines/featured'),
+
+  getMedicine: (id: string): Promise<Medicine> =>
+    request<Medicine>(`/v1/pharmacy/medicines/${id}`),
+
+  getCart: (): Promise<Cart> =>
+    request<Cart>('/v1/pharmacy/cart'),
+
+  addToCart: (medicineId: string, quantity: number = 1): Promise<Cart> =>
+    request<Cart>('/v1/pharmacy/cart/items', {
+      method: 'POST',
+      body: JSON.stringify({ medicineId, quantity }),
+    }),
+
+  updateCartItem: (cartItemId: string, quantity: number): Promise<Cart> =>
+    request<Cart>(`/v1/pharmacy/cart/items/${cartItemId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ quantity }),
+    }),
+
+  removeCartItem: (cartItemId: string): Promise<Cart> =>
+    request<Cart>(`/v1/pharmacy/cart/items/${cartItemId}`, {
+      method: 'DELETE',
+    }),
+
+  clearCart: (): Promise<Cart> =>
+    request<Cart>('/v1/pharmacy/cart', {
+      method: 'DELETE',
+    }),
+
+  createCheckoutOrder: (body: {
+    deliveryName: string;
+    deliveryPhone: string;
+    deliveryStreet: string;
+    deliveryCity: string;
+    deliveryState: string;
+    deliveryPincode: string;
+    prescriptionId?: string;
+    notes?: string;
+  }): Promise<PharmacyCheckoutResponse> =>
+    request<PharmacyCheckoutResponse>('/v1/pharmacy/checkout/create-order', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  verifyPayment: (body: {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    razorpaySignature: string;
+  }): Promise<CommerceOrder> =>
+    request<CommerceOrder>('/v1/pharmacy/checkout/verify', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getMyOrders: (): Promise<CommerceOrder[]> =>
+    request<CommerceOrder[]>('/v1/pharmacy/me/orders'),
+
+  getOrderDetails: (orderId: string): Promise<CommerceOrder> =>
+    request<CommerceOrder>(`/v1/pharmacy/me/orders/${orderId}`),
+};
+

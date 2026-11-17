@@ -9,7 +9,8 @@ export type AppointmentStatus =
   | 'CONFIRMED'
   | 'COMPLETED'
   | 'CANCELLED'
-  | 'NO_SHOW';
+  | 'NO_SHOW'
+  | 'EXPIRED';
 
 export interface User {
   id: string;
@@ -29,6 +30,7 @@ export interface Doctor {
   fullName: string;
   specialty: string;
   hospital: string;
+  hospitalId?: string;
   avatarUrl?: string;
   rating: number;
   reviewCount?: number;
@@ -92,6 +94,10 @@ export interface TriageAssessment {
   urgency: UrgencyLevel;
   rationale: string;
   suggestedSpecialty: string;
+  aiPowered?: boolean;
+  confidence?: number;
+  redFlags?: string[];
+  recommendedActions?: string[];
   createdAt: string;
 }
 
@@ -115,6 +121,9 @@ export interface Appointment {
   attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
+  rescheduleCount?: number;
+  lastRescheduledAt?: string;
+  parentAppointmentId?: string;
 }
 
 export type PrescriptionStatus = 'DRAFT' | 'SIGNED' | 'VOIDED';
@@ -226,6 +235,8 @@ export interface Prescription {
   voidOf?: string;
   voidReason?: string;
   notes?: string;
+  followUpAfterDays?: number;
+  followUpNotes?: string;
   items: PrescriptionItem[];
   createdAt: string;
   updatedAt: string;
@@ -276,7 +287,7 @@ export interface AuthState {
 
 // ---------- Doctor verification + profile ----------
 
-export type DoctorStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type DoctorStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
 export interface ScheduleTemplate {
   id?: string;
@@ -295,6 +306,7 @@ export interface DoctorMe {
   hospitalId?: string;
   avatarUrl?: string;
   rating: number;
+  reviewCount?: number;
   bio?: string;
   status: DoctorStatus;
   registrationNumber?: string;
@@ -305,6 +317,10 @@ export interface DoctorMe {
   submittedAt?: string;
   reviewedAt?: string;
   scheduleTemplate: ScheduleTemplate[];
+  email?: string;
+  phone?: string;
+  totalAppointments?: number;
+  completedConsultations?: number;
 }
 
 export const COMMON_SPECIALTIES = [
@@ -454,4 +470,218 @@ export interface TranscriptEntry {
   time: string;
   isSpeech?: boolean;
 }
+
+// ---------- Admin Dashboard & Operations ----------
+
+export interface AdminStats {
+  totalDoctors?: number;
+  approvedDoctors?: number;
+  pendingDoctors?: number;
+  rejectedDoctors?: number;
+  suspendedDoctors?: number;
+  totalPatients?: number;
+  totalAppointments?: number;
+  bookedAppointments?: number;
+  completedAppointments?: number;
+  cancelledAppointments?: number;
+  totalRevenuePaise?: number;
+  totalRefundPaise?: number;
+  totalHospitals?: number;
+  // Legacy / convenience aliases
+  totalDoctorsVerified?: number;
+  totalDoctorsPending?: number;
+  grossRevenuePaise?: number;
+  grossRefundsPaise?: number;
+}
+
+export interface RecentConsultation {
+  id: string;
+  appointmentId?: string;
+  patientName?: string;
+  patientEmail?: string;
+  doctorName?: string;
+  doctorSpecialty?: string;
+  specialty?: string;
+  consultationType?: ConsultationType | string;
+  status?: AppointmentStatus | string;
+  urgency?: UrgencyLevel | string;
+  slotAt?: string;
+  feeRupees?: number;
+  amountPaise?: number;
+  createdAt?: string;
+}
+
+export interface PendingDoctorSummary {
+  id: string;
+  doctorId?: string;
+  fullName?: string;
+  specialty?: string;
+  hospital?: string;
+  hospitalName?: string;
+  registrationNumber?: string;
+  yearsExperience?: number;
+  submittedAt?: string;
+  registeredAt?: string;
+}
+
+export interface SystemHealth {
+  databaseStatus?: string;
+  totalHospitalsLoaded?: number;
+  hospitalsCount?: number;
+  outboxPendingCount?: number;
+  pendingOutboxEvents?: number;
+  platformStatus?: string;
+  serverTime?: string;
+}
+
+export interface AdminOverviewData {
+  stats: AdminStats;
+  recentConsultations: RecentConsultation[];
+  pendingDoctors: PendingDoctorSummary[];
+  systemHealth: SystemHealth;
+}
+
+export interface AdminAppointmentItem {
+  id: string;
+  patientId?: string;
+  patientName?: string;
+  patientEmail?: string;
+  doctorId?: string;
+  doctorName?: string;
+  doctorSpecialty?: string;
+  hospitalName?: string;
+  consultationType?: ConsultationType | string;
+  urgency?: UrgencyLevel | string;
+  status?: AppointmentStatus | string;
+  chiefComplaint?: string;
+  slotAt?: string;
+  feeRupees?: number;
+  amountPaise?: number;
+  refundPercentage?: number;
+  refundAmountPaise?: number;
+  cancellationReason?: string;
+  createdAt?: string;
+  paymentStatus?: string;
+}
+
+export interface AdminPaymentItem {
+  id: string;
+  orderId?: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  patientId?: string;
+  patientName?: string;
+  patientEmail?: string;
+  doctorId?: string;
+  doctorName?: string;
+  amountPaise?: number;
+  currency?: string;
+  status?: string;
+  createdAt?: string;
+  appointmentId?: string;
+}
+
+// ==========================================
+// Pharmacy E-Commerce Module Types
+// ==========================================
+
+export interface MedicineCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  icon?: string;
+  active: boolean;
+}
+
+export interface Medicine {
+  id: string;
+  categoryId?: string;
+  categoryName?: string;
+  name: string;
+  manufacturer: string;
+  description?: string;
+  composition?: string;
+  dosageInformation?: string;
+  usageInstructions?: string;
+  pricePaise: number;
+  discountedPricePaise?: number;
+  stockQuantity: number;
+  imageUrl?: string;
+  requiresPrescription: boolean;
+  active: boolean;
+  createdAt?: string;
+}
+
+export interface CartItem {
+  id: string;
+  medicineId: string;
+  medicineName: string;
+  manufacturer: string;
+  imageUrl?: string;
+  pricePaise: number;
+  discountedPricePaise?: number;
+  effectivePricePaise: number;
+  quantity: number;
+  availableStock: number;
+  requiresPrescription: boolean;
+  itemTotalPaise: number;
+}
+
+export interface Cart {
+  cartId: string;
+  items: CartItem[];
+  totalItemsCount: number;
+  subtotalPaise: number;
+  discountPaise: number;
+  deliveryFeePaise: number;
+  totalPaise: number;
+  hasPrescriptionItems: boolean;
+}
+
+export interface PharmacyCheckoutResponse {
+  orderId: string;
+  orderNumber: string;
+  razorpayOrderId: string;
+  amountPaise: number;
+  currency: string;
+  keyId: string;
+  orderStatus: string;
+  paymentStatus: string;
+}
+
+export interface CommerceOrderItem {
+  id: string;
+  medicineId?: string;
+  medicineName: string;
+  unitPricePaise: number;
+  quantity: number;
+  totalPaise: number;
+}
+
+export interface CommerceOrder {
+  id: string;
+  orderNumber: string;
+  userId?: string;
+  items: CommerceOrderItem[];
+  subtotalPaise: number;
+  discountPaise: number;
+  deliveryFeePaise: number;
+  totalPaise: number;
+  orderStatus: string;
+  paymentStatus: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  deliveryName: string;
+  deliveryPhone: string;
+  deliveryStreet: string;
+  deliveryCity: string;
+  deliveryState: string;
+  deliveryPincode: string;
+  prescriptionId?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 

@@ -12,12 +12,20 @@ import { Hospitals } from './components/Hospitals';
 import { HospitalDetail } from './components/HospitalDetail';
 import { PatientProfile } from './components/PatientProfile';
 import { DoctorProfile } from './components/DoctorProfile';
-import { AdminDoctors } from './components/AdminDoctors';
+import { DoctorListingPage } from './components/DoctorListingPage';
+import { AdminDashboard } from './components/AdminDashboard';
 import { PharmacyDashboard } from './components/PharmacyDashboard';
 import { PatientOrders } from './components/PatientOrders';
+import { PharmacyStore } from './components/pharmacy/PharmacyStore';
+import { PharmacyCartPage } from './components/pharmacy/PharmacyCartPage';
+import { PharmacyCheckoutPage } from './components/pharmacy/PharmacyCheckoutPage';
+import { PharmacyCustomerOrdersPage } from './components/pharmacy/PharmacyCustomerOrdersPage';
+import { PatientHistoryPage } from './components/PatientHistoryPage';
 import { VideoConsultationRoom } from './components/VideoConsultationRoom';
 import { AppointmentReminderBanner } from './components/AppointmentReminderBanner';
 import { AuthPage } from './components/AuthPage';
+import { ForgotPasswordPage } from './components/ForgotPasswordPage';
+import { ResetPasswordPage } from './components/ResetPasswordPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { authApi } from './services/api';
 import type { User } from './types';
@@ -78,7 +86,10 @@ export const App: React.FC = () => {
     navigate(target);
   };
 
-  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup';
+  const isAuthRoute =
+    location.pathname === '/login' ||
+    location.pathname === '/signup' ||
+    location.pathname.startsWith('/auth/');
   const isConsultationRoute = location.pathname.startsWith('/consultation');
 
   return (
@@ -125,7 +136,7 @@ export const App: React.FC = () => {
             path="/"
             element={
               currentUser?.role === 'ADMIN' ? (
-                <Navigate to="/admin/doctors" replace />
+                <Navigate to="/admin" replace />
               ) : currentUser?.role === 'PHARMACIST' ? (
                 <Navigate to="/pharmacy" replace />
               ) : currentUser?.role === 'DOCTOR' ? (
@@ -149,8 +160,11 @@ export const App: React.FC = () => {
             path="/signup"
             element={<AuthPage onLoginSuccess={handleLoginSuccess} currentUser={currentUser} />}
           />
+          <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
 
           {/* Patient routes */}
+          <Route path="/doctors" element={<DoctorListingPage />} />
           <Route
             path="/patient"
             element={
@@ -231,6 +245,16 @@ export const App: React.FC = () => {
               ) : null
             }
           />
+          <Route
+            path="/history"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['PATIENT']}>
+                  <PatientHistoryPage />
+                </ProtectedRoute>
+              ) : null
+            }
+          />
 
           {/* Doctor routes */}
           <Route
@@ -256,13 +280,31 @@ export const App: React.FC = () => {
 
           {/* Admin routes */}
           <Route
+            path="/admin"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['ADMIN']}>
+                  <AdminDashboard />
+                </ProtectedRoute>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: '#0f766e' }}>
+                  <div className="animate-spin" style={{ width: 32, height: 32, border: '3px solid #d9ece7', borderTopColor: '#0f766e', borderRadius: '50%' }} />
+                </div>
+              )
+            }
+          />
+          <Route
             path="/admin/doctors"
             element={
               sessionReady ? (
                 <ProtectedRoute user={currentUser} roles={['ADMIN']}>
-                  <AdminDoctors />
+                  <AdminDashboard defaultTab="DOCTORS" />
                 </ProtectedRoute>
-              ) : null
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: '#0f766e' }}>
+                  <div className="animate-spin" style={{ width: 32, height: 32, border: '3px solid #d9ece7', borderTopColor: '#0f766e', borderRadius: '50%' }} />
+                </div>
+              )
             }
           />
 
@@ -273,6 +315,30 @@ export const App: React.FC = () => {
               sessionReady ? (
                 <ProtectedRoute user={currentUser} roles={['PHARMACIST']}>
                   <PharmacyDashboard />
+                </ProtectedRoute>
+              ) : null
+            }
+          />
+
+          {/* Pharmacy E-Commerce Store & Customer Flow */}
+          <Route path="/store" element={<PharmacyStore />} />
+          <Route path="/cart" element={<PharmacyCartPage />} />
+          <Route
+            path="/checkout"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['PATIENT']}>
+                  <PharmacyCheckoutPage />
+                </ProtectedRoute>
+              ) : null
+            }
+          />
+          <Route
+            path="/orders/pharmacy"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['PATIENT']}>
+                  <PharmacyCustomerOrdersPage />
                 </ProtectedRoute>
               ) : null
             }

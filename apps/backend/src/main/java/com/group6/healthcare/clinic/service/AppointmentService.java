@@ -122,7 +122,7 @@ public class AppointmentService {
         return toResponse(appt, doctor, slot, patient);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<AppointmentResponse> listForPatient(UUID patientId) {
         List<Appointment> appointments = appointmentRepository.findByPatientIdOrderByCreatedAtDesc(patientId);
         return hydrate(appointments, patientId, null);
@@ -130,17 +130,17 @@ public class AppointmentService {
 
     public enum DoctorQueueScope { ACTIVE, PAST, ALL }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<AppointmentResponse> listForDoctor(UUID doctorUserId, DoctorQueueScope scope) {
         return doctorRepository.findByUserId(doctorUserId)
                 .map(doctor -> {
                     List<AppointmentStatus> statuses = switch (scope) {
                         case ACTIVE -> List.of(AppointmentStatus.BOOKED, AppointmentStatus.CONFIRMED);
                         case PAST   -> List.of(AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW,
-                                               AppointmentStatus.CANCELLED);
+                                               AppointmentStatus.CANCELLED, AppointmentStatus.EXPIRED);
                         case ALL    -> List.of(AppointmentStatus.BOOKED, AppointmentStatus.CONFIRMED,
                                                AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW,
-                                               AppointmentStatus.CANCELLED);
+                                               AppointmentStatus.CANCELLED, AppointmentStatus.EXPIRED);
                     };
                     List<Appointment> appointments = appointmentRepository
                             .findByDoctorIdAndStatusInOrderByCreatedAtDesc(doctor.getId(), statuses);
@@ -186,21 +186,24 @@ public class AppointmentService {
             }
             case START -> {
                 if (appt.getStatus() == AppointmentStatus.COMPLETED
-                        || appt.getStatus() == AppointmentStatus.NO_SHOW) {
+                        || appt.getStatus() == AppointmentStatus.NO_SHOW
+                        || appt.getStatus() == AppointmentStatus.EXPIRED) {
                     throw new BusinessRuleException("Appointment is already " + appt.getStatus());
                 }
                 appt.setStatus(AppointmentStatus.CONFIRMED);
             }
             case COMPLETE -> {
                 if (appt.getStatus() == AppointmentStatus.COMPLETED
-                        || appt.getStatus() == AppointmentStatus.NO_SHOW) {
+                        || appt.getStatus() == AppointmentStatus.NO_SHOW
+                        || appt.getStatus() == AppointmentStatus.EXPIRED) {
                     throw new BusinessRuleException("Appointment is already " + appt.getStatus());
                 }
                 appt.setStatus(AppointmentStatus.COMPLETED);
             }
             case NO_SHOW -> {
                 if (appt.getStatus() == AppointmentStatus.COMPLETED
-                        || appt.getStatus() == AppointmentStatus.NO_SHOW) {
+                        || appt.getStatus() == AppointmentStatus.NO_SHOW
+                        || appt.getStatus() == AppointmentStatus.EXPIRED) {
                     throw new BusinessRuleException("Appointment is already " + appt.getStatus());
                 }
                 appt.setStatus(AppointmentStatus.NO_SHOW);
@@ -244,7 +247,9 @@ public class AppointmentService {
             throw new BusinessRuleException("Appointment belongs to a different patient");
         }
         if (appt.getStatus() == AppointmentStatus.CANCELLED
-                || appt.getStatus() == AppointmentStatus.COMPLETED) {
+                || appt.getStatus() == AppointmentStatus.COMPLETED
+                || appt.getStatus() == AppointmentStatus.NO_SHOW
+                || appt.getStatus() == AppointmentStatus.EXPIRED) {
             throw new BusinessRuleException("Appointment cannot be cancelled from status " + appt.getStatus());
         }
 
@@ -272,7 +277,164 @@ public class AppointmentService {
         return toResponse(appt, doctor, slot, patient);
     }
 
-    @Transactional(readOnly = true)
+    /**
+     * Patient-initiated reschedule: same appointment, new slot on the same doctor.
+     * Pessimistically locks BOTH slot rows (old and new) and swaps atomically.
+     * Fails fast if the new slot belongs to a different doctor, is already booked,
+     * is in the past, or is held by another patient (Redis soft hold).
+     *
+     * <p>The appointment is reset to {@link AppointmentStatus#BOOKED} because
+     * doctor-side confirmation attached to the old time doesn't carry over to the
+     * new time. Cancellation/refund state is left untouched — an already cancelled
+     * appointment cannot be rescheduled.</p>
+     */
+    @Transactional
+    public AppointmentResponse reschedule(UUID patientId, UUID appointmentId, UUID newSlotId) {
+        Appointment appt = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Appointment", appointmentId));
+        if (!appt.getPatientId().equals(patientId)) {
+            throw new BusinessRuleException("Appointment belongs to a different patient");
+        }
+        if (appt.getStatus() != AppointmentStatus.BOOKED
+                && appt.getStatus() != AppointmentStatus.CONFIRMED) {
+            throw new BusinessRuleException(
+                    "Only booked or confirmed appointments can be rescheduled (current status: "
+                            + appt.getStatus() + ")");
+        }
+        if (newSlotId.equals(appt.getSlotId())) {
+            throw new BusinessRuleException("New slot must be different from the current slot");
+        }
+
+        DoctorSlot oldSlot = slotRepository.findForUpdate(appt.getSlotId())
+                .orElseThrow(() -> new ResourceNotFoundException("Slot", appt.getSlotId()));
+        if (oldSlot.getSlotAt() != null
+                && oldSlot.getSlotAt().isBefore(java.time.OffsetDateTime.now())) {
+            throw new BusinessRuleException("Cannot reschedule — original slot has already started");
+        }
+
+        DoctorSlot newSlot = slotRepository.findForUpdate(newSlotId)
+                .orElseThrow(() -> new ResourceNotFoundException("Slot", newSlotId));
+        if (!newSlot.getDoctorId().equals(appt.getDoctorId())) {
+            throw new BusinessRuleException(
+                    "New slot must belong to the same doctor. Cancel and rebook to switch doctors.");
+        }
+        if (newSlot.isBooked()) {
+            throw new ConflictException("New slot is already booked");
+        }
+        if (newSlot.getSlotAt() != null
+                && newSlot.getSlotAt().isBefore(java.time.OffsetDateTime.now())) {
+            throw new BusinessRuleException("New slot is in the past");
+        }
+
+        if (redisSlotReservationService != null
+                && !redisSlotReservationService.isSlotAvailableForPatient(newSlotId, patientId)) {
+            RedisSlotReservationService.HoldMetadata holdMeta =
+                    redisSlotReservationService.getHoldMetadata(newSlotId, patientId);
+            throw new ConflictException(String.format(
+                    "New slot is currently reserved by another patient (expires in %ds). " +
+                            "Please choose another slot.",
+                    holdMeta.remainingSeconds()));
+        }
+
+        oldSlot.setBooked(false);
+        slotRepository.save(oldSlot);
+
+        newSlot.setBooked(true);
+        slotRepository.save(newSlot);
+
+        appt.setSlotId(newSlot.getId());
+        appt.setStatus(AppointmentStatus.BOOKED);
+        appt.setRescheduleCount(appt.getRescheduleCount() + 1);
+        appt.setLastRescheduledAt(java.time.OffsetDateTime.now());
+
+        String stamp = "[RESCHEDULED #" + appt.getRescheduleCount() + " by patient]";
+        appt.setNotes(appt.getNotes() == null ? stamp : stamp + "\n" + appt.getNotes());
+
+        appointmentRepository.save(appt);
+
+        if (redisSlotReservationService != null) {
+            redisSlotReservationService.releaseHold(newSlotId, patientId);
+        }
+
+        Doctor doctor = doctorRepository.findById(appt.getDoctorId()).orElse(null);
+        User patient = userRepository.findById(patientId).orElse(null);
+        return toResponse(appt, doctor, newSlot, patient);
+    }
+
+    /**
+     * Patient books a doctor-recommended follow-up. The doctor must be the same
+     * one who saw the original appointment; the new row links back to that
+     * original via {@code parent_appointment_id} so clinical continuity is
+     * navigable from either end.
+     */
+    @Transactional
+    public AppointmentResponse bookFollowUp(UUID patientId,
+                                            UUID originalAppointmentId,
+                                            UUID slotId,
+                                            com.group6.healthcare.clinic.entity.ConsultationType consultationType) {
+        Appointment original = appointmentRepository.findById(originalAppointmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Appointment", originalAppointmentId));
+        if (!original.getPatientId().equals(patientId)) {
+            throw new BusinessRuleException("Original appointment belongs to a different patient");
+        }
+        if (original.getStatus() != AppointmentStatus.COMPLETED) {
+            throw new BusinessRuleException(
+                    "A follow-up can only be booked from a completed consultation");
+        }
+
+        Doctor doctor = doctorRepository.findById(original.getDoctorId())
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor", original.getDoctorId()));
+
+        DoctorSlot slot = slotRepository.findForUpdate(slotId)
+                .orElseThrow(() -> new ResourceNotFoundException("Slot", slotId));
+        if (!slot.getDoctorId().equals(doctor.getId())) {
+            throw new BusinessRuleException("Slot does not belong to the recommending doctor");
+        }
+        if (slot.isBooked()) {
+            throw new ConflictException("Slot already booked");
+        }
+        if (slot.getSlotAt() != null
+                && slot.getSlotAt().isBefore(java.time.OffsetDateTime.now())) {
+            throw new BusinessRuleException("Slot is in the past");
+        }
+        if (redisSlotReservationService != null
+                && !redisSlotReservationService.isSlotAvailableForPatient(slotId, patientId)) {
+            RedisSlotReservationService.HoldMetadata holdMeta =
+                    redisSlotReservationService.getHoldMetadata(slotId, patientId);
+            throw new ConflictException(String.format(
+                    "Slot is currently reserved by another patient (expires in %ds).",
+                    holdMeta.remainingSeconds()));
+        }
+
+        slot.setBooked(true);
+        slotRepository.save(slot);
+
+        Urgency urgency = original.getUrgency();
+        String complaint = original.getChiefComplaint() == null
+                ? "Follow-up visit" : "Follow-up — " + original.getChiefComplaint();
+
+        Appointment followUp = Appointment.builder()
+                .patientId(patientId)
+                .doctorId(doctor.getId())
+                .slotId(slot.getId())
+                .consultationType(consultationType)
+                .urgency(urgency)
+                .status(AppointmentStatus.BOOKED)
+                .chiefComplaint(complaint)
+                .parentAppointmentId(original.getId())
+                .notes("[FOLLOW-UP of appointment " + original.getId() + "]")
+                .build();
+        followUp = appointmentRepository.save(followUp);
+
+        if (redisSlotReservationService != null) {
+            redisSlotReservationService.releaseHold(slotId, patientId);
+        }
+
+        User patient = userRepository.findById(patientId).orElse(null);
+        return toResponse(followUp, doctor, slot, patient);
+    }
+
+    @Transactional
     public AppointmentResponse get(UUID appointmentId, UUID patientId) {
         Appointment appt = appointmentRepository.findById(appointmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Appointment", appointmentId));
@@ -282,6 +444,15 @@ public class AppointmentService {
         Doctor doctor = doctorRepository.findById(appt.getDoctorId()).orElse(null);
         DoctorSlot slot = slotRepository.findById(appt.getSlotId()).orElse(null);
         User patient = userRepository.findById(appt.getPatientId()).orElse(null);
+
+        // Auto-expire elapsed appointments
+        if (appt.getStatus() == AppointmentStatus.BOOKED || appt.getStatus() == AppointmentStatus.CONFIRMED) {
+            if (slot != null && slot.getSlotAt() != null && slot.getSlotAt().plusMinutes(45).isBefore(java.time.OffsetDateTime.now())) {
+                appt.setStatus(AppointmentStatus.EXPIRED);
+                appointmentRepository.save(appt);
+            }
+        }
+
         return toResponse(appt, doctor, slot, patient);
     }
 
@@ -301,6 +472,22 @@ public class AppointmentService {
         List<UUID> patientIds = appointments.stream().map(Appointment::getPatientId).distinct().toList();
         Map<UUID, User> patientsById = userRepository.findAllById(patientIds).stream()
                 .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+
+        // Auto-expire appointments whose scheduled consultation window (+45 mins) has elapsed
+        java.time.OffsetDateTime now = java.time.OffsetDateTime.now();
+        List<Appointment> modified = new java.util.ArrayList<>();
+        for (Appointment a : appointments) {
+            if (a.getStatus() == AppointmentStatus.BOOKED || a.getStatus() == AppointmentStatus.CONFIRMED) {
+                DoctorSlot s = slotsById.get(a.getSlotId());
+                if (s != null && s.getSlotAt() != null && s.getSlotAt().plusMinutes(45).isBefore(now)) {
+                    a.setStatus(AppointmentStatus.EXPIRED);
+                    modified.add(a);
+                }
+            }
+        }
+        if (!modified.isEmpty()) {
+            appointmentRepository.saveAll(modified);
+        }
 
         return appointments.stream()
                 .map(a -> toResponse(
@@ -336,7 +523,10 @@ public class AppointmentService {
                 a.getCancellationReason(),
                 a.getCancelledAt(),
                 a.getRefundPercentage(),
-                a.getRefundAmountPaise()
+                a.getRefundAmountPaise(),
+                a.getRescheduleCount(),
+                a.getLastRescheduledAt(),
+                a.getParentAppointmentId()
         );
     }
 }

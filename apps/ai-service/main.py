@@ -3,12 +3,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List
+
 from graph import consultation_graph, ConsultationState
 from queue_advisor import QueuePatientItem, QueueAdvisorResult, analyze_doctor_queue
+from llm_factory import active_provider, active_model
 
 app = FastAPI(
     title="PulseCare AI Service",
-    description="LangChain + LangGraph Telehealth Meeting Summarizer powered by OpenRouter",
+    description="LangChain + LangGraph Telehealth Meeting Summarizer",
     version="2.0.0",
 )
 
@@ -38,7 +40,7 @@ class ConsultationSummaryResponse(BaseModel):
     recommended_next_steps: str = Field(..., description="5. Recommended next steps")
     follow_up_recommendations: str = Field(..., description="6. Follow-up recommendations")
 
-    # Safety & missing info metadata
+    # Safety and missing information metadata
     missing_information: str = Field(..., description="Explicitly identified unconfirmed or missing medical information")
     safety_disclaimer: str = Field(..., description="Non-diagnostic clinical advisory disclaimer")
 
@@ -53,14 +55,16 @@ class ConsultationSummaryResponse(BaseModel):
 
 @app.get("/health")
 def health_check():
-    openrouter_configured = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
-    model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
+    provider = active_provider()
+
     return {
         "status": "healthy",
         "service": "ai-service",
         "engine": "LangGraph + LangChain",
-        "openrouter_configured": openrouter_configured,
-        "model": model,
+        "openrouter_configured": provider == "openrouter",
+        "provider": provider,
+        "ai_configured": provider != "none",
+        "model": active_model() or "(none configured; deterministic fallback)",
         "version": "2.0.0",
     }
 
@@ -80,7 +84,6 @@ def summarize_consultation(payload: ConsultationSummaryRequest):
             "error": None,
         }
 
-        # Execute optimized LangGraph pipeline (1 single high-fidelity Claude call with validation)
         final_state = consultation_graph.invoke(initial_state)
         summary = final_state.get("structured_summary") or {}
 
@@ -95,8 +98,9 @@ def summarize_consultation(payload: ConsultationSummaryRequest):
 
         # Composite communication summary for legacy logging
         comm_summary = (
-            f"Video consultation conducted between {payload.patient_name or 'Patient'} and {payload.doctor_name or 'Doctor'} "
-            f"regarding '{reason}'. Patient discussed symptoms and history. Clinician provided guidance and recommendations."
+            f"Video consultation conducted between {payload.patient_name or 'Patient'} "
+            f"and {payload.doctor_name or 'Doctor'} regarding '{reason}'. "
+            "Patient discussed symptoms and history. Clinician provided guidance and recommendations."
         )
 
         return ConsultationSummaryResponse(
@@ -108,7 +112,6 @@ def summarize_consultation(payload: ConsultationSummaryRequest):
             follow_up_recommendations=follow_up,
             missing_information=missing_info,
             safety_disclaimer=disclaimer,
-            # Legacy compatibility mappings
             chief_complaint=reason,
             communication_summary=comm_summary,
             observations=f"Patient Symptoms: {symptoms}\n\nClinical Assessment: {obs_advice}",
@@ -116,8 +119,12 @@ def summarize_consultation(payload: ConsultationSummaryRequest):
             prescribed_actions=next_steps,
             follow_up=follow_up,
         )
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LangGraph summarization error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"LangGraph summarization error: {str(e)}"
+        )
 
 
 class QueueAdvisorRequest(BaseModel):
@@ -132,12 +139,19 @@ def queue_advisor(payload: QueueAdvisorRequest):
     Evaluates emergency severity, red-flag symptoms, and recommends optimal priority ordering.
     """
     try:
-        return analyze_doctor_queue(payload.queue, doctor_name=payload.doctor_name or "Doctor")
+        return analyze_doctor_queue(
+            payload.queue,
+            doctor_name=payload.doctor_name or "Doctor"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI Queue Advisor error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI Queue Advisor error: {str(e)}"
+        )
 
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.getenv("PORT", "8001"))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

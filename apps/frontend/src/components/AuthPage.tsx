@@ -557,16 +557,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
               <div style={{ marginBottom: '8px' }}>
                 {isLogin && (
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-6px' }}>
-                    <a
-                      href="#forgot"
-                      onClick={e => {
-                        e.preventDefault();
-                        alert('Password reset instructions will be sent to your registered email.');
-                      }}
+                    <Link
+                      to="/auth/forgot-password"
                       style={{ fontSize: '12px', color: '#0f766e', textDecoration: 'none', fontWeight: 600 }}
                     >
                       Forgot password?
-                    </a>
+                    </Link>
                   </div>
                 )}
                 <WaveInput

@@ -3,24 +3,18 @@ import json
 import re
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+from llm_factory import get_llm as _factory_get_llm
+
+
 def get_llm():
-    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
-    if not api_key:
-        return None
-    return ChatOpenAI(
-        model=model,
-        openai_api_key=api_key,
-        openai_api_base="https://openrouter.ai/api/v1",
-        default_headers={
-            "HTTP-Referer": "https://pulsecare.local",
-            "X-Title": "PulseCare Smart Healthcare Telehealth",
-        },
+    # Queue advice is a compact JSON response; cap keeps credit cost low.
+    return _factory_get_llm(
         temperature=0.1,
+        max_tokens=1024,
+        title="PulseCare Doctor Queue Advisor",
     )
 
 class QueuePatientItem(BaseModel):
@@ -143,12 +137,12 @@ def analyze_doctor_queue(queue: List[QueuePatientItem], doctor_name: str = "Doct
             "Your job is to analyze the doctor's appointment queue and prioritize patients "
             "based strictly on clinical urgency, life-safety risks, and emergency red-flags.\n\n"
             "Return a strictly valid JSON object matching this schema:\n"
-            "{\n"
+            "{{\n"
             '  "overall_assessment": "1-2 sentences summarizing emergency workload",\n'
             '  "priority_recommendation": "Specific action advice: who the doctor must see first and why",\n'
             '  "suggested_order_ids": ["id1", "id2", ...],\n'
             '  "clinical_alerts": ["Alert 1", "Alert 2"]\n'
-            "}\n"
+            "}}\n"
             "Do not include Markdown backticks or text outside the JSON."
         )),
         ("user", (

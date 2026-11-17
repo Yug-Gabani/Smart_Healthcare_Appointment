@@ -299,9 +299,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="lp-tiles">
           {[
             { image: '/video-consult.jpg',  title: 'Video consult',      sub: 'Private call with a doctor',       href: '/book' },
-            { image: '/find-doctors.jpg',    title: 'Find doctors',       sub: 'By city or specialty',             href: '/hospitals' },
+            { image: '/find-doctors.jpg',    title: 'Find doctors',       sub: 'By city or specialty',             href: '/doctors' },
             { image: '/my-records.jpg',      title: 'Your records',       sub: 'Visits and prescriptions',         href: '/appointments' },
-            { image: '/order-medicine.jpg',  title: 'Order medicine',     sub: 'Delivered to you',                 href: '/prescriptions' },
+            { image: '/order-medicine.jpg',  title: 'Order medicine',     sub: 'Delivered to you',                 href: '/store' },
           ].map(tile => (
             <button
               key={tile.title}

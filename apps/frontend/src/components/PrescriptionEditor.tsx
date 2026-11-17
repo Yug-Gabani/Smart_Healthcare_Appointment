@@ -81,6 +81,8 @@ export const PrescriptionEditor: React.FC<PrescriptionEditorProps> = ({
   const [active, setActive] = useState<Prescription | null>(null); // DRAFT or SIGNED
   const [items, setItems] = useState<PrescriptionItem[]>([blankItem()]);
   const [notes, setNotes] = useState('');
+  const [followUpAfterDays, setFollowUpAfterDays] = useState<string>(''); // string so empty = no recommendation
+  const [followUpNotes, setFollowUpNotes] = useState<string>('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voidOpen, setVoidOpen] = useState(false);
@@ -103,9 +105,13 @@ export const PrescriptionEditor: React.FC<PrescriptionEditorProps> = ({
         if (current) {
           setItems(current.items.length > 0 ? current.items : [blankItem()]);
           setNotes(current.notes ?? '');
+          setFollowUpAfterDays(current.followUpAfterDays ? String(current.followUpAfterDays) : '');
+          setFollowUpNotes(current.followUpNotes ?? '');
         } else {
           setItems([blankItem()]);
           setNotes('');
+          setFollowUpAfterDays('');
+          setFollowUpNotes('');
         }
       })
       .catch(e => setError(e?.message || 'Could not load prescriptions'))
@@ -137,17 +143,26 @@ export const PrescriptionEditor: React.FC<PrescriptionEditorProps> = ({
     return null;
   };
 
+  const followUpPayload = () => {
+    const days = followUpAfterDays.trim() === '' ? undefined : Number(followUpAfterDays);
+    return {
+      followUpAfterDays: days && days > 0 ? days : undefined,
+      followUpNotes: followUpNotes.trim() ? followUpNotes.trim() : undefined,
+    };
+  };
+
   const saveDraft = async () => {
     const err = validate();
     if (err) { setError(err); return; }
     setError(null);
     setBusy('save');
     try {
+      const fu = followUpPayload();
       if (active && active.status === 'DRAFT') {
-        const updated = await prescriptionsApi.update(active.id, { notes, items });
+        const updated = await prescriptionsApi.update(active.id, { notes, items, ...fu });
         setActive(updated);
       } else {
-        const created = await prescriptionsApi.create({ appointmentId, notes, items });
+        const created = await prescriptionsApi.create({ appointmentId, notes, items, ...fu });
         setActive(created);
       }
       load();
@@ -164,12 +179,13 @@ export const PrescriptionEditor: React.FC<PrescriptionEditorProps> = ({
     setError(null);
     setBusy('sign');
     try {
+      const fu = followUpPayload();
       // Ensure the latest edits are persisted before signing.
       let draft = active;
       if (!draft) {
-        draft = await prescriptionsApi.create({ appointmentId, notes, items });
+        draft = await prescriptionsApi.create({ appointmentId, notes, items, ...fu });
       } else if (draft.status === 'DRAFT') {
-        draft = await prescriptionsApi.update(draft.id, { notes, items });
+        draft = await prescriptionsApi.update(draft.id, { notes, items, ...fu });
       }
       const signed = await prescriptionsApi.sign(draft!.id);
       setActive(signed);
@@ -340,6 +356,56 @@ export const PrescriptionEditor: React.FC<PrescriptionEditorProps> = ({
                   outline: 'none', resize: 'vertical',
                 }}
               />
+
+              {/* Follow-up recommendation — becomes a one-click booking for the patient */}
+              <div style={{ marginTop: 16 }}>
+                <label style={{
+                  display: 'block', fontSize: 12, fontWeight: 500,
+                  color: '#8aa39d', marginBottom: 6,
+                }}>
+                  Recommend a follow-up (optional)
+                </label>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 13, color: '#4c6360' }}>in</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={followUpAfterDays}
+                      onChange={e => setFollowUpAfterDays(e.target.value)}
+                      disabled={!canEdit}
+                      placeholder="e.g. 14"
+                      style={{
+                        width: 90, padding: '8px 10px', borderRadius: 10,
+                        border: '1px solid #d9ece7', fontSize: 13, color: '#0b3f3a',
+                        fontFamily: 'inherit', backgroundColor: canEdit ? '#ffffff' : '#eaf6f2',
+                        outline: 'none', fontVariantNumeric: 'tabular-nums',
+                      }}
+                    />
+                    <span style={{ fontSize: 13, color: '#4c6360' }}>days</span>
+                  </div>
+                  {followUpAfterDays && Number(followUpAfterDays) > 0 && (
+                    <span style={{ fontSize: 12, color: '#8aa39d' }}>
+                      → patient will see a “Book follow-up” button on this prescription
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={followUpNotes}
+                  onChange={e => setFollowUpNotes(e.target.value)}
+                  disabled={!canEdit || !followUpAfterDays}
+                  placeholder="Short note the patient sees (e.g. to review blood pressure trend)"
+                  style={{
+                    width: '100%', padding: '9px 12px', borderRadius: 10,
+                    border: '1px solid #d9ece7', fontSize: 13, color: '#0b3f3a',
+                    fontFamily: 'inherit',
+                    backgroundColor: canEdit && followUpAfterDays ? '#ffffff' : '#eaf6f2',
+                    outline: 'none',
+                  }}
+                />
+              </div>
 
               <div style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',

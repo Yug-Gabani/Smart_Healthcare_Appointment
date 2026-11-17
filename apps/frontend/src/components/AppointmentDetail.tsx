@@ -1,18 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageTransition } from '../motion/PageTransition';
-import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw, AlertCircle, CalendarClock } from 'lucide-react';
 import type { Appointment } from '../types';
 import { appointmentsApi } from '../services/api';
 import { CancelRefundModal } from './CancelRefundModal';
+import { SlotPickerModal } from './SlotPickerModal';
+import { getAppointmentStatusDetails, formatAppointmentSlot } from '../utils/appointmentStatus';
 
 function formatSlot(iso?: string): string {
-  if (!iso) return 'TBA';
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    weekday: 'long', month: 'long', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+  return formatAppointmentSlot(iso);
 }
 
 function urgencyColor(u: Appointment['urgency']): string {
@@ -34,6 +31,7 @@ export const AppointmentDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [refundSummary, setRefundSummary] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,11 +45,9 @@ export const AppointmentDetail: React.FC = () => {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const canCancel =
-    appt &&
-    appt.status !== 'CANCELLED' &&
-    appt.status !== 'COMPLETED' &&
-    appt.status !== 'NO_SHOW';
+  const details = appt ? getAppointmentStatusDetails(appt) : null;
+  const canCancel = details ? details.canCancel : false;
+  const canReschedule = canCancel; // same window: active, before the slot has started
 
   return (
     <PageTransition style={{ maxWidth: '720px', margin: '20px auto 28px', padding: '0 20px' }}>
@@ -142,9 +138,30 @@ export const AppointmentDetail: React.FC = () => {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <Clock size={16} color="#0f766e" />
-              <span><strong>Status:</strong> {appt.status}</span>
+              <span><strong>Status:</strong> {details?.label || appt.status}</span>
             </div>
           </div>
+
+          {/* Expired / Missed Notice */}
+          {details?.key === 'EXPIRED' && (
+            <div
+              style={{
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '12px',
+                padding: '14px 16px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+              }}
+            >
+              <AlertCircle size={18} color="#dc2626" />
+              <div style={{ fontSize: '13px', color: '#991b1b' }}>
+                <strong>Appointment Expired:</strong> Scheduled slot ({formatSlot(appt.slotAt)}) has passed without attendance. Consultation room is closed.
+              </div>
+            </div>
+          )}
 
           {/* Refund Status Notice if cancelled */}
           {(appt.status === 'CANCELLED' || refundSummary) && (
@@ -177,7 +194,7 @@ export const AppointmentDetail: React.FC = () => {
           )}
 
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {appt.consultationType === 'VIDEO' && appt.status !== 'CANCELLED' && appt.status !== 'COMPLETED' && (
+            {details?.canJoinCall && appt.consultationType === 'VIDEO' && (
               <button
                 onClick={() => navigate(`/consultation/${appt.id}`)}
                 className="btn btn-primary hover-lift"
@@ -198,12 +215,34 @@ export const AppointmentDetail: React.FC = () => {
                 <FileText size={16} /> View Consultation Summary
               </button>
             )}
+            {(details?.key === 'EXPIRED' || details?.key === 'CANCELLED') && (
+              <button
+                onClick={() => navigate('/book')}
+                className="btn btn-primary hover-lift"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Calendar size={16} /> Book New Consultation
+              </button>
+            )}
             <button
               onClick={() => navigate('/prescriptions')}
               className="btn btn-secondary hover-lift"
             >
               View prescriptions
             </button>
+            {canReschedule && (
+              <button
+                onClick={() => setIsRescheduleModalOpen(true)}
+                className="btn btn-secondary hover-lift"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <CalendarClock size={14} /> Reschedule
+              </button>
+            )}
             {canCancel && (
               <button
                 onClick={() => setIsCancelModalOpen(true)}
@@ -220,6 +259,18 @@ export const AppointmentDetail: React.FC = () => {
               </button>
             )}
           </div>
+
+          {appt.rescheduleCount != null && appt.rescheduleCount > 0 && (
+            <div style={{
+              marginTop: 14, fontSize: 12, color: '#8aa39d',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}>
+              <CalendarClock size={12} />
+              Rescheduled {appt.rescheduleCount}
+              {appt.rescheduleCount === 1 ? ' time' : ' times'}
+              {appt.lastRescheduledAt && ` · last change ${new Date(appt.lastRescheduledAt).toLocaleDateString()}`}
+            </div>
+          )}
         </div>
       )}
 
@@ -234,6 +285,23 @@ export const AppointmentDetail: React.FC = () => {
           onSuccess={(res) => {
             setAppt(prev => prev ? { ...prev, status: 'CANCELLED' } : null);
             setRefundSummary(`Refund processed: ₹${(res.refundAmountPaise / 100).toFixed(2)} (${res.refundPercentage}% refund under tier ${res.tier}).`);
+          }}
+        />
+      )}
+
+      {/* Reschedule modal — pick a new slot on the same doctor */}
+      {appt && isRescheduleModalOpen && (
+        <SlotPickerModal
+          isOpen={isRescheduleModalOpen}
+          doctorId={appt.doctorId}
+          doctorName={appt.doctorName}
+          title="Reschedule appointment"
+          confirmLabel="Confirm new time"
+          excludeSlotId={appt.slotId}
+          onClose={() => setIsRescheduleModalOpen(false)}
+          onConfirm={async (newSlotId) => {
+            const updated = await appointmentsApi.reschedule(appt.id, newSlotId);
+            setAppt(updated);
           }}
         />
       )}
