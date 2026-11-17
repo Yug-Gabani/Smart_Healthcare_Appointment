@@ -9,7 +9,7 @@ from queue_advisor import QueuePatientItem, QueueAdvisorResult, analyze_doctor_q
 app = FastAPI(
     title="PulseCare AI Service",
     description="LangChain + LangGraph Telehealth Meeting Summarizer powered by OpenRouter",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -30,13 +30,25 @@ class ConsultationSummaryRequest(BaseModel):
 
 
 class ConsultationSummaryResponse(BaseModel):
-    chief_complaint: str
-    communication_summary: Optional[str] = Field("", description="Full holistic summary of the video call communication")
-    observations: str
-    doctor_advice: str
-    prescribed_actions: str
-    follow_up: str
-    safety_disclaimer: str
+    # Core 6 clinical summary dimensions
+    reason_for_consultation: str = Field(..., description="1. Reason for consultation")
+    patient_reported_symptoms: str = Field(..., description="2. Patient-reported symptoms")
+    discussion_points: str = Field(..., description="3. Important discussion points")
+    doctor_observations_and_advice: str = Field(..., description="4. Doctor's observations and advice")
+    recommended_next_steps: str = Field(..., description="5. Recommended next steps")
+    follow_up_recommendations: str = Field(..., description="6. Follow-up recommendations")
+
+    # Safety & missing info metadata
+    missing_information: str = Field(..., description="Explicitly identified unconfirmed or missing medical information")
+    safety_disclaimer: str = Field(..., description="Non-diagnostic clinical advisory disclaimer")
+
+    # Backward compatibility aliases for existing backend consumers
+    chief_complaint: str = Field(..., description="Chief complaint alias")
+    communication_summary: Optional[str] = Field("", description="High-level communication summary")
+    observations: str = Field(..., description="Clinical observations alias")
+    doctor_advice: str = Field(..., description="Doctor advice alias")
+    prescribed_actions: str = Field(..., description="Prescribed actions alias")
+    follow_up: str = Field(..., description="Follow-up alias")
 
 
 @app.get("/health")
@@ -49,6 +61,7 @@ def health_check():
         "engine": "LangGraph + LangChain",
         "openrouter_configured": openrouter_configured,
         "model": model,
+        "version": "2.0.0",
     }
 
 
@@ -61,25 +74,47 @@ def summarize_consultation(payload: ConsultationSummaryRequest):
             "chief_complaint": payload.chief_complaint or "Telehealth consultation",
             "transcript": payload.transcript or "",
             "doctor_notes": payload.doctor_notes or "",
-            "communication_summary": None,
-            "observations": None,
-            "doctor_advice": None,
-            "prescribed_actions": None,
-            "follow_up": None,
-            "safety_disclaimer": None,
+            "sanitized_transcript": None,
+            "is_empty_or_trivial": None,
+            "structured_summary": None,
+            "error": None,
         }
 
-        # Execute the LangGraph pipeline
+        # Execute optimized LangGraph pipeline (1 single high-fidelity Claude call with validation)
         final_state = consultation_graph.invoke(initial_state)
+        summary = final_state.get("structured_summary") or {}
+
+        reason = summary.get("reason_for_consultation") or payload.chief_complaint or "Teleconsultation follow-up"
+        symptoms = summary.get("patient_reported_symptoms") or "Symptoms evaluated during consultation."
+        discussion = summary.get("discussion_points") or "Telehealth clinical review conducted."
+        obs_advice = summary.get("doctor_observations_and_advice") or "Clinical assessment completed."
+        next_steps = summary.get("recommended_next_steps") or "Review digital prescription in portal."
+        follow_up = summary.get("follow_up_recommendations") or "Schedule follow-up in 7-10 days if symptoms persist."
+        missing_info = summary.get("missing_information") or "None explicitly noted."
+        disclaimer = summary.get("safety_disclaimer") or "PulseCare Telehealth AI Meeting Summary (Advisory Only)"
+
+        # Composite communication summary for legacy logging
+        comm_summary = (
+            f"Video consultation conducted between {payload.patient_name or 'Patient'} and {payload.doctor_name or 'Doctor'} "
+            f"regarding '{reason}'. Patient discussed symptoms and history. Clinician provided guidance and recommendations."
+        )
 
         return ConsultationSummaryResponse(
-            chief_complaint=payload.chief_complaint or "Teleconsultation follow-up",
-            communication_summary=final_state.get("communication_summary") or "",
-            observations=final_state.get("observations") or "Clinical assessment completed.",
-            doctor_advice=final_state.get("doctor_advice") or "Follow doctor instructions.",
-            prescribed_actions=final_state.get("prescribed_actions") or "Review digital prescription.",
-            follow_up=final_state.get("follow_up") or "Schedule follow-up in 7-10 days if symptoms persist.",
-            safety_disclaimer=final_state.get("safety_disclaimer") or "PulseCare Telehealth AI Meeting Summary",
+            reason_for_consultation=reason,
+            patient_reported_symptoms=symptoms,
+            discussion_points=discussion,
+            doctor_observations_and_advice=obs_advice,
+            recommended_next_steps=next_steps,
+            follow_up_recommendations=follow_up,
+            missing_information=missing_info,
+            safety_disclaimer=disclaimer,
+            # Legacy compatibility mappings
+            chief_complaint=reason,
+            communication_summary=comm_summary,
+            observations=f"Patient Symptoms: {symptoms}\n\nClinical Assessment: {obs_advice}",
+            doctor_advice=obs_advice,
+            prescribed_actions=next_steps,
+            follow_up=follow_up,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"LangGraph summarization error: {str(e)}")
@@ -106,4 +141,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8001"))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
-

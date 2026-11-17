@@ -4,11 +4,13 @@ import com.group6.healthcare.auth.service.AppUserPrincipal;
 import com.group6.healthcare.clinic.dto.ConsultationEndRequest;
 import com.group6.healthcare.clinic.dto.ConsultationSessionResponse;
 import com.group6.healthcare.clinic.dto.ConsultationSignalMessage;
+import com.group6.healthcare.clinic.dto.DoctorReviewSummaryRequest;
 import com.group6.healthcare.clinic.service.ConsultationService;
 import com.group6.healthcare.common.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -62,6 +64,32 @@ public class ConsultationController {
         return ApiResponse.ok(
                 consultationService.endConsultation(appointmentId, principal.getId(), req),
                 "Consultation completed and clinical summary generated"
+        );
+    }
+
+    @PostMapping("/appointments/{appointmentId}/review")
+    @PreAuthorize("hasRole('DOCTOR')")
+    @Operation(summary = "Clinician review and override of AI consultation summary (DR-15, DR-16)")
+    public ApiResponse<ConsultationSessionResponse> reviewSummary(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @PathVariable UUID appointmentId,
+            @Valid @RequestBody DoctorReviewSummaryRequest req) {
+        return ApiResponse.ok(
+                consultationService.reviewAndOverrideSummary(appointmentId, principal.getId(), req),
+                "Clinical summary successfully reviewed, verified, and saved"
+        );
+    }
+
+    @PostMapping("/appointments/{appointmentId}/consent")
+    @PreAuthorize("hasRole('PATIENT') or hasRole('DOCTOR')")
+    @Operation(summary = "Record affirmative dual-consent for video/audio transcription (DR-11)")
+    public ApiResponse<ConsultationSessionResponse> recordConsent(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @PathVariable UUID appointmentId,
+            @RequestParam(name = "consent", defaultValue = "true") boolean consent) {
+        return ApiResponse.ok(
+                consultationService.recordConsent(appointmentId, principal.getId(), principal.getRole(), consent),
+                "Transcription consent updated"
         );
     }
 

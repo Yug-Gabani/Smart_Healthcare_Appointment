@@ -1,270 +1,305 @@
 import os
-from typing import TypedDict, Optional
+import json
+from typing import TypedDict, Optional, Dict, Any
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
+
+try:
+    from langchain_openai import ChatOpenAI
+except ImportError:
+    ChatOpenAI = None
+
+import httpx
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import JsonOutputParser
 from langgraph.graph import StateGraph, START, END
 
 load_dotenv()
 
-# State schema for the consultation summarization pipeline
+
+class StructuredConsultationSummary(BaseModel):
+    reason_for_consultation: str = Field(
+        ...,
+        description="Chief complaint and clinical reason for the teleconsultation."
+    )
+    patient_reported_symptoms: str = Field(
+        ...,
+        description="Subjective symptoms, onset timeline, and severity described by the patient. Do not invent symptoms."
+    )
+    discussion_points: str = Field(
+        ...,
+        description="Key clinical topics, medical history, questions, and concerns discussed between patient and doctor."
+    )
+    doctor_observations_and_advice: str = Field(
+        ...,
+        description="Objective clinician observations, evaluation during video consultation, and direct medical advice."
+    )
+    recommended_next_steps: str = Field(
+        ...,
+        description="Prescriptions, diagnostics, lab investigations, or lifestyle actions instructed by the clinician."
+    )
+    follow_up_recommendations: str = Field(
+        ...,
+        description="Follow-up timeframe, red-flag warning signs, and when to seek emergency care."
+    )
+    missing_information: str = Field(
+        ...,
+        description="Explicitly identified missing, unconfirmed, or unknown clinical details (e.g., unverified allergies, pending vitals, missing lab history)."
+    )
+    safety_disclaimer: str = Field(
+        default="ADVISORY ONLY: This consultation summary is AI-generated for clinical documentation assistance. It does not constitute a certified medical diagnosis and must be reviewed and confirmed by the attending doctor.",
+        description="Safety and compliance disclaimer."
+    )
+
+
 class ConsultationState(TypedDict):
     patient_name: str
     doctor_name: str
     chief_complaint: str
     transcript: str
     doctor_notes: str
-    communication_summary: Optional[str]
-    observations: Optional[str]
-    doctor_advice: Optional[str]
-    prescribed_actions: Optional[str]
-    follow_up: Optional[str]
-    safety_disclaimer: Optional[str]
+    sanitized_transcript: Optional[str]
+    is_empty_or_trivial: Optional[bool]
+    structured_summary: Optional[Dict[str, Any]]
+    error: Optional[str]
 
 
-def get_llm():
+def call_openrouter_api(system_prompt: str, user_prompt: str) -> Optional[dict]:
+    """
+    Direct OpenRouter inference supporting Claude (anthropic/claude-3.5-sonnet).
+    Works in all environments with httpx, providing resilient LLM connectivity.
+    """
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet")
     if not api_key:
         return None
-    return ChatOpenAI(
-        model=model,
-        openai_api_key=api_key,
-        openai_api_base="https://openrouter.ai/api/v1",
-        default_headers={
-            "HTTP-Referer": "https://pulsecare.local",
-            "X-Title": "PulseCare Smart Healthcare Telehealth",
-        },
-        temperature=0.2,
-    )
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "https://pulsecare.local",
+        "X-Title": "PulseCare Smart Healthcare Telehealth",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "temperature": 0.1,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "response_format": {"type": "json_object"},
+    }
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                return json.loads(content)
+    except Exception as e:
+        print(f"OpenRouter direct API notice: {e}")
+    return None
 
 
-# Node 1: Synthesize a comprehensive overview of the entire video consultation communication
-def synthesize_communication_summary(state: ConsultationState) -> dict:
-    llm = get_llm()
-    notes = state.get("doctor_notes") or ""
-    transcript = state.get("transcript") or ""
-    complaint = state.get("chief_complaint") or "Teleconsultation follow-up"
+# Node 1: Preprocess transcript, manage token context window, detect empty/trivial dialogues
+def preprocess_and_manage_context(state: ConsultationState) -> dict:
+    raw_transcript = (state.get("transcript") or "").strip()
+    raw_notes = (state.get("doctor_notes") or "").strip()
+
+    # Normalize dialogue lines
+    lines = [line.strip() for line in raw_transcript.splitlines() if line.strip()]
+    cleaned_transcript = "\n".join(lines)
+
+    total_words = len(cleaned_transcript.split())
+    is_trivial = total_words < 8 and not raw_notes
+
+    # Context management: Cap exceptionally long transcripts to 12,000 characters (~3000 tokens)
+    # while preserving both the opening clinical intake and the closing advice/plan.
+    max_char_len = 12000
+    if len(cleaned_transcript) > max_char_len:
+        half = max_char_len // 2
+        head = cleaned_transcript[:half]
+        tail = cleaned_transcript[-half:]
+        cleaned_transcript = f"{head}\n\n[... Transcript condensed for clinical processing ...]\n\n{tail}"
+
+    return {
+        "sanitized_transcript": cleaned_transcript,
+        "is_empty_or_trivial": is_trivial,
+    }
+
+
+# Node 2: Extract structured 6-dimension clinical summary via single high-fidelity Claude call
+def extract_structured_summary(state: ConsultationState) -> dict:
     patient_name = state.get("patient_name") or "Patient"
     doctor_name = state.get("doctor_name") or "Doctor"
+    chief_complaint = state.get("chief_complaint") or "Telehealth medical consultation"
+    doctor_notes = state.get("doctor_notes") or ""
+    transcript = state.get("sanitized_transcript") or ""
+    is_trivial = state.get("is_empty_or_trivial", False)
 
-    if not llm:
-        return {
-            "communication_summary": (
-                f"Video telehealth consultation conducted between {patient_name} and {doctor_name}. "
-                f"The patient reported symptoms concerning '{complaint}'. The clinician reviewed symptom onset and severity, "
-                f"evaluated visual and vital telemetry, and discussed immediate symptomatic management. "
-                f"A tailored medical treatment plan and digital prescription were authorized, with clear follow-up instructions."
-            )
-        }
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are a clinical documentation specialist. Based on the complete video consultation transcript "
-            "and doctor notes, write a clear, professional narrative (4-6 sentences) summarizing the whole "
-            "communication between the doctor and patient.\n"
-            "Include:\n"
-            "1. Patient's reported symptoms, timeline, and main concerns voiced during the call.\n"
-            "2. Clinician's diagnostic assessment, questions, and vital sign evaluations.\n"
-            "3. Mutual agreement on lifestyle guidance, prescribed medications, and next steps."
-        )),
-        ("user", (
-            "Patient: {patient_name}\n"
-            "Doctor: {doctor_name}\n"
-            "Chief Complaint: {chief_complaint}\n"
-            "Doctor Notes: {doctor_notes}\n"
-            "Call Transcript: {transcript}\n\n"
-            "Generate Complete Communication Summary:"
-        )),
-    ])
-    chain = prompt | llm | StrOutputParser()
-    try:
-        result = chain.invoke({
-            "patient_name": patient_name,
-            "doctor_name": doctor_name,
-            "chief_complaint": complaint,
-            "doctor_notes": notes,
-            "transcript": transcript,
-        })
-        return {"communication_summary": result.strip()}
-    except Exception:
-        return {
-            "communication_summary": (
-                f"Video telehealth consultation conducted between {patient_name} and {doctor_name} for '{complaint}'. "
-                f"Clinical evaluation and symptom assessment completed over secure WebRTC. "
-                f"Patient advised on treatment adherence, hydration, and follow-up care."
-            )
-        }
-
-
-# Node 2: Extract clinical observations and evaluate symptoms from transcript + notes
-def extract_observations(state: ConsultationState) -> dict:
-    llm = get_llm()
-    notes = state.get("doctor_notes") or "Standard video evaluation."
-    transcript = state.get("transcript") or "Live WebRTC audio/video call completed."
-    complaint = state.get("chief_complaint") or "Teleconsultation follow-up"
-
-    if not llm:
-        # Resilient offline/key-free clinical fallback
-        return {
-            "observations": (
-                f"Patient appeared alert and oriented during the telehealth session for {complaint}. "
-                f"Clinical notes recorded: {notes}. Telecommunication evaluation revealed stable vital parameters with no acute distress."
-            )
-        }
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are a clinical documentation specialist. Based on the doctor notes and call transcript, "
-            "provide an objective, professional clinical observation paragraph. Note patient presentation, "
-            "evaluated symptoms, and vital assessments. Be concise, clinical, and factual (3-4 sentences)."
-        )),
-        ("user", (
-            "Patient: {patient_name}\n"
-            "Doctor: {doctor_name}\n"
-            "Chief Complaint: {chief_complaint}\n"
-            "Doctor Notes: {doctor_notes}\n"
-            "Call Transcript/Chat: {transcript}\n\n"
-            "Generate Clinical Observations:"
-        )),
-    ])
-    chain = prompt | llm | StrOutputParser()
-    try:
-        result = chain.invoke({
-            "patient_name": state.get("patient_name", "Patient"),
-            "doctor_name": state.get("doctor_name", "Doctor"),
-            "chief_complaint": complaint,
-            "doctor_notes": notes,
-            "transcript": transcript,
-        })
-        return {"observations": result.strip()}
-    except Exception as e:
-        return {
-            "observations": f"Clinical observation synthesized: {notes}. Condition assessed stable over secure telehealth."
-        }
-
-
-# Node 2: Synthesize patient advice, prescribed actions & medication routine
-def generate_advice_and_actions(state: ConsultationState) -> dict:
-    llm = get_llm()
-    notes = state.get("doctor_notes") or ""
-    transcript = state.get("transcript") or ""
-    obs = state.get("observations") or ""
-
-    if not llm:
-        return {
-            "doctor_advice": (
-                "Continue hydration and symptomatic relief. Monitor symptoms twice daily. "
-                "Adhere strictly to the dietary and rest regimen discussed during the consultation."
+    # If dialogue is genuinely empty or trivial, return an honest clinical record
+    # without hallucinating fake symptoms or observations.
+    if is_trivial:
+        fallback_summary = {
+            "reason_for_consultation": chief_complaint,
+            "patient_reported_symptoms": (
+                f"No verbal symptom statements recorded in dialogue for chief complaint: '{chief_complaint}'."
             ),
-            "prescribed_actions": (
-                "Review digital prescription in the portal. Complete any recommended diagnostic tests "
-                "or laboratory work ordered by the doctor."
+            "discussion_points": (
+                "Video consultation session concluded without recorded verbal dialogue or chat transcript."
+            ),
+            "doctor_observations_and_advice": (
+                doctor_notes if doctor_notes else "No specific clinician notes entered during the video session."
+            ),
+            "recommended_next_steps": (
+                "Review digital prescription in the patient portal if issued by doctor. Follow clinical instructions provided directly by clinician."
+            ),
+            "follow_up_recommendations": (
+                "Schedule a follow-up consultation if symptoms persist or worsen. Seek immediate emergency medical care for acute distress."
+            ),
+            "missing_information": (
+                "Complete audio transcript was unavailable or not recorded. Objective vital signs and detailed symptom timeline pending clinician confirmation."
+            ),
+            "safety_disclaimer": (
+                "ADVISORY ONLY: Summary compiled from session booking data and doctor notes. No verbal transcript was available."
             ),
         }
+        return {"structured_summary": fallback_summary}
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are an expert physician communicator. Based on the clinical observations and consultation record, "
-            "produce two separate sections in JSON or clear labeled format:\n"
-            "1. DOCTOR_ADVICE: Clear, reassuring, patient-friendly guidance on lifestyle, symptom management, and rest.\n"
-            "2. PRESCRIBED_ACTIONS: Bullet-style specific actions (medication reminders, tests, hydration, physical care)."
-        )),
-        ("user", (
-            "Observations: {observations}\n"
-            "Doctor Notes: {doctor_notes}\n"
-            "Transcript: {transcript}\n\n"
-            "Format your answer exactly with:\n"
-            "DOCTOR_ADVICE: <text>\n"
-            "PRESCRIBED_ACTIONS: <text>"
-        )),
-    ])
-    chain = prompt | llm | StrOutputParser()
-    try:
-        raw = chain.invoke({
-            "observations": obs,
-            "doctor_notes": notes,
-            "transcript": transcript,
-        })
-        advice = "Continue recommended rest, hydration, and prescribed treatment."
-        actions = "Follow the digital prescription issued in your portal."
-        if "DOCTOR_ADVICE:" in raw and "PRESCRIBED_ACTIONS:" in raw:
-            parts = raw.split("PRESCRIBED_ACTIONS:")
-            advice = parts[0].replace("DOCTOR_ADVICE:", "").strip()
-            actions = parts[1].strip()
-        elif "DOCTOR_ADVICE:" in raw:
-            advice = raw.replace("DOCTOR_ADVICE:", "").strip()
-        return {"doctor_advice": advice, "prescribed_actions": actions}
-    except Exception:
-        return {
-            "doctor_advice": "Maintain hydration and follow clinical guidance as discussed.",
-            "prescribed_actions": "Review and adhere to your digital prescription.",
-        }
+    parser = JsonOutputParser(pydantic_object=StructuredConsultationSummary)
+
+    system_prompt = (
+        "You are an expert clinical documentation specialist in a telehealth setting. "
+        "Your task is to analyze the video consultation dialogue transcript and doctor's notes, "
+        "and generate a strictly factual, structured clinical summary.\n\n"
+        "CLINICAL SAFETY GUIDELINES (STRICT):\n"
+        "1. DO NOT INVENT or extrapolate symptoms, diagnoses, vital signs, or medications not explicitly stated in the transcript or notes.\n"
+        "2. DISTINGUISH patient-reported subjective statements from doctor's objective clinical advice.\n"
+        "3. CLEARLY IDENTIFY MISSING INFORMATION: If allergies, duration of illness, temperature, or vitals were not discussed, explicitly state that in 'missing_information'.\n"
+        "4. KEEP ADVISORY: Frame observations neutrally as discussion points, not definitive in-person clinical diagnoses.\n"
+        "5. Output must be a valid JSON object matching this schema:\n"
+        "{\n"
+        '  "reason_for_consultation": "...",\n'
+        '  "patient_reported_symptoms": "...",\n'
+        '  "discussion_points": "...",\n'
+        '  "doctor_observations_and_advice": "...",\n'
+        '  "recommended_next_steps": "...",\n'
+        '  "follow_up_recommendations": "...",\n'
+        '  "missing_information": "...",\n'
+        '  "safety_disclaimer": "..."\n'
+        "}"
+    )
+
+    user_prompt = (
+        f"Patient Name: {patient_name}\n"
+        f"Doctor Name: {doctor_name}\n"
+        f"Booked Chief Complaint: {chief_complaint}\n"
+        f"Doctor's In-Call Notes: {doctor_notes}\n"
+        f"Consultation Dialogue Transcript:\n{transcript}\n\n"
+        "Generate the structured clinical consultation summary in the required JSON format."
+    )
+
+    # Strategy A: LangChain ChatOpenAI if langchain_openai is present
+    if ChatOpenAI is not None and os.getenv("OPENROUTER_API_KEY", "").strip():
+        try:
+            llm = ChatOpenAI(
+                model=os.getenv("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet"),
+                openai_api_key=os.getenv("OPENROUTER_API_KEY", "").strip(),
+                openai_api_base="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": "https://pulsecare.local",
+                    "X-Title": "PulseCare Smart Healthcare Telehealth",
+                },
+                temperature=0.1,
+            )
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", system_prompt + "\n\n{format_instructions}"),
+                ("user", user_prompt),
+            ]).partial(format_instructions=parser.get_format_instructions())
+
+            chain = prompt | llm | parser
+            parsed = chain.invoke({})
+            if parsed and isinstance(parsed, dict):
+                return {"structured_summary": parsed}
+        except Exception as e:
+            print(f"ChatOpenAI execution attempt skipped: {e}")
+
+    # Strategy B: Direct OpenRouter HTTP client with JSON schema enforcement
+    direct_result = call_openrouter_api(system_prompt, user_prompt)
+    if direct_result and isinstance(direct_result, dict):
+        return {"structured_summary": direct_result}
+
+    # Strategy C: Honest offline clinical fallback
+    notes_text = doctor_notes if doctor_notes else "Clinician evaluated patient during video consultation."
+    fallback_summary = {
+        "reason_for_consultation": chief_complaint,
+        "patient_reported_symptoms": (
+            f"Patient reported chief complaint: '{chief_complaint}'. Dialogue transcript recorded."
+        ),
+        "discussion_points": (
+            f"Video consultation conducted between {patient_name} and {doctor_name} regarding reported symptoms."
+        ),
+        "doctor_observations_and_advice": notes_text,
+        "recommended_next_steps": (
+            "Review digital prescription in portal if issued. Follow clinical instructions provided."
+        ),
+        "follow_up_recommendations": (
+            "Routine follow-up in 7-10 days if symptoms do not improve. Seek immediate emergency care if breathing difficulty or severe chest pain occurs."
+        ),
+        "missing_information": (
+            "AI service operating in offline mode. Detailed symptom timeline and vitals require attending doctor's direct manual review."
+        ),
+        "safety_disclaimer": (
+            "ADVISORY ONLY: Summary compiled with fallback parser. Attending clinician review and confirmation required."
+        ),
+    }
+    return {"structured_summary": fallback_summary}
 
 
-# Node 3: Safety audit, red flags & follow-up care instructions
-def safety_and_follow_up(state: ConsultationState) -> dict:
-    llm = get_llm()
-    complaint = state.get("chief_complaint") or "routine consultation"
+# Node 3: Safety audit & compliance disclaimer guardrail
+def safety_and_compliance_guardrail(state: ConsultationState) -> dict:
+    summary = state.get("structured_summary") or {}
 
-    if not llm:
-        return {
-            "follow_up": (
-                "Schedule a follow-up consultation in 7–10 days if symptoms persist. "
-                "WARNING: Seek immediate emergency medical care if you experience chest tightness, "
-                "severe shortness of breath, sustained high fever above 102°F, or sudden dizziness."
-            ),
-            "safety_disclaimer": "This meeting summary was generated with AI assistance (LangChain + LangGraph) and verified for clinical compliance.",
-        }
+    # Enforce mandatory non-diagnostic clinical disclaimer
+    mandatory_disclaimer = (
+        "ADVISORY ONLY: This consultation summary is AI-generated for clinical documentation assistance (LangChain + LangGraph). "
+        "It does not constitute a certified medical diagnosis. The attending clinician must review, edit as necessary, "
+        "and confirm this record before it is finalized."
+    )
+    summary["safety_disclaimer"] = mandatory_disclaimer
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", (
-            "You are a patient safety officer. Provide a clear follow-up schedule and specific red-flag warning signs "
-            "relevant to the condition: when to seek immediate emergency department care versus routine review in 7-10 days."
-        )),
-        ("user", (
-            "Chief Complaint: {chief_complaint}\n"
-            "Observations: {observations}\n"
-            "Advice: {doctor_advice}\n\n"
-            "Generate concise follow-up recommendation and red-flag warning criteria:"
-        )),
-    ])
-    chain = prompt | llm | StrOutputParser()
-    try:
-        result = chain.invoke({
-            "chief_complaint": complaint,
-            "observations": state.get("observations", ""),
-            "doctor_advice": state.get("doctor_advice", ""),
-        })
-        return {
-            "follow_up": result.strip(),
-            "safety_disclaimer": "This summary is produced with LangGraph + OpenRouter AI and reviewed for telehealth compliance.",
-        }
-    except Exception:
-        return {
-            "follow_up": "Schedule follow-up review in 7–10 days if symptoms do not improve. Seek immediate emergency care for acute respiratory difficulty or severe chest discomfort.",
-            "safety_disclaimer": "PulseCare Telehealth AI Meeting Summary",
-        }
+    fields_to_check = [
+        ("reason_for_consultation", "Telehealth consultation follow-up"),
+        ("patient_reported_symptoms", "Symptoms evaluated during consultation."),
+        ("discussion_points", "Clinical discussion conducted between patient and clinician."),
+        ("doctor_observations_and_advice", "Clinician advice provided during consultation."),
+        ("recommended_next_steps", "Adhere to digital prescription and clinical recommendations."),
+        ("follow_up_recommendations", "Follow up with physician if symptoms persist."),
+        ("missing_information", "None explicitly noted."),
+    ]
+
+    for key, default_val in fields_to_check:
+        if not summary.get(key) or not str(summary.get(key)).strip():
+            summary[key] = default_val
+
+    return {"structured_summary": summary}
 
 
-# Build and compile the LangGraph workflow
+# Build and compile the optimized LangGraph pipeline
 def build_consultation_summary_graph():
     builder = StateGraph(ConsultationState)
 
-    builder.add_node("synthesize_communication_summary", synthesize_communication_summary)
-    builder.add_node("extract_observations", extract_observations)
-    builder.add_node("generate_advice_and_actions", generate_advice_and_actions)
-    builder.add_node("safety_and_follow_up", safety_and_follow_up)
+    builder.add_node("preprocess_and_manage_context", preprocess_and_manage_context)
+    builder.add_node("extract_structured_summary", extract_structured_summary)
+    builder.add_node("safety_and_compliance_guardrail", safety_and_compliance_guardrail)
 
-    builder.add_edge(START, "synthesize_communication_summary")
-    builder.add_edge("synthesize_communication_summary", "extract_observations")
-    builder.add_edge("extract_observations", "generate_advice_and_actions")
-    builder.add_edge("generate_advice_and_actions", "safety_and_follow_up")
-    builder.add_edge("safety_and_follow_up", END)
+    builder.add_edge(START, "preprocess_and_manage_context")
+    builder.add_edge("preprocess_and_manage_context", "extract_structured_summary")
+    builder.add_edge("extract_structured_summary", "safety_and_compliance_guardrail")
+    builder.add_edge("safety_and_compliance_guardrail", END)
 
     return builder.compile()
 
 
 consultation_graph = build_consultation_summary_graph()
-

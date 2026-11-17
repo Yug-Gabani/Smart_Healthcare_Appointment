@@ -22,6 +22,8 @@ import java.util.UUID;
 /**
  * JPA entity representing a live telehealth consultation room session and its
  * archived post-visit structured clinical summary.
+ * Follows DR-11, DR-15, and DR-16: original AI advisory output is stored in
+ * separate columns from clinician-confirmed data, and doctor overrides are audited.
  */
 @Entity
 @Table(name = "consultation_sessions")
@@ -56,8 +58,15 @@ public class ConsultationSession {
     @Column(name = "transcript", columnDefinition = "TEXT")
     private String transcript;
 
+    // --- Core 6-dimension clinical summary (Clinician-Verified) ---
     @Column(name = "summary_chief_complaint", columnDefinition = "TEXT")
     private String summaryChiefComplaint;
+
+    @Column(name = "summary_patient_symptoms", columnDefinition = "TEXT")
+    private String summaryPatientSymptoms;
+
+    @Column(name = "summary_discussion_points", columnDefinition = "TEXT")
+    private String summaryDiscussionPoints;
 
     @Column(name = "summary_observations", columnDefinition = "TEXT")
     private String summaryObservations;
@@ -70,6 +79,42 @@ public class ConsultationSession {
 
     @Column(name = "summary_follow_up", columnDefinition = "TEXT")
     private String summaryFollowUp;
+
+    @Column(name = "summary_missing_info", columnDefinition = "TEXT")
+    private String summaryMissingInfo;
+
+    // --- Immutable AI Advisory Output (DR-15, DR-16) ---
+    @Column(name = "ai_summary_raw", columnDefinition = "TEXT")
+    private String aiSummaryRaw;
+
+    @Column(name = "ai_generated_at")
+    private OffsetDateTime aiGeneratedAt;
+
+    // --- Clinician Review & Override Audit Trail ---
+    @Column(name = "doctor_reviewed", nullable = false)
+    @Builder.Default
+    private boolean doctorReviewed = false;
+
+    @Column(name = "doctor_reviewed_at")
+    private OffsetDateTime doctorReviewedAt;
+
+    @Column(name = "doctor_reviewed_by")
+    private UUID doctorReviewedBy;
+
+    @Column(name = "doctor_override_notes", columnDefinition = "TEXT")
+    private String doctorOverrideNotes;
+
+    // --- Dual Consent Audit Tracking (DR-11) ---
+    @Column(name = "patient_consent_transcription", nullable = false)
+    @Builder.Default
+    private boolean patientConsentTranscription = false;
+
+    @Column(name = "doctor_consent_transcription", nullable = false)
+    @Builder.Default
+    private boolean doctorConsentTranscription = false;
+
+    @Column(name = "consent_timestamp")
+    private OffsetDateTime consentTimestamp;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

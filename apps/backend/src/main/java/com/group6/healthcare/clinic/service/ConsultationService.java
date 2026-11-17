@@ -1,8 +1,10 @@
 package com.group6.healthcare.clinic.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.group6.healthcare.clinic.dto.ConsultationEndRequest;
 import com.group6.healthcare.clinic.dto.ConsultationSessionResponse;
 import com.group6.healthcare.clinic.dto.ConsultationSignalMessage;
+import com.group6.healthcare.clinic.dto.DoctorReviewSummaryRequest;
 import com.group6.healthcare.clinic.entity.Appointment;
 import com.group6.healthcare.clinic.entity.AppointmentStatus;
 import com.group6.healthcare.clinic.entity.ConsultationSession;
@@ -47,6 +49,7 @@ public class ConsultationService {
     private final DoctorSlotRepository slotRepository;
     private final UserRepository userRepository;
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.ai.service-url:http://localhost:8001}")
     private String aiServiceUrl;
@@ -71,6 +74,7 @@ public class ConsultationService {
         this.slotRepository = slotRepository;
         this.userRepository = userRepository;
         this.restClient = RestClient.builder().build();
+        this.objectMapper = new ObjectMapper();
     }
 
     @Transactional
@@ -108,6 +112,9 @@ public class ConsultationService {
                             .appointmentId(appointmentId)
                             .roomId(roomId)
                             .status(ConsultationSessionStatus.SCHEDULED)
+                            .doctorReviewed(false)
+                            .patientConsentTranscription(false)
+                            .doctorConsentTranscription(false)
                             .build();
                     return sessionRepository.save(newSession);
                 });
@@ -176,7 +183,6 @@ public class ConsultationService {
         Doctor doctor = doctorRepository.findById(appt.getDoctorId()).orElse(null);
         User patient = userRepository.findById(appt.getPatientId()).orElse(null);
 
-        // Build structured clinical summary
         String chiefComplaint = appt.getChiefComplaint();
         if (chiefComplaint == null || chiefComplaint.isBlank()) {
             chiefComplaint = "Routine medical teleconsultation follow-up.";
@@ -188,62 +194,216 @@ public class ConsultationService {
         String patientName = patient != null ? patient.getFullName() : "Patient";
         String doctorName = doctor != null ? "Dr. " + doctor.getFullName() : "Doctor";
 
+        // Update consent if explicitly submitted in end request
+        if (req != null) {
+            if (req.patientConsentTranscription() != null) {
+                session.setPatientConsentTranscription(req.patientConsentTranscription());
+            }
+            if (req.doctorConsentTranscription() != null) {
+                session.setDoctorConsentTranscription(req.doctorConsentTranscription());
+            }
+            if (session.getConsentTimestamp() == null) {
+                session.setConsentTimestamp(OffsetDateTime.now());
+            }
+        }
+
         // Attempt LangChain + LangGraph AI Meeting Summarization via ai-service / OpenRouter
         AiSummaryResponse aiSummary = tryGenerateAiSummary(patientName, doctorName, chiefComplaint, transcript, doctorNotes);
 
-        // Prioritize LangChain + LangGraph AI Meeting Summarization outputs from dialogue transcript
-        String observations = (aiSummary != null && aiSummary.observations() != null && !aiSummary.observations().isBlank())
-                ? aiSummary.observations()
+        // Save raw AI advisory output into immutable column (DR-15, DR-16)
+        if (aiSummary != null) {
+            try {
+                session.setAiSummaryRaw(objectMapper.writeValueAsString(aiSummary));
+                session.setAiGeneratedAt(OffsetDateTime.now());
+            } catch (Exception e) {
+                log.warn("Failed to serialize raw AI summary payload: {}", e.getMessage());
+            }
+        }
+
+        // Extract structured dimensions
+        String reason = (aiSummary != null && aiSummary.reason_for_consultation() != null && !aiSummary.reason_for_consultation().isBlank())
+                ? aiSummary.reason_for_consultation()
+                : chiefComplaint;
+
+        String patientSymptoms = (aiSummary != null && aiSummary.patient_reported_symptoms() != null && !aiSummary.patient_reported_symptoms().isBlank())
+                ? aiSummary.patient_reported_symptoms()
+                : (req != null && req.patientSymptoms() != null && !req.patientSymptoms().isBlank())
+                ? req.patientSymptoms()
+                : (transcript.isBlank() ? "No verbal transcript recorded during session." : "Symptoms discussed during live telehealth call.");
+
+        String discussionPoints = (aiSummary != null && aiSummary.discussion_points() != null && !aiSummary.discussion_points().isBlank())
+                ? aiSummary.discussion_points()
+                : (req != null && req.discussionPoints() != null && !req.discussionPoints().isBlank())
+                ? req.discussionPoints()
+                : "Telehealth clinical review conducted between patient and clinician.";
+
+        String observations = (aiSummary != null && aiSummary.doctor_observations_and_advice() != null && !aiSummary.doctor_observations_and_advice().isBlank())
+                ? aiSummary.doctor_observations_and_advice()
                 : (req != null && req.observations() != null && !req.observations().isBlank())
                 ? req.observations()
-                : "Patient appeared alert and oriented. Symptoms evaluated over secure video consult. Visual assessment noted stable condition with no acute respiratory distress.";
+                : "Visual assessment and symptom evaluation completed over secure video stream.";
 
         String advice = (aiSummary != null && aiSummary.doctor_advice() != null && !aiSummary.doctor_advice().isBlank())
                 ? aiSummary.doctor_advice()
                 : (req != null && req.doctorNotes() != null && !req.doctorNotes().isBlank())
                 ? req.doctorNotes()
-                : "Continue prescribed hydration and symptomatic relief. Monitor body temperature and rest. Maintain current treatment course as discussed.";
+                : "Follow doctor advice and instructions discussed during the consultation.";
 
-        String actions = (aiSummary != null && aiSummary.prescribed_actions() != null && !aiSummary.prescribed_actions().isBlank())
+        String actions = (aiSummary != null && aiSummary.recommended_next_steps() != null && !aiSummary.recommended_next_steps().isBlank())
+                ? aiSummary.recommended_next_steps()
+                : (aiSummary != null && aiSummary.prescribed_actions() != null && !aiSummary.prescribed_actions().isBlank())
                 ? aiSummary.prescribed_actions()
                 : (req != null && req.prescribedActions() != null && !req.prescribedActions().isBlank())
                 ? req.prescribedActions()
-                : "Adhere to the digital prescription issued in the portal. Complete any ordered blood tests or follow-up laboratory work.";
+                : "Adhere to the digital prescription issued in the portal.";
 
-        String followUp = (aiSummary != null && aiSummary.follow_up() != null && !aiSummary.follow_up().isBlank())
+        String followUp = (aiSummary != null && aiSummary.follow_up_recommendations() != null && !aiSummary.follow_up_recommendations().isBlank())
+                ? aiSummary.follow_up_recommendations()
+                : (aiSummary != null && aiSummary.follow_up() != null && !aiSummary.follow_up().isBlank())
                 ? aiSummary.follow_up()
                 : (req != null && req.followUp() != null && !req.followUp().isBlank())
                 ? req.followUp()
-                : "Schedule follow-up review in 7–10 days if symptoms persist. Seek immediate emergency care if chest tightness, severe fever, or shortness of breath develops.";
+                : "Schedule follow-up review in 7–10 days if symptoms persist. Seek immediate emergency care for red flag symptoms.";
+
+        String missingInfo = (aiSummary != null && aiSummary.missing_information() != null && !aiSummary.missing_information().isBlank())
+                ? aiSummary.missing_information()
+                : "Detailed symptom timeline and vitals subject to attending doctor's direct clinical verification.";
 
         String communicationSummary = (aiSummary != null && aiSummary.communication_summary() != null && !aiSummary.communication_summary().isBlank())
                 ? aiSummary.communication_summary()
-                : "Video telehealth consultation conducted between " + patientName + " and " + doctorName + " for '" + chiefComplaint + "'. Clinical evaluation and symptom review completed with medical advice and prescriptions provided.";
-
-        String finalObservations = communicationSummary + "\n\nClinical Observations & Telemetry: " + observations;
+                : "Video telehealth consultation conducted between " + patientName + " and " + doctorName + " for '" + chiefComplaint + "'.";
 
         session.setStatus(ConsultationSessionStatus.COMPLETED);
         session.setEndedAt(OffsetDateTime.now());
         session.setTranscript(transcript);
-        session.setSummaryChiefComplaint(chiefComplaint);
-        session.setSummaryObservations(finalObservations);
+        session.setSummaryChiefComplaint(reason);
+        session.setSummaryPatientSymptoms(patientSymptoms);
+        session.setSummaryDiscussionPoints(discussionPoints);
+        session.setSummaryObservations(communicationSummary + "\n\nClinical Observations: " + observations);
         session.setSummaryDoctorAdvice(advice);
         session.setSummaryPrescribedActions(actions);
         session.setSummaryFollowUp(followUp);
+        session.setSummaryMissingInfo(missingInfo);
+
+        // Mark as pending doctor review until the clinician confirms or edits it
+        session.setDoctorReviewed(false);
 
         session = sessionRepository.save(session);
 
-        // Automatically advance the appointment status to COMPLETED and save the whole communication summary in notes
+        // Advance appointment status to COMPLETED and record summary notes
         appt.setStatus(AppointmentStatus.COMPLETED);
         appt.setNotes(communicationSummary);
         appointmentRepository.save(appt);
 
-        // Broadcast an END_CALL message so connected peers immediately transition to summary screen
+        // Broadcast END_CALL message
         pushSignal(appointmentId, new ConsultationSignalMessage(
                 "END_CALL",
                 requesterId,
                 doctor != null && doctor.getUserId().equals(requesterId) ? "DOCTOR" : "PATIENT",
-                "Consultation completed by clinician",
+                "Consultation completed by participant",
+                System.currentTimeMillis()
+        ));
+
+        return getOrCreateSession(appointmentId, requesterId);
+    }
+
+    @Transactional
+    public ConsultationSessionResponse reviewAndOverrideSummary(
+            UUID appointmentId,
+            UUID doctorUserId,
+            DoctorReviewSummaryRequest req) {
+
+        Appointment appt = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Appointment", appointmentId));
+
+        Doctor doctor = doctorRepository.findById(appt.getDoctorId())
+                .orElseThrow(() -> new ResourceNotFoundException("Doctor", appt.getDoctorId()));
+
+        if (!doctor.getUserId().equals(doctorUserId)) {
+            throw new BusinessRuleException("Only the attending doctor can review and confirm this consultation summary.");
+        }
+
+        ConsultationSession session = sessionRepository.findByAppointmentId(appointmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("ConsultationSession", appointmentId));
+
+        // Update clinician-verified fields
+        if (req.chiefComplaint() != null && !req.chiefComplaint().isBlank()) {
+            session.setSummaryChiefComplaint(req.chiefComplaint().trim());
+        }
+        if (req.patientSymptoms() != null && !req.patientSymptoms().isBlank()) {
+            session.setSummaryPatientSymptoms(req.patientSymptoms().trim());
+        }
+        if (req.discussionPoints() != null && !req.discussionPoints().isBlank()) {
+            session.setSummaryDiscussionPoints(req.discussionPoints().trim());
+        }
+        if (req.observations() != null && !req.observations().isBlank()) {
+            session.setSummaryObservations(req.observations().trim());
+        }
+        if (req.doctorAdvice() != null && !req.doctorAdvice().isBlank()) {
+            session.setSummaryDoctorAdvice(req.doctorAdvice().trim());
+        }
+        if (req.prescribedActions() != null && !req.prescribedActions().isBlank()) {
+            session.setSummaryPrescribedActions(req.prescribedActions().trim());
+        }
+        if (req.followUp() != null && !req.followUp().isBlank()) {
+            session.setSummaryFollowUp(req.followUp().trim());
+        }
+        if (req.missingInfo() != null && !req.missingInfo().isBlank()) {
+            session.setSummaryMissingInfo(req.missingInfo().trim());
+        }
+
+        // Record clinician audit details (DR-15, DR-16)
+        // Original AI advisory summary in session.aiSummaryRaw remains UNTOUCHED
+        session.setDoctorReviewed(Boolean.TRUE.equals(req.confirmVerification()));
+        session.setDoctorReviewedAt(OffsetDateTime.now());
+        session.setDoctorReviewedBy(doctorUserId);
+        session.setDoctorOverrideNotes(req.overrideNotes());
+
+        session = sessionRepository.save(session);
+        log.info("Clinician {} reviewed and verified summary for appointment {}", doctorUserId, appointmentId);
+
+        // Notify connected peer that verified summary is ready
+        pushSignal(appointmentId, new ConsultationSignalMessage(
+                "SUMMARY_VERIFIED",
+                doctorUserId,
+                "DOCTOR",
+                "Clinical summary verified by attending physician",
+                System.currentTimeMillis()
+        ));
+
+        return getOrCreateSession(appointmentId, doctorUserId);
+    }
+
+    @Transactional
+    public ConsultationSessionResponse recordConsent(
+            UUID appointmentId,
+            UUID requesterId,
+            String requesterRole,
+            boolean consent) {
+
+        Appointment appt = appointmentRepository.findById(appointmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Appointment", appointmentId));
+
+        ConsultationSession session = sessionRepository.findByAppointmentId(appointmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("ConsultationSession", appointmentId));
+
+        if ("DOCTOR".equalsIgnoreCase(requesterRole)) {
+            session.setDoctorConsentTranscription(consent);
+        } else {
+            session.setPatientConsentTranscription(consent);
+        }
+
+        session.setConsentTimestamp(OffsetDateTime.now());
+        session = sessionRepository.save(session);
+
+        // Broadcast CONSENT_STATE signal
+        pushSignal(appointmentId, new ConsultationSignalMessage(
+                "CONSENT_STATE",
+                requesterId,
+                requesterRole,
+                String.format("{\"patientConsent\":%b,\"doctorConsent\":%b}",
+                        session.isPatientConsentTranscription(),
+                        session.isDoctorConsentTranscription()),
                 System.currentTimeMillis()
         ));
 
@@ -306,7 +466,18 @@ public class ConsultationService {
                 s.getSummaryDoctorAdvice(),
                 s.getSummaryPrescribedActions(),
                 s.getSummaryFollowUp(),
-                s.getCreatedAt()
+                s.getCreatedAt(),
+                s.getSummaryPatientSymptoms(),
+                s.getSummaryDiscussionPoints(),
+                s.getSummaryMissingInfo(),
+                s.getAiSummaryRaw(),
+                s.getAiGeneratedAt(),
+                s.isDoctorReviewed(),
+                s.getDoctorReviewedAt(),
+                s.getDoctorOverrideNotes(),
+                s.isPatientConsentTranscription(),
+                s.isDoctorConsentTranscription(),
+                s.getConsentTimestamp()
         );
     }
 
@@ -319,13 +490,21 @@ public class ConsultationService {
     ) {}
 
     public record AiSummaryResponse(
+            String reason_for_consultation,
+            String patient_reported_symptoms,
+            String discussion_points,
+            String doctor_observations_and_advice,
+            String recommended_next_steps,
+            String follow_up_recommendations,
+            String missing_information,
+            String safety_disclaimer,
+            // Legacy aliases
             String chief_complaint,
             String communication_summary,
             String observations,
             String doctor_advice,
             String prescribed_actions,
-            String follow_up,
-            String safety_disclaimer
+            String follow_up
     ) {}
 
     private AiSummaryResponse tryGenerateAiSummary(

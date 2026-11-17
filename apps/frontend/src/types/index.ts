@@ -391,11 +391,25 @@ export interface ConsultationSession {
   startedAt?: string;
   endedAt?: string;
   transcript?: string;
+  // 6 Structured Clinical Dimensions
   summaryChiefComplaint?: string;
+  summaryPatientSymptoms?: string;
+  summaryDiscussionPoints?: string;
   summaryObservations?: string;
   summaryDoctorAdvice?: string;
   summaryPrescribedActions?: string;
   summaryFollowUp?: string;
+  summaryMissingInfo?: string;
+  // AI Advisory vs Clinician Verification Audit
+  aiSummaryRaw?: string;
+  aiGeneratedAt?: string;
+  doctorReviewed?: boolean;
+  doctorReviewedAt?: string;
+  doctorOverrideNotes?: string;
+  // Dual-consent audit tracking
+  patientConsentTranscription?: boolean;
+  doctorConsentTranscription?: boolean;
+  consentTimestamp?: string;
   createdAt: string;
 }
 
@@ -413,6 +427,23 @@ export interface ConsultationEndRequest {
   observations?: string;
   prescribedActions?: string;
   followUp?: string;
+  patientConsentTranscription?: boolean;
+  doctorConsentTranscription?: boolean;
+  patientSymptoms?: string;
+  discussionPoints?: string;
+}
+
+export interface DoctorReviewSummaryRequest {
+  chiefComplaint?: string;
+  patientSymptoms?: string;
+  discussionPoints?: string;
+  observations?: string;
+  doctorAdvice?: string;
+  prescribedActions?: string;
+  followUp?: string;
+  missingInfo?: string;
+  overrideNotes?: string;
+  confirmVerification: boolean;
 }
 
 export interface TranscriptEntry {

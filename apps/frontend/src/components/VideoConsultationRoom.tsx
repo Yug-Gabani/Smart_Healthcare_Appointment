@@ -213,6 +213,23 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
   const [showEndModal, setShowEndModal] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
 
+  // Dual-consent tracking for audio transcription (DR-11)
+  const [hasGivenConsent, setHasGivenConsent] = useState<boolean>(false);
+  const [peerHasGivenConsent, setPeerHasGivenConsent] = useState<boolean>(false);
+
+  // Doctor post-consultation review & override state (DR-15, DR-16)
+  const [isReviewingSummary, setIsReviewingSummary] = useState<boolean>(false);
+  const [reviewChiefComplaint, setReviewChiefComplaint] = useState<string>('');
+  const [reviewPatientSymptoms, setReviewPatientSymptoms] = useState<string>('');
+  const [reviewDiscussionPoints, setReviewDiscussionPoints] = useState<string>('');
+  const [reviewObservations, setReviewObservations] = useState<string>('');
+  const [reviewDoctorAdvice, setReviewDoctorAdvice] = useState<string>('');
+  const [reviewPrescribedActions, setReviewPrescribedActions] = useState<string>('');
+  const [reviewFollowUp, setReviewFollowUp] = useState<string>('');
+  const [reviewMissingInfo, setReviewMissingInfo] = useState<string>('');
+  const [reviewOverrideNotes, setReviewOverrideNotes] = useState<string>('');
+  const [isSavingReview, setIsSavingReview] = useState<boolean>(false);
+
   // WebRTC refs
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -243,6 +260,26 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
       ]);
       setSession(sess);
       setAppointment(appt);
+
+      if (isDoctor) {
+        setHasGivenConsent(!!sess.doctorConsentTranscription);
+        setPeerHasGivenConsent(!!sess.patientConsentTranscription);
+      } else {
+        setHasGivenConsent(!!sess.patientConsentTranscription);
+        setPeerHasGivenConsent(!!sess.doctorConsentTranscription);
+      }
+
+      if (sess.status === 'COMPLETED' && isDoctor && !sess.doctorReviewed) {
+        setReviewChiefComplaint(sess.summaryChiefComplaint || appt?.chiefComplaint || '');
+        setReviewPatientSymptoms(sess.summaryPatientSymptoms || '');
+        setReviewDiscussionPoints(sess.summaryDiscussionPoints || '');
+        setReviewObservations(sess.summaryObservations || '');
+        setReviewDoctorAdvice(sess.summaryDoctorAdvice || '');
+        setReviewPrescribedActions(sess.summaryPrescribedActions || '');
+        setReviewFollowUp(sess.summaryFollowUp || '');
+        setReviewMissingInfo(sess.summaryMissingInfo || '');
+        setReviewOverrideNotes(sess.doctorOverrideNotes || '');
+      }
 
       if (sess.canJoin && sess.status !== 'COMPLETED') {
         setCallActive(true);
@@ -744,6 +781,27 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
                 break;
               }
 
+              case 'CONSENT_STATE': {
+                try {
+                  const consentData = JSON.parse(sig.payload);
+                  if (isDoctor) {
+                    setPeerHasGivenConsent(!!consentData.patientConsent);
+                  } else {
+                    setPeerHasGivenConsent(!!consentData.doctorConsent);
+                  }
+                } catch (err) {
+                  console.warn('Error parsing CONSENT_STATE:', err);
+                }
+                break;
+              }
+
+              case 'SUMMARY_VERIFIED': {
+                consultationsApi.getSession(appointmentId).then(sess => {
+                  setSession(sess);
+                }).catch(console.warn);
+                break;
+              }
+
               case 'END_CALL': {
                 // Peer ended consultation; refresh session to show post-visit summary
                 consultationsApi.getSession(appointmentId).then(sess => {
@@ -798,7 +856,9 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
       return;
     }
 
-    if (!callActive || isMuted || !isTranscribing) {
+    const bothConsented = hasGivenConsent && peerHasGivenConsent;
+
+    if (!callActive || isMuted || !isTranscribing || !bothConsented) {
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
@@ -884,7 +944,7 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
         } catch {}
       }
     };
-  }, [callActive, isMuted, isTranscribing, currentUser, isDoctor, appointmentId]);
+  }, [callActive, isMuted, isTranscribing, hasGivenConsent, peerHasGivenConsent, currentUser, isDoctor, appointmentId]);
 
   // Quick or manual transcript entry submission (for test environments or mic-free devices)
   const handleAddTranscriptEntry = (spokenText?: string) => {
@@ -1071,6 +1131,65 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
         'Thank you Doctor, I will pick up the prescription.',
       ];
 
+  // Grant affirmative audio transcription consent (DR-11)
+  const handleGrantConsent = async () => {
+    setHasGivenConsent(true);
+    if (appointmentId) {
+      try {
+        const updated = await consultationsApi.updateConsent(appointmentId, true);
+        setSession(updated);
+      } catch (e) {
+        console.warn('Consent update failed:', e);
+      }
+    }
+  };
+
+  // Reconnection recovery for WebRTC drop
+  const handleReconnect = () => {
+    setPeerConnectionStatus('connecting');
+    if (pcRef.current) {
+      try {
+        pcRef.current.restartIce();
+      } catch {}
+    }
+    if (isDoctor) {
+      createAndSendOffer();
+    } else if (appointmentId) {
+      consultationsApi
+        .sendSignal(appointmentId, {
+          type: 'PEER_READY',
+          payload: JSON.stringify({ role: 'PATIENT' }),
+        })
+        .catch(console.warn);
+    }
+  };
+
+  // Save clinician review & overrides for the 6-dimension summary (DR-15, DR-16)
+  const handleSaveDoctorReview = async () => {
+    if (!appointmentId) return;
+    setIsSavingReview(true);
+    try {
+      const updated = await consultationsApi.reviewSummary(appointmentId, {
+        chiefComplaint: reviewChiefComplaint,
+        patientSymptoms: reviewPatientSymptoms,
+        discussionPoints: reviewDiscussionPoints,
+        observations: reviewObservations,
+        doctorAdvice: reviewDoctorAdvice,
+        prescribedActions: reviewPrescribedActions,
+        followUp: reviewFollowUp,
+        missingInfo: reviewMissingInfo,
+        overrideNotes: reviewOverrideNotes,
+        confirmVerification: true,
+      });
+      setSession(updated);
+      setIsReviewingSummary(false);
+    } catch (err: any) {
+      alert(err.message || 'Failed to save reviewed clinical summary');
+    } finally {
+      setIsSavingReview(false);
+    }
+  };
+
   // End consultation and generate structured post-visit summary
   const handleEndConsultation = async () => {
     if (!appointmentId) return;
@@ -1103,17 +1222,9 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
 
     let transcriptText = allDialogue.map(d => `[${d.time}] ${d.speaker} (${d.role}): ${d.text}`).join('\n');
 
-    // If dialogue is empty (e.g. mic permission was denied or offline testing), provide realistic clinical interaction record
+    // If dialogue is empty, do NOT invent symptoms or clinical statements (Safety Principle DR-15)
     if (!transcriptText.trim()) {
-      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const docName = session?.doctorName || (isDoctor ? currentUser?.fullName || 'Dr. Jenkins' : 'Dr. Jenkins');
-      const patName = session?.patientName || (!isDoctor ? currentUser?.fullName || 'Avi Patel' : 'Avi Patel');
-      const complaint = appointment?.chiefComplaint || 'Consultation follow-up';
-      transcriptText = [
-        `[${nowTime}] ${docName} (DOCTOR): Good morning ${patName}, thank you for joining the video consultation. What symptoms are you experiencing today?`,
-        `[${nowTime}] ${patName} (PATIENT): Hello Doctor, I have been dealing with ${complaint} for the past two days.`,
-        `[${nowTime}] ${docName} (DOCTOR): I see. Let me review your vitals and observations. Please rest, maintain adequate hydration, and adhere to the prescribed actions issued in your portal.`,
-      ].join('\n');
+      transcriptText = 'No spoken audio transcript recorded during this video consultation.';
     }
 
     const observationsText = `Vitals recorded: Blood Pressure: ${vitalBP}, Pulse: ${vitalPulse}, Temp: ${vitalTemp}. Patient conscious, coherent, visual assessment completed via encrypted telehealth.`;
@@ -1121,10 +1232,12 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
     try {
       const updatedSession = await consultationsApi.end(appointmentId, {
         transcript: transcriptText,
-        doctorNotes: doctorNotes || 'Consultation conducted smoothly. Patient advised on symptom management.',
+        doctorNotes: doctorNotes || 'Consultation conducted smoothly. Clinical evaluation completed.',
         observations: observationsText,
         prescribedActions,
         followUp: followUpAdvice,
+        patientConsentTranscription: isDoctor ? peerHasGivenConsent : hasGivenConsent,
+        doctorConsentTranscription: isDoctor ? hasGivenConsent : peerHasGivenConsent,
       });
 
       // Stop all local tracks
@@ -1141,7 +1254,16 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
       setIsEnding(false);
 
       if (isDoctor) {
-        navigate('/doctor');
+        // Pre-fill review form with AI output
+        setReviewChiefComplaint(updatedSession.summaryChiefComplaint || appointment?.chiefComplaint || '');
+        setReviewPatientSymptoms(updatedSession.summaryPatientSymptoms || '');
+        setReviewDiscussionPoints(updatedSession.summaryDiscussionPoints || '');
+        setReviewObservations(updatedSession.summaryObservations || '');
+        setReviewDoctorAdvice(updatedSession.summaryDoctorAdvice || '');
+        setReviewPrescribedActions(updatedSession.summaryPrescribedActions || '');
+        setReviewFollowUp(updatedSession.summaryFollowUp || '');
+        setReviewMissingInfo(updatedSession.summaryMissingInfo || '');
+        setIsReviewingSummary(true);
       } else {
         navigate(`/appointments/${appointmentId}`);
       }
@@ -1391,10 +1513,10 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
     );
   }
 
-  // Already completed room (Display post-visit clinical summary)
+  // Already completed room (Display post-visit clinical summary or Doctor Review Mode)
   if (session.status === 'COMPLETED') {
     return (
-      <div style={{ maxWidth: '820px', margin: '48px auto', padding: '0 24px' }}>
+      <div style={{ maxWidth: '840px', margin: '48px auto', padding: '0 24px' }}>
         <button
           onClick={() => navigate(-1)}
           className="hover-lift"
@@ -1424,37 +1546,107 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
             boxShadow: '0 8px 30px rgba(15,118,110,0.06)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-            <div
-              style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '50%',
-                backgroundColor: '#eaf6f2',
-                color: '#059669',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <CheckCircle2 size={26} />
-            </div>
-            <div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div
                 style={{
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  letterSpacing: '0.08em',
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '50%',
+                  backgroundColor: '#eaf6f2',
                   color: '#059669',
-                  textTransform: 'uppercase',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                CONSULTATION CONCLUDED
+                <CheckCircle2 size={26} />
               </div>
-              <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0b3f3a', margin: 0 }}>
-                Clinical Visit Summary & Instructions
-              </h1>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      letterSpacing: '0.08em',
+                      color: '#059669',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    CONSULTATION CONCLUDED
+                  </span>
+                  {session.doctorReviewed ? (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        backgroundColor: '#dcfce7',
+                        color: '#15803d',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <ShieldCheck size={12} /> Clinician Verified
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        backgroundColor: '#fef3c7',
+                        color: '#b45309',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <ShieldAlert size={12} /> AI Advisory (Verification Pending)
+                    </span>
+                  )}
+                </div>
+                <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#0b3f3a', margin: 0 }}>
+                  Structured Clinical Visit Summary
+                </h1>
+              </div>
             </div>
+
+            {isDoctor && !isReviewingSummary && (
+              <button
+                type="button"
+                onClick={() => {
+                  setReviewChiefComplaint(session.summaryChiefComplaint || appointment?.chiefComplaint || '');
+                  setReviewPatientSymptoms(session.summaryPatientSymptoms || '');
+                  setReviewDiscussionPoints(session.summaryDiscussionPoints || '');
+                  setReviewObservations(session.summaryObservations || '');
+                  setReviewDoctorAdvice(session.summaryDoctorAdvice || '');
+                  setReviewPrescribedActions(session.summaryPrescribedActions || '');
+                  setReviewFollowUp(session.summaryFollowUp || '');
+                  setReviewMissingInfo(session.summaryMissingInfo || '');
+                  setReviewOverrideNotes(session.doctorOverrideNotes || '');
+                  setIsReviewingSummary(true);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 18px',
+                  borderRadius: '9999px',
+                  backgroundColor: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  color: '#166534',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Review & Override Summary
+              </button>
+            )}
           </div>
 
           <div
@@ -1480,93 +1672,260 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
             </div>
           </div>
 
-          {/* Structured Clinical Sections */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
+          {isReviewingSummary && isDoctor ? (
+            /* Clinician Review & Override Form */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div
                 style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: '#52736d',
-                  marginBottom: '4px',
+                  backgroundColor: '#fefce8',
+                  border: '1px solid #fef08a',
+                  borderRadius: '12px',
+                  padding: '12px 16px',
+                  fontSize: '13px',
+                  color: '#713f12',
                 }}
               >
-                1. Chief Complaint & Reported Concerns
+                <strong>Clinician Verification (DR-15, DR-16):</strong> Review and adjust the AI-generated
+                summary dimensions below before signing. The original AI output remains archived in immutable audit records.
               </div>
-              <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
-                {session.summaryChiefComplaint || appointment?.chiefComplaint || 'Reported medical concern.'}
-              </div>
-            </div>
 
-            <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
-              <div
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: '#52736d',
-                  marginBottom: '4px',
-                }}
-              >
-                2. Clinical Observations & Recorded Vitals
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#0b3f3a', display: 'block', marginBottom: '4px' }}>
+                  1. Reason for Consultation:
+                </label>
+                <input
+                  type="text"
+                  value={reviewChiefComplaint}
+                  onChange={e => setReviewChiefComplaint(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
               </div>
-              <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
-                {session.summaryObservations || 'Clinical vitals recorded and verified.'}
-              </div>
-            </div>
 
-            <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
-              <div
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: '#52736d',
-                  marginBottom: '4px',
-                }}
-              >
-                3. Doctor's Medical Advice & Treatment Plan
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#0b3f3a', display: 'block', marginBottom: '4px' }}>
+                  2. Patient-Reported Symptoms:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewPatientSymptoms}
+                  onChange={e => setReviewPatientSymptoms(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
               </div>
-              <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
-                {session.summaryDoctorAdvice || 'Follow medical guidance provided.'}
-              </div>
-            </div>
 
-            <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
-              <div
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: '#52736d',
-                  marginBottom: '4px',
-                }}
-              >
-                4. Prescribed Medications & Actions
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#0b3f3a', display: 'block', marginBottom: '4px' }}>
+                  3. Important Discussion Points:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewDiscussionPoints}
+                  onChange={e => setReviewDiscussionPoints(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
               </div>
-              <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
-                {session.summaryPrescribedActions || 'Digital prescription provided in patient portal.'}
-              </div>
-            </div>
 
-            <div style={{ borderLeft: '3px solid #d97706', paddingLeft: '14px' }}>
-              <div
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: '#d97706',
-                  marginBottom: '4px',
-                }}
-              >
-                5. Follow-Up Instructions & Warning Signs
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#0b3f3a', display: 'block', marginBottom: '4px' }}>
+                  4. Doctor Observations:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewObservations}
+                  onChange={e => setReviewObservations(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
               </div>
-              <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
-                {session.summaryFollowUp || 'Follow up with clinician if symptoms do not improve.'}
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#0b3f3a', display: 'block', marginBottom: '4px' }}>
+                  4b. Doctor Advice & Clinical Instructions:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewDoctorAdvice}
+                  onChange={e => setReviewDoctorAdvice(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#0b3f3a', display: 'block', marginBottom: '4px' }}>
+                  5. Prescribed Actions & Digital Prescriptions:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewPrescribedActions}
+                  onChange={e => setReviewPrescribedActions(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#0b3f3a', display: 'block', marginBottom: '4px' }}>
+                  6. Follow-Up Plan & Red Flags:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewFollowUp}
+                  onChange={e => setReviewFollowUp(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#0b3f3a', display: 'block', marginBottom: '4px' }}>
+                  Missing / Unconfirmed Information:
+                </label>
+                <textarea
+                  rows={2}
+                  value={reviewMissingInfo}
+                  onChange={e => setReviewMissingInfo(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#b91c1c', display: 'block', marginBottom: '4px' }}>
+                  Doctor Override Notes (Immutable Audit Entry):
+                </label>
+                <input
+                  type="text"
+                  placeholder="Reason for clinical override or correction..."
+                  value={reviewOverrideNotes}
+                  onChange={e => setReviewOverrideNotes(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #f87171', fontSize: '13px' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsReviewingSummary(false)}
+                  disabled={isSavingReview}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveDoctorReview}
+                  disabled={isSavingReview}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 20px',
+                    borderRadius: '8px',
+                    background: '#0f766e',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {isSavingReview ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  Confirm & Save Verified Record
+                </button>
               </div>
             </div>
-          </div>
+          ) : (
+            /* Structured 6-Dimension Read-Only Display */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {session.doctorOverrideNotes && (
+                <div
+                  style={{
+                    backgroundColor: '#fff7ed',
+                    borderRadius: '12px',
+                    padding: '12px 18px',
+                    border: '1px solid #fed7aa',
+                    fontSize: '13px',
+                    color: '#9a3412',
+                  }}
+                >
+                  <strong>Clinician Override Note:</strong> {session.doctorOverrideNotes}
+                </div>
+              )}
+
+              <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#52736d', marginBottom: '4px' }}>
+                  1. Reason for Consultation
+                </div>
+                <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
+                  {session.summaryChiefComplaint || appointment?.chiefComplaint || 'Reported medical concern.'}
+                </div>
+              </div>
+
+              <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#52736d', marginBottom: '4px' }}>
+                  2. Patient-Reported Symptoms (Subjective)
+                </div>
+                <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
+                  {session.summaryPatientSymptoms || 'Symptoms evaluated during consultation.'}
+                </div>
+              </div>
+
+              <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#52736d', marginBottom: '4px' }}>
+                  3. Important Discussion Points
+                </div>
+                <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
+                  {session.summaryDiscussionPoints || 'Discussion completed between doctor and patient.'}
+                </div>
+              </div>
+
+              <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#52736d', marginBottom: '4px' }}>
+                  4. Doctor Observations & Advice
+                </div>
+                <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
+                  {session.summaryObservations || 'Clinical vitals recorded and verified.'}
+                </div>
+                {session.summaryDoctorAdvice && (
+                  <div style={{ fontSize: '13px', color: '#134e48', marginTop: '6px', fontWeight: 600 }}>
+                    Advice: {session.summaryDoctorAdvice}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ borderLeft: '3px solid #0f766e', paddingLeft: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#52736d', marginBottom: '4px' }}>
+                  5. Prescribed Medications & Actions
+                </div>
+                <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
+                  {session.summaryPrescribedActions || 'Digital prescription provided in patient portal.'}
+                </div>
+              </div>
+
+              <div style={{ borderLeft: '3px solid #d97706', paddingLeft: '14px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', color: '#d97706', marginBottom: '4px' }}>
+                  6. Follow-Up Instructions & Warning Signs
+                </div>
+                <div style={{ fontSize: '14px', color: '#0b3f3a', lineHeight: 1.6 }}>
+                  {session.summaryFollowUp || 'Follow up with clinician if symptoms do not improve.'}
+                </div>
+              </div>
+
+              {session.summaryMissingInfo && (
+                <div style={{ backgroundColor: '#fafaf9', borderRadius: '12px', padding: '12px 16px', border: '1px solid #e7e5e4' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#57534e', marginBottom: '4px' }}>
+                    Identified Missing / Unconfirmed Information:
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#78716c', lineHeight: 1.5 }}>
+                    {session.summaryMissingInfo}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={{ marginTop: '32px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
             <button onClick={() => navigate('/prescriptions')} className="btn btn-primary hover-lift">
@@ -1697,6 +2056,16 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
                 <Loader2 size={13} className="animate-spin" />
                 <span>Connecting…</span>
               </>
+            ) : peerConnectionStatus === 'disconnected' ? (
+              <>
+                <Wifi size={13} />
+                <span>Disconnected</span>
+              </>
+            ) : peerConnectionStatus === 'failed' ? (
+              <>
+                <AlertCircle size={13} color="#f87171" />
+                <span>Connection Failed</span>
+              </>
             ) : (
               <>
                 <Wifi size={13} />
@@ -1704,6 +2073,28 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
               </>
             )}
           </div>
+
+          {(peerConnectionStatus === 'disconnected' || peerConnectionStatus === 'failed') && (
+            <button
+              type="button"
+              onClick={handleReconnect}
+              style={{
+                backgroundColor: '#f59e0b',
+                border: 'none',
+                color: '#ffffff',
+                padding: '5px 12px',
+                borderRadius: '9999px',
+                fontSize: '11px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              Reconnect
+            </button>
+          )}
 
           {/* Call duration timer */}
           <div
@@ -1777,6 +2168,57 @@ export const VideoConsultationRoom: React.FC<VideoConsultationRoomProps> = ({ cu
             border: '1px solid #1c3d37',
           }}
         >
+          {/* Dual-Consent Audio Transcription Banner (Safety DR-11) */}
+          {!(hasGivenConsent && peerHasGivenConsent) && (
+            <div
+              style={{
+                backgroundColor: 'rgba(15, 118, 110, 0.35)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(45, 212, 191, 0.4)',
+                borderRadius: '12px',
+                padding: '10px 16px',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                fontSize: '12px',
+                color: '#e6fffa',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldCheck size={16} color="#2dd4bf" />
+                <span>
+                  <strong>Dual-Consent Audio Transcription (DR-11):</strong>{' '}
+                  {!hasGivenConsent
+                    ? 'In compliance with medical privacy principles, live transcription requires affirmative consent from both doctor and patient.'
+                    : `You granted consent. Waiting for ${peerDisplayName} to consent before live speech-to-text begins.`}
+                </span>
+              </div>
+
+              {!hasGivenConsent && (
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={handleGrantConsent}
+                    style={{
+                      backgroundColor: '#059669',
+                      border: 'none',
+                      color: '#ffffff',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Consent to Transcription
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Video Grid */}
           <div
             style={{

@@ -15,6 +15,7 @@ import type {
   ConsultationSession,
   ConsultationSignalMessage,
   ConsultationEndRequest,
+  DoctorReviewSummaryRequest,
   QueueAdvisorResponse,
   Role,
   ScheduleTemplate,
@@ -507,6 +508,26 @@ export const consultationsApi = {
   ): Promise<ConsultationSignalMessage[]> =>
     request<ConsultationSignalMessage[]>(
       `/v1/consultations/appointments/${appointmentId}/signals?since=${since}`
+    ),
+
+  reviewSummary: (
+    appointmentId: string,
+    data: DoctorReviewSummaryRequest
+  ): Promise<ConsultationSession> =>
+    request<ConsultationSession>(`/v1/consultations/appointments/${appointmentId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateConsent: (
+    appointmentId: string,
+    consent: boolean = true
+  ): Promise<ConsultationSession> =>
+    request<ConsultationSession>(
+      `/v1/consultations/appointments/${appointmentId}/consent?consent=${consent}`,
+      {
+        method: 'POST',
+      }
     ),
 };
 

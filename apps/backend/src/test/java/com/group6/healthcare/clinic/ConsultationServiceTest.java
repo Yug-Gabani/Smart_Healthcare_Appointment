@@ -3,6 +3,7 @@ package com.group6.healthcare.clinic;
 import com.group6.healthcare.clinic.dto.ConsultationEndRequest;
 import com.group6.healthcare.clinic.dto.ConsultationSessionResponse;
 import com.group6.healthcare.clinic.dto.ConsultationSignalMessage;
+import com.group6.healthcare.clinic.dto.DoctorReviewSummaryRequest;
 import com.group6.healthcare.clinic.entity.Appointment;
 import com.group6.healthcare.clinic.entity.AppointmentStatus;
 import com.group6.healthcare.clinic.entity.ConsultationSession;
@@ -203,9 +204,102 @@ class ConsultationServiceTest {
         assertThat(finished.summaryChiefComplaint()).isEqualTo("Migraine and visual auras");
         assertThat(finished.summaryObservations()).contains("BP 120/80");
         assertThat(finished.summaryDoctorAdvice()).contains("Prescribed analgesics");
+        assertThat(finished.doctorReviewed()).isFalse();
 
         // Verify appointment status was marked COMPLETED in database
         Appointment updatedAppt = appointmentRepository.findById(videoAppointment.getId()).orElseThrow();
         assertThat(updatedAppt.getStatus()).isEqualTo(AppointmentStatus.COMPLETED);
     }
+
+    @Test
+    @DisplayName("Clinician can review, edit, and confirm post-consultation summary with overrides")
+    void testDoctorReviewAndOverrideSummary() {
+        consultationService.startConsultation(videoAppointment.getId(), doctorUser.getId());
+
+        ConsultationEndRequest endReq = new ConsultationEndRequest(
+                "Spoken dialogue about visual auras.",
+                "Initial note: advised rest.",
+                "Obs: normal pupil response.",
+                "Take paracetamol 500mg.",
+                "Review in 10 days."
+        );
+        consultationService.endConsultation(videoAppointment.getId(), doctorUser.getId(), endReq);
+
+        DoctorReviewSummaryRequest reviewReq = new DoctorReviewSummaryRequest(
+                "Confirmed Classic Migraine with Ophthalmic Aura",
+                "Patient reported scintillating scotoma lasting 30 minutes followed by unilateral pulsatile pain.",
+                "Discussed stress triggers, screen ergonomics, and sleep hygiene.",
+                "Neurological examination intact. Visual fields normal.",
+                "Sumatriptan 50mg PRN at aura onset. Rest in dark, quiet environment.",
+                "Prescription issued for Sumatriptan. Blood pressure log to be kept.",
+                "Follow up in 2 weeks. Emergency care if sudden thunderclap headache occurs.",
+                "Patient reports no known drug allergies; previous response to NSAIDs partial.",
+                "Overrode initial general headache diagnosis with specific migraine protocol.",
+                true
+        );
+
+        ConsultationSessionResponse reviewed = consultationService.reviewAndOverrideSummary(
+                videoAppointment.getId(),
+                doctorUser.getId(),
+                reviewReq
+        );
+
+        assertThat(reviewed.doctorReviewed()).isTrue();
+        assertThat(reviewed.doctorReviewedAt()).isNotNull();
+        assertThat(reviewed.doctorOverrideNotes()).contains("Overrode initial general headache");
+        assertThat(reviewed.summaryChiefComplaint()).isEqualTo("Confirmed Classic Migraine with Ophthalmic Aura");
+        assertThat(reviewed.summaryPatientSymptoms()).contains("scintillating scotoma");
+        assertThat(reviewed.summaryDiscussionPoints()).contains("screen ergonomics");
+        assertThat(reviewed.summaryDoctorAdvice()).contains("Sumatriptan 50mg");
+        assertThat(reviewed.summaryMissingInfo()).contains("no known drug allergies");
+    }
+
+    @Test
+    @DisplayName("Non-doctor participant cannot review or override clinical summary")
+    void testNonDoctorCannotReviewSummary() {
+        consultationService.startConsultation(videoAppointment.getId(), doctorUser.getId());
+        consultationService.endConsultation(videoAppointment.getId(), doctorUser.getId(), null);
+
+        DoctorReviewSummaryRequest reviewReq = new DoctorReviewSummaryRequest(
+                "Unauthorized edit", "symptoms", "points", "obs", "advice", "actions", "follow", "missing", "note", true
+        );
+
+        assertThatThrownBy(() -> consultationService.reviewAndOverrideSummary(videoAppointment.getId(), patient.getId(), reviewReq))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("Only the attending doctor can review");
+    }
+
+    @Test
+@DisplayName("Dual-consent for transcription is accurately recorded and audited")
+void testTranscriptionConsentRecording() {
+
+    // Start consultation before recording consent
+    consultationService.startConsultation(
+            videoAppointment.getId(),
+            doctorUser.getId()
+    );
+
+    // Patient grants consent
+    ConsultationSessionResponse res1 = consultationService.recordConsent(
+            videoAppointment.getId(),
+            patient.getId(),
+            "PATIENT",
+            true
+    );
+
+    assertThat(res1.patientConsentTranscription()).isTrue();
+    assertThat(res1.doctorConsentTranscription()).isFalse();
+
+    // Doctor grants consent
+    ConsultationSessionResponse res2 = consultationService.recordConsent(
+            videoAppointment.getId(),
+            doctorUser.getId(),
+            "DOCTOR",
+            true
+    );
+
+    assertThat(res2.patientConsentTranscription()).isTrue();
+    assertThat(res2.doctorConsentTranscription()).isTrue();
+    assertThat(res2.consentTimestamp()).isNotNull();
+}
 }
