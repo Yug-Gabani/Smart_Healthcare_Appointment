@@ -71,12 +71,12 @@ export const PharmacyCheckoutPage: React.FC = () => {
 
         // Pre-fill address if available
         if (profileData) {
-          if (profileData.fullName) setDeliveryName(prev => prev || profileData.fullName);
-          if (profileData.phone) setDeliveryPhone(prev => prev || profileData.phone);
-          if (profileData.addressStreet) setDeliveryStreet(prev => prev || profileData.addressStreet);
-          if (profileData.addressCity) setDeliveryCity(prev => prev || profileData.addressCity);
-          if (profileData.addressState) setDeliveryState(prev => prev || profileData.addressState);
-          if (profileData.addressPincode) setDeliveryPincode(prev => prev || profileData.addressPincode);
+          if (profileData.fullName) setDeliveryName(prev => prev || profileData.fullName || '');
+          if (profileData.phone) setDeliveryPhone(prev => prev || profileData.phone || '');
+          if (profileData.addressStreet) setDeliveryStreet(prev => prev || profileData.addressStreet || '');
+          if (profileData.addressCity) setDeliveryCity(prev => prev || profileData.addressCity || '');
+          if (profileData.addressState) setDeliveryState(prev => prev || profileData.addressState || '');
+          if (profileData.addressPincode) setDeliveryPincode(prev => prev || profileData.addressPincode || '');
         }
 
         // Filter signed prescriptions
