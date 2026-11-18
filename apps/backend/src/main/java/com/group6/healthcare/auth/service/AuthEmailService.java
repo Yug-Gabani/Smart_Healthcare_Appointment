@@ -45,17 +45,25 @@ public class AuthEmailService {
     public void sendPasswordResetEmail(User user, String rawToken, int validityMinutes) {
         String resetUrl = buildResetUrl(rawToken);
 
+        // Always log the link to the server terminal for instant local dev & debugging
+        log.info("🔗 [PASSWORD RESET LINK] For {} => {}", user.getEmail(), resetUrl);
+
         if (mailSender == null || mailUsername == null || mailUsername.isBlank()) {
-            // Dev fallback — log the link so a developer without SMTP configured
-            // can still test the flow end-to-end from the server logs.
-            log.warn("SMTP not configured; password reset link for {} => {}", user.getEmail(), resetUrl);
+            log.warn("SMTP credentials not configured; check the link logged above for testing.");
             return;
         }
 
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
-            helper.setFrom(mailFrom);
+            String sender = (mailFrom != null && !mailFrom.isBlank() && !mailFrom.equalsIgnoreCase("no-reply@pulsecare.app"))
+                    ? mailFrom
+                    : (mailUsername != null && !mailUsername.isBlank() ? mailUsername : "no-reply@pulsecare.app");
+            try {
+                helper.setFrom(sender, productName);
+            } catch (Exception ex) {
+                helper.setFrom(sender);
+            }
             helper.setTo(user.getEmail());
             helper.setSubject("Reset your " + productName + " password");
             helper.setText(buildHtmlBody(user, resetUrl, validityMinutes), true);
