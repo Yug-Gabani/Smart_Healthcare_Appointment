@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { PageTransition } from '../motion/PageTransition';
@@ -10,9 +10,6 @@ import {
   X,
   Loader2,
   RefreshCw,
-  Clock,
-  CheckCircle2,
-  Calendar,
   ShieldCheck,
   FileText,
   ExternalLink,

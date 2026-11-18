@@ -6,13 +6,12 @@ import {
   CheckCircle2,
   Clock,
   Loader2,
-  Palmtree,
+  TreePalm,
   Plus,
   RefreshCw,
   Save,
   Trash2,
   X,
-  XCircle,
   Sparkles,
   CalendarOff,
 } from 'lucide-react';
@@ -20,7 +19,6 @@ import { CustomSelect } from './CustomSelect';
 import { doctorProfileApi } from '../services/api';
 import type {
   DoctorLeave,
-  DoctorMe,
   DoctorSlotDetail,
   ScheduleTemplate,
 } from '../types';
@@ -51,7 +49,6 @@ interface DayRowConfig {
 }
 
 export const AvailabilityScheduleManager: React.FC = () => {
-  const [profile, setProfile] = useState<DoctorMe | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [savingSchedule, setSavingSchedule] = useState<boolean>(false);
   const [submittingLeave, setSubmittingLeave] = useState<boolean>(false);
@@ -129,10 +126,9 @@ export const AvailabilityScheduleManager: React.FC = () => {
     try {
       const [meRes, leavesRes, slotsRes] = await Promise.all([
         doctorProfileApi.me(),
-        doctorProfileApi.getLeaves().catch(() => []),
-        doctorProfileApi.getSlotsInventory(14).catch(() => []),
+        doctorProfileApi.getLeaves().catch(() => [] as DoctorLeave[]),
+        doctorProfileApi.getSlotsInventory(14).catch(() => [] as DoctorSlotDetail[]),
       ]);
-      setProfile(meRes);
       populateWeeklyConfig(meRes.scheduleTemplate || []);
       setLeaves(leavesRes);
       setSlotsInventory(slotsRes);
@@ -202,7 +198,6 @@ export const AvailabilityScheduleManager: React.FC = () => {
       }
 
       const updated = await doctorProfileApi.replaceSchedule(payload);
-      setProfile(updated);
       populateWeeklyConfig(updated.scheduleTemplate || []);
 
       // Refresh slots inventory
@@ -490,7 +485,7 @@ export const AvailabilityScheduleManager: React.FC = () => {
 
         <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '18px 20px', border: '1px solid #d9ece7', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.04)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#d97706', marginBottom: '6px' }}>
-            <Palmtree size={16} />
+            <TreePalm size={16} />
             <span style={{ fontSize: '12px', fontWeight: 600, color: '#8aa39d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Vacation / Leaves</span>
           </div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#b45309' }}>{upcomingLeavesCount} Active Block(s)</div>
@@ -721,7 +716,7 @@ export const AvailabilityScheduleManager: React.FC = () => {
         {/* SECTION 2: VACATION & LEAVE CALENDAR */}
         <div style={{ backgroundColor: '#ffffff', borderRadius: '18px', border: '1px solid #d9ece7', padding: '24px', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.04)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Palmtree size={20} color="#b45309" />
+            <TreePalm size={20} color="#b45309" />
             <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#0b3f3a', margin: 0 }}>
               Vacation & Leave Calendar
             </h2>
@@ -827,7 +822,7 @@ export const AvailabilityScheduleManager: React.FC = () => {
                 onMouseEnter={(e) => { if (!submittingLeave) e.currentTarget.style.backgroundColor = '#92400e'; }}
                 onMouseLeave={(e) => { if (!submittingLeave) e.currentTarget.style.backgroundColor = '#b45309'; }}
               >
-                {submittingLeave ? <Loader2 size={15} className="animate-spin" /> : <Palmtree size={15} />}
+                {submittingLeave ? <Loader2 size={15} className="animate-spin" /> : <TreePalm size={15} />}
                 Block Out Leave Dates
               </button>
             </form>
@@ -850,7 +845,7 @@ export const AvailabilityScheduleManager: React.FC = () => {
                     fontSize: '13px',
                   }}
                 >
-                  <Palmtree size={24} color="#9ca3af" style={{ margin: '0 auto 8px auto', display: 'block' }} />
+                  <TreePalm size={24} color="#9ca3af" style={{ margin: '0 auto 8px auto', display: 'block' }} />
                   No vacation or leave dates currently recorded. All recurring weekly slots are active.
                 </div>
               ) : (
