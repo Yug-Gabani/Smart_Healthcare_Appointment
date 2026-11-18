@@ -71,7 +71,7 @@ public class PasswordResetService {
     public void requestReset(String email) {
         var userOpt = userRepository.findByEmailIgnoreCase(email);
         if (userOpt.isEmpty()) {
-            log.info("Password reset requested for unknown email (returning silent success)");
+            log.warn("Password reset requested for email '{}', but this email is NOT registered in the database.", email);
             return;
         }
         User user = userOpt.get();
