@@ -22,6 +22,15 @@ public class DoctorService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private RedisSlotReservationService redisSlotReservationService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.group6.healthcare.clinic.repository.DoctorLeaveRepository leaveRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.group6.healthcare.clinic.repository.DoctorScheduleTemplateRepository templateRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private SlotGeneratorService slotGenerator;
+
     private final DoctorRepository doctorRepository;
     private final DoctorSlotRepository slotRepository;
 
@@ -118,13 +127,27 @@ public class DoctorService {
 
     @Transactional
     public void replenishForwardSlots(Doctor doctor, int daysAhead) {
+        int horizon = Math.max(7, daysAhead);
+
+        // If the doctor has configured a weekly recurring schedule template, delegate to SlotGeneratorService
+        if (templateRepository != null && slotGenerator != null) {
+            var templates = templateRepository.findByDoctorIdOrderByDayOfWeekAscStartTimeAsc(doctor.getId());
+            if (!templates.isEmpty()) {
+                slotGenerator.regenerate(doctor.getId(), horizon);
+                return;
+            }
+        }
+
         OffsetDateTime now = OffsetDateTime.now();
         java.time.LocalDate today = java.time.LocalDate.now();
         java.time.ZoneId zone = java.time.ZoneId.systemDefault();
-        int horizon = Math.max(7, daysAhead);
         for (int day = 0; day < horizon; day++) {
             java.time.LocalDate date = today.plusDays(day);
             if (date.getDayOfWeek() == java.time.DayOfWeek.SATURDAY || date.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
+                continue;
+            }
+            // Suppress slot creation if doctor is on leave
+            if (leaveRepository != null && leaveRepository.isDoctorOnLeave(doctor.getId(), date)) {
                 continue;
             }
             for (java.time.LocalTime time : DAILY_SLOT_TIMES) {

@@ -297,6 +297,21 @@ export interface ScheduleTemplate {
   slotDurationMinutes: number;    // 15 | 20 | 30 | 45 | 60
 }
 
+export interface DoctorLeave {
+  id: string;
+  doctorId: string;
+  startDate: string;              // "YYYY-MM-DD"
+  endDate: string;                // "YYYY-MM-DD"
+  reason?: string;
+  createdAt?: string;
+}
+
+export interface CreateDoctorLeaveRequest {
+  startDate: string;
+  endDate: string;
+  reason?: string;
+}
+
 export interface DoctorMe {
   id: string;
   userId: string;
