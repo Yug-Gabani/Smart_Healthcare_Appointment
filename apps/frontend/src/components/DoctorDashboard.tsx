@@ -24,7 +24,7 @@ import {
   ChevronUp,
   MessageSquare,
 } from 'lucide-react';
-import type { Appointment, DoctorStatus, Attachment, QueueAdvisorResponse, ConsultationSession } from '../types';
+import type { Appointment, DoctorStatus, Attachment, QueueAdvisorResponse, ConsultationSession, DoctorLeave } from '../types';
 import { appointmentsApi, doctorProfileApi, aiAdvisorApi, consultationsApi } from '../services/api';
 import { PrescriptionEditor } from './PrescriptionEditor';
 import { MeetingSummaryModal } from './MeetingSummaryModal';
@@ -91,12 +91,17 @@ export const DoctorDashboard: React.FC = () => {
   // once and redirect to /doctor/profile if PENDING or REJECTED.
   const [verifiedStatus, setVerifiedStatus] = useState<DoctorStatus | null>(null);
   const [statusChecked, setStatusChecked] = useState(false);
+  const [leaves, setLeaves] = useState<DoctorLeave[]>([]);
 
   useEffect(() => {
     doctorProfileApi.me()
       .then(d => setVerifiedStatus(d.status))
       .catch(() => setVerifiedStatus('APPROVED'))   // fall through for seeded doctors without a /me row
       .finally(() => setStatusChecked(true));
+
+    doctorProfileApi.listLeaves()
+      .then(setLeaves)
+      .catch(() => {});
   }, []);
 
   // Both lists are always loaded. `queue` below is derived from whichever tab is active;
@@ -196,7 +201,15 @@ export const DoctorDashboard: React.FC = () => {
     return dayOfWeek === 0 || dayOfWeek === 6; // 0 is Sun, 6 is Sat
   };
 
+  const [calendarHorizon, setCalendarHorizon] = useState<7 | 14>(14);
+
+  const getLeaveForDate = useCallback((dateISO: string) => {
+    return leaves.find(l => dateISO >= l.startDate && dateISO <= l.endDate);
+  }, [leaves]);
+
   const isSlotOpen = useCallback((key: string, dateISO?: string): boolean => {
+    // If the doctor has scheduled leave on this date, slots are automatically suppressed
+    if (dateISO && getLeaveForDate(dateISO)) return false;
     const override = slotOverrides[key];
     if (override === 'OPEN') return true;
     if (override === 'CLOSED') return false;
@@ -204,9 +217,13 @@ export const DoctorDashboard: React.FC = () => {
     if (dateISO && isWeekend(dateISO)) return false;
     // Monday to Friday are OPEN by default
     return true;
-  }, [slotOverrides]);
+  }, [slotOverrides, getLeaveForDate]);
 
   const toggleSlot = useCallback((key: string, time: string, dayLabel: string, dateISO: string) => {
+    if (getLeaveForDate(dateISO)) {
+      showSlotToast(`You are on scheduled leave on ${dateISO}. Slots cannot be opened during leave periods.`, 'closed');
+      return;
+    }
     const currentlyOpen = isSlotOpen(key, dateISO);
     const newStatus: 'OPEN' | 'CLOSED' = currentlyOpen ? 'CLOSED' : 'OPEN';
     setSlotOverrides(prev => {
@@ -221,9 +238,13 @@ export const DoctorDashboard: React.FC = () => {
       `${time} on ${dayLabel} is now marked as ${newStatus}`,
       currentlyOpen ? 'closed' : 'open'
     );
-  }, [slotOverrides, isSlotOpen]);
+  }, [slotOverrides, isSlotOpen, getLeaveForDate]);
 
   const toggleDaySlots = useCallback((dateISO: string, dayLabel: string) => {
+    if (getLeaveForDate(dateISO)) {
+      showSlotToast(`Cannot modify slots: You have marked ${dateISO} as vacation/leave in Doctor Profile.`, 'closed');
+      return;
+    }
     const hasAnyClosed = DEFAULT_TIMES.some(time => !isSlotOpen(`${dateISO}_${time}`, dateISO));
     const targetStatus: 'OPEN' | 'CLOSED' = hasAnyClosed ? 'OPEN' : 'CLOSED';
 
@@ -243,7 +264,7 @@ export const DoctorDashboard: React.FC = () => {
       `All slots for ${dayLabel} set to ${targetStatus}`,
       targetStatus === 'OPEN' ? 'open' : 'closed'
     );
-  }, [slotOverrides, DEFAULT_TIMES, isSlotOpen]);
+  }, [slotOverrides, DEFAULT_TIMES, isSlotOpen, getLeaveForDate]);
 
   const openAllSlots = useCallback(() => {
     setSlotOverrides({});
@@ -251,11 +272,11 @@ export const DoctorDashboard: React.FC = () => {
       localStorage.removeItem('pulsecare_doctor_slots_overrides');
       window.dispatchEvent(new Event('storage'));
     } catch {}
-    showSlotToast('Schedule reset to defaults (Mon–Fri open, Sat & Sun holidays)', 'open');
+    showSlotToast('Schedule reset to defaults (Mon–Fri open, Sat & Sun holidays, excluding leaves)', 'open');
   }, []);
 
   const next7Days = useMemo(() => {
-    return Array.from({ length: 7 }).map((_, idx) => {
+    return Array.from({ length: calendarHorizon }).map((_, idx) => {
       const d = new Date();
       d.setDate(d.getDate() + idx);
       const year = d.getFullYear();
@@ -265,9 +286,10 @@ export const DoctorDashboard: React.FC = () => {
       const dayName = idx === 0 ? 'Today' : idx === 1 ? 'Tomorrow' : d.toLocaleDateString(undefined, { weekday: 'short' });
       const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       const isSatOrSun = d.getDay() === 0 || d.getDay() === 6;
-      return { idx, date: d, dateISO, dayName, dateStr, isWeekend: isSatOrSun };
+      const leave = getLeaveForDate(dateISO);
+      return { idx, date: d, dateISO, dayName, dateStr, isWeekend: isSatOrSun, leave };
     });
-  }, []);
+  }, [calendarHorizon, getLeaveForDate]);
 
   const totalPossibleSlots = next7Days.length * DEFAULT_TIMES.length;
   const totalOpenSlots = useMemo(() => {
@@ -1656,7 +1678,7 @@ export const DoctorDashboard: React.FC = () => {
                 {totalOpenSlots} active slots
               </div>
               <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>
-                {totalClosedSlots > 0 ? `${totalClosedSlots} closed · ` : ''}7-day rolling window
+                {totalClosedSlots > 0 ? `${totalClosedSlots} closed · ` : ''}{calendarHorizon}-day rolling window
               </div>
             </div>
 
@@ -1673,13 +1695,49 @@ export const DoctorDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* 7-Day Rolling Calendar View */}
+          {/* 14-Day Rolling Calendar View */}
           <div style={{ backgroundColor: '#ffffff', borderRadius: '18px', border: '1px solid #d9ece7', padding: '24px', boxShadow: '0 4px 16px rgba(20, 60, 55, 0.05)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
               <div>
-                <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#0b3f3a', margin: 0 }}>Upcoming 7 days</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#0b3f3a', margin: 0 }}>Upcoming {calendarHorizon} days</h2>
+                  <div style={{ display: 'inline-flex', background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: '8px', padding: '2px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarHorizon(7)}
+                      style={{
+                        border: 'none',
+                        background: calendarHorizon === 7 ? '#0f766e' : 'transparent',
+                        color: calendarHorizon === 7 ? '#ffffff' : '#0f766e',
+                        borderRadius: '6px',
+                        padding: '3px 8px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      7 days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarHorizon(14)}
+                      style={{
+                        border: 'none',
+                        background: calendarHorizon === 14 ? '#0f766e' : 'transparent',
+                        color: calendarHorizon === 14 ? '#ffffff' : '#0f766e',
+                        borderRadius: '6px',
+                        padding: '3px 8px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      14 days (Full horizon)
+                    </button>
+                  </div>
+                </div>
                 <div style={{ fontSize: '13px', color: '#52736d', marginTop: '4px' }}>
-                  Click any slot to toggle between <strong style={{ fontWeight: 600 }}>open</strong> and <strong style={{ fontWeight: 600 }}>closed</strong>. Closed slots cannot be booked by patients.
+                  Click any slot to toggle between <strong style={{ fontWeight: 600 }}>open</strong> and <strong style={{ fontWeight: 600 }}>closed</strong>. Days on leave automatically suppress slot creation.
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1713,11 +1771,48 @@ export const DoctorDashboard: React.FC = () => {
                     onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#eaf6f2')}
                     onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#ffffff')}
                   >
-                    Open All 42 Slots
+                    Open All Available Slots
                   </button>
                 )}
               </div>
             </div>
+
+            {leaves.length > 0 && (
+              <div style={{
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fef3c7',
+                color: '#92400e',
+                borderRadius: '10px',
+                padding: '10px 14px',
+                fontSize: '12px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '16px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Calendar size={15} />
+                  <span>
+                    You have <strong>{leaves.length}</strong> scheduled leave period(s). Slots on leave dates are automatically suppressed and unavailable.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/doctor/profile')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#0f766e',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Manage Leaves & Schedule &rarr;
+                </button>
+              </div>
+            )}
 
             {/* Notification Toast */}
             <AnimatePresence>
@@ -1748,13 +1843,14 @@ export const DoctorDashboard: React.FC = () => {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '14px' }}>
               {next7Days.map((day) => {
-                const dayHasClosed = DEFAULT_TIMES.some(t => !isSlotOpen(`${day.dateISO}_${t}`, day.dateISO));
+                const isLeaveDay = !!day.leave;
+                const dayHasClosed = isLeaveDay || DEFAULT_TIMES.some(t => !isSlotOpen(`${day.dateISO}_${t}`, day.dateISO));
                 return (
                   <div
                     key={day.idx}
                     style={{
-                      backgroundColor: day.isWeekend ? '#fafbfb' : day.idx === 0 ? '#eaf6f2' : '#ffffff',
-                      border: day.idx === 0 ? '1px solid #0f766e' : day.isWeekend ? '1px dashed #d1d5db' : '1px solid #d9ece7',
+                      backgroundColor: isLeaveDay ? '#fff1f2' : day.isWeekend ? '#fafbfb' : day.idx === 0 ? '#eaf6f2' : '#ffffff',
+                      border: isLeaveDay ? '1px solid #fecdd3' : day.idx === 0 ? '1px solid #0f766e' : day.isWeekend ? '1px dashed #d1d5db' : '1px solid #d9ece7',
                       borderRadius: '14px',
                       padding: '14px 12px',
                       display: 'flex',
@@ -1763,10 +1859,22 @@ export const DoctorDashboard: React.FC = () => {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ fontWeight: 700, fontSize: '14px', color: day.idx === 0 ? '#0f766e' : '#0b3f3a' }}>
+                        <span style={{ fontWeight: 700, fontSize: '14px', color: isLeaveDay ? '#9f1239' : day.idx === 0 ? '#0f766e' : '#0b3f3a' }}>
                           {day.dayName}
                         </span>
-                        {day.isWeekend && (
+                        {isLeaveDay ? (
+                          <span style={{
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            backgroundColor: '#fee2e2',
+                            color: '#dc2626',
+                            borderRadius: '4px',
+                            padding: '1px 5px',
+                            letterSpacing: '0.02em',
+                          }}>
+                            Leave
+                          </span>
+                        ) : day.isWeekend ? (
                           <span style={{
                             fontSize: '9px',
                             fontWeight: 700,
@@ -1778,84 +1886,76 @@ export const DoctorDashboard: React.FC = () => {
                           }}>
                             Holiday
                           </span>
-                        )}
+                        ) : null}
                       </div>
                       <button
                         type="button"
+                        disabled={isLeaveDay}
                         onClick={() => toggleDaySlots(day.dateISO, day.dayName)}
-                        title={`Click to ${dayHasClosed ? 'open' : 'close'} all slots for ${day.dayName}`}
+                        title={isLeaveDay ? 'Doctor is on scheduled leave' : `Click to ${dayHasClosed ? 'open' : 'close'} all slots for ${day.dayName}`}
                         style={{
                           background: 'none',
                           border: 'none',
                           padding: '1px 4px',
-                          color: '#0f766e',
+                          color: isLeaveDay ? '#9ca3af' : '#0f766e',
                           fontSize: '10px',
                           fontWeight: 600,
-                          cursor: 'pointer',
-                          textDecoration: 'underline',
+                          cursor: isLeaveDay ? 'not-allowed' : 'pointer',
+                          textDecoration: isLeaveDay ? 'none' : 'underline',
                           fontFamily: "'Space Grotesk', sans-serif",
                         }}
                       >
-                        {dayHasClosed ? 'Open All' : 'Close All'}
+                        {isLeaveDay ? 'Unavailable' : dayHasClosed ? 'Open All' : 'Close All'}
                       </button>
                     </div>
-                    <div style={{ fontSize: '12px', color: '#52736d', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', color: isLeaveDay ? '#be123c' : '#52736d', marginBottom: '12px' }}>
                       {day.dateStr}
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
                       {DEFAULT_TIMES.map((time, tIdx) => {
                         const slotKey = `${day.dateISO}_${time}`;
-                        const isOpen = isSlotOpen(slotKey, day.dateISO);
+                        const isOpen = !isLeaveDay && isSlotOpen(slotKey, day.dateISO);
                         return (
                           <button
                             key={tIdx}
                             type="button"
+                            disabled={isLeaveDay}
                             onClick={() => toggleSlot(slotKey, time, day.dayName, day.dateISO)}
-                            title={`Click to mark as ${isOpen ? 'CLOSED (Unavailable)' : 'OPEN (Available)'}`}
+                            title={isLeaveDay ? `Leave: ${day.leave?.reason || 'Unavailable'}` : `Click to mark as ${isOpen ? 'CLOSED (Unavailable)' : 'OPEN (Available)'}`}
                             style={{
                               fontSize: '11px',
                               fontWeight: 600,
                               padding: '5px 7px',
                               borderRadius: '7px',
-                              backgroundColor: isOpen ? '#ffffff' : '#f8faf9',
-                              border: isOpen ? '1px solid #d9ece7' : '1px dashed #d1d5db',
-                              color: isOpen ? '#0b3f3a' : '#8aa39d',
+                              backgroundColor: isLeaveDay ? '#fff1f2' : isOpen ? '#ffffff' : '#f8faf9',
+                              border: isLeaveDay ? '1px dashed #fecdd3' : isOpen ? '1px solid #d9ece7' : '1px dashed #d1d5db',
+                              color: isLeaveDay ? '#9f1239' : isOpen ? '#0b3f3a' : '#8aa39d',
                               display: 'flex',
                               justifyContent: 'space-between',
                               alignItems: 'center',
-                              cursor: 'pointer',
+                              cursor: isLeaveDay ? 'not-allowed' : 'pointer',
                               fontFamily: "'Space Grotesk', sans-serif",
                               transition: 'all 0.15s ease',
                               boxShadow: isOpen ? '0 1px 3px rgba(20, 60, 55, 0.04)' : 'none',
-                              opacity: isOpen ? 1 : 0.8,
+                              opacity: isLeaveDay ? 0.7 : isOpen ? 1 : 0.8,
                             }}
                             onMouseEnter={(e) => {
-                              e.currentTarget.style.borderColor = isOpen ? '#0f766e' : '#dc2626';
-                              e.currentTarget.style.transform = 'translateY(-1px)';
+                              if (!isLeaveDay) {
+                                e.currentTarget.style.borderColor = isOpen ? '#0f766e' : '#dc2626';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                              }
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.borderColor = isOpen ? '#d9ece7' : '#d1d5db';
-                              e.currentTarget.style.transform = 'translateY(0)';
+                              if (!isLeaveDay) {
+                                e.currentTarget.style.borderColor = isOpen ? '#d9ece7' : '#d1d5db';
+                                e.currentTarget.style.transform = 'translateY(0)';
+                              }
                             }}
                           >
-                            <span style={{ textDecoration: isOpen ? 'none' : 'line-through' }}>{time}</span>
-                            <span
-                              style={{
-                                color: isOpen ? '#059669' : '#dc2626',
-                                backgroundColor: isOpen ? '#ecfdf5' : '#fef2f2',
-                                border: isOpen ? '1px solid rgba(5, 150, 105, 0.25)' : '1px solid rgba(220, 38, 38, 0.25)',
-                                padding: '1px 5px',
-                                borderRadius: '4px',
-                                fontSize: '9px',
-                                fontWeight: 700,
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                              }}
-                            >
-                              <span>{isOpen ? '●' : '✕'}</span>
-                              <span>{isOpen ? 'OPEN' : 'CLOSED'}</span>
+                            <span>{time}</span>
+                            <span style={{ fontSize: '9px', fontWeight: 700 }}>
+                              {isLeaveDay ? 'LEAVE' : isOpen ? 'OPEN' : 'CLOSED'}
                             </span>
                           </button>
                         );

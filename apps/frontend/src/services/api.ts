@@ -18,6 +18,8 @@ import type {
   ConsultationSession,
   ConsultationSignalMessage,
   ConsultationEndRequest,
+  CreateDoctorLeaveRequest,
+  DoctorLeave,
   QueueAdvisorResponse,
   Role,
   ScheduleTemplate,
@@ -446,6 +448,12 @@ export const doctorProfileApi = {
     request<Slot>('/v1/doctors/me/slots', { method: 'POST', body: JSON.stringify({ slotAt }) }),
   deleteSlot: (slotId: string): Promise<void> =>
     request<void>(`/v1/doctors/me/slots/${slotId}`, { method: 'DELETE' }),
+  listLeaves: (): Promise<DoctorLeave[]> =>
+    request<DoctorLeave[]>('/v1/doctors/me/leaves'),
+  createLeave: (body: CreateDoctorLeaveRequest): Promise<DoctorLeave> =>
+    request<DoctorLeave>('/v1/doctors/me/leaves', { method: 'POST', body: JSON.stringify(body) }),
+  deleteLeave: (leaveId: string): Promise<void> =>
+    request<void>(`/v1/doctors/me/leaves/${leaveId}`, { method: 'DELETE' }),
 };
 
 // ---------- Admin — doctor verification ----------

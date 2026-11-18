@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertTriangle, ArrowLeft, Calendar, CheckCircle2, Clock, Loader2, Plus,
+  AlertTriangle, ArrowLeft, Calendar, CalendarClock, CheckCircle2, Clock, Loader2, Plus,
   Save, Send, Shield, Trash2, UserCircle2,
 } from 'lucide-react';
 import { PageTransition } from '../motion/PageTransition';
@@ -10,7 +10,7 @@ import { fadeInUp } from '../motion/presets';
 import { CustomSelect } from './CustomSelect';
 import { WaveInput } from './WaveInput';
 import { doctorProfileApi } from '../services/api';
-import { COMMON_SPECIALTIES, DAY_LABELS, type DoctorMe, type ScheduleTemplate } from '../types';
+import { COMMON_SPECIALTIES, DAY_LABELS, type DoctorMe, type DoctorLeave, type ScheduleTemplate } from '../types';
 
 type Draft = {
   fullName: string;
@@ -43,6 +43,12 @@ export const DoctorProfile: React.FC = () => {
   const [me, setMe] = useState<DoctorMe | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [schedule, setSchedule] = useState<ScheduleTemplate[]>([]);
+  const [leaves, setLeaves] = useState<DoctorLeave[]>([]);
+  const [leaveStart, setLeaveStart] = useState('');
+  const [leaveEnd, setLeaveEnd] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+  const [savingLeave, setSavingLeave] = useState(false);
+  const [deletingLeaveId, setDeletingLeaveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
@@ -53,11 +59,15 @@ export const DoctorProfile: React.FC = () => {
 
   useEffect(() => {
     setLoading(true);
-    doctorProfileApi.me()
-      .then(d => {
+    Promise.all([
+      doctorProfileApi.me(),
+      doctorProfileApi.listLeaves().catch(() => [] as DoctorLeave[]),
+    ])
+      .then(([d, l]) => {
         setMe(d);
         setDraft(toDraft(d));
         setSchedule(d.scheduleTemplate ?? []);
+        setLeaves(l);
       })
       .catch(e => setError(e?.message || 'Failed to load profile'))
       .finally(() => setLoading(false));
@@ -115,11 +125,56 @@ export const DoctorProfile: React.FC = () => {
       const saved = await doctorProfileApi.replaceSchedule(payload);
       setMe(saved);
       setSchedule(saved.scheduleTemplate ?? []);
-      flashBanner('Schedule saved — slots regenerated for the next 28 days');
+      flashBanner('Schedule saved — slots regenerated for the next 14 days');
     } catch (e: any) {
       setError(e?.message || 'Could not save schedule');
     } finally {
       setSavingSchedule(false);
+    }
+  };
+
+  const handleSaveLeave = async () => {
+    if (!leaveStart || !leaveEnd) {
+      setError('Please select both a start date and an end date for the leave');
+      return;
+    }
+    if (leaveEnd < leaveStart) {
+      setError('Leave end date cannot be earlier than start date');
+      return;
+    }
+    setSavingLeave(true);
+    setError(null);
+    try {
+      await doctorProfileApi.createLeave({
+        startDate: leaveStart,
+        endDate: leaveEnd,
+        reason: leaveReason.trim() || undefined,
+      });
+      const updated = await doctorProfileApi.listLeaves();
+      setLeaves(updated);
+      setLeaveStart('');
+      setLeaveEnd('');
+      setLeaveReason('');
+      flashBanner('Vacation/Leave marked — existing unbooked slots removed & slot creation suppressed for 14-day window');
+    } catch (e: any) {
+      setError(e?.message || 'Could not schedule leave');
+    } finally {
+      setSavingLeave(false);
+    }
+  };
+
+  const handleDeleteLeave = async (leaveId: string) => {
+    setDeletingLeaveId(leaveId);
+    setError(null);
+    try {
+      await doctorProfileApi.deleteLeave(leaveId);
+      const updated = await doctorProfileApi.listLeaves();
+      setLeaves(updated);
+      flashBanner('Leave removed — 14-day availability slots restored');
+    } catch (e: any) {
+      setError(e?.message || 'Could not cancel leave');
+    } finally {
+      setDeletingLeaveId(null);
     }
   };
 
@@ -257,7 +312,7 @@ export const DoctorProfile: React.FC = () => {
 
       <SectionCard title="Weekly availability" icon={<Calendar size={16} />}>
         <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 14px 0' }}>
-          Add one row per block of time you see patients. The system generates concrete slots for the next 28 days when you save.
+          Add one row per block of time you see patients. The system generates concrete slots for the next 14 days when you save.
         </p>
         {schedule.length === 0 && (
           <div style={{
@@ -333,6 +388,137 @@ export const DoctorProfile: React.FC = () => {
             {savingSchedule ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             Save schedule
           </button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Vacation & Leave Calendar" icon={<CalendarClock size={16} />}>
+        <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 16px 0', lineHeight: 1.5 }}>
+          Mark upcoming vacation or leave days. During leave periods, automatic 14-day slot generation is suppressed and any existing unbooked slots in this period are immediately marked unavailable.
+        </p>
+
+        {/* Add Leave Form */}
+        <div style={{
+          background: '#f8faf9', border: '1px solid #d9ece7', borderRadius: 12,
+          padding: '16px', marginBottom: 18,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0b3f3a', marginBottom: 12 }}>
+            Schedule New Leave / Out of Office
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr)) 1.2fr auto',
+            gap: 12,
+            alignItems: 'flex-end',
+          }}>
+            <div>
+              <label style={subLabel}>From Date</label>
+              <input
+                type="date"
+                value={leaveStart}
+                min={new Date().toISOString().split('T')[0]}
+                disabled={readOnly || savingLeave}
+                onChange={e => setLeaveStart(e.target.value)}
+                style={inputStyle(readOnly || savingLeave)}
+              />
+            </div>
+            <div>
+              <label style={subLabel}>To Date</label>
+              <input
+                type="date"
+                value={leaveEnd}
+                min={leaveStart || new Date().toISOString().split('T')[0]}
+                disabled={readOnly || savingLeave}
+                onChange={e => setLeaveEnd(e.target.value)}
+                style={inputStyle(readOnly || savingLeave)}
+              />
+            </div>
+            <div>
+              <label style={subLabel}>Reason / Notes (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g., Annual Leave, Medical Conference"
+                value={leaveReason}
+                disabled={readOnly || savingLeave}
+                onChange={e => setLeaveReason(e.target.value)}
+                style={inputStyle(readOnly || savingLeave)}
+              />
+            </div>
+            <button
+              onClick={handleSaveLeave}
+              disabled={savingLeave || readOnly || !leaveStart || !leaveEnd}
+              className="hover-lift"
+              style={primaryButton(savingLeave || readOnly || !leaveStart || !leaveEnd)}
+            >
+              {savingLeave ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+              Mark Leave
+            </button>
+          </div>
+        </div>
+
+        {/* Scheduled Leaves List */}
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#0b3f3a', marginBottom: 10 }}>
+            Scheduled Leave Periods ({leaves.length})
+          </div>
+          {leaves.length === 0 ? (
+            <div style={{
+              padding: '20px', border: '1px dashed #d7e8e5', borderRadius: 12,
+              color: '#6b7280', fontSize: 13, textAlign: 'center', background: '#f3faf8',
+            }}>
+              No leaves scheduled. You are available according to your weekly working hours.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {leaves.map((l) => (
+                <div
+                  key={l.id}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '12px 16px', background: '#ffffff', border: '1px solid #fee2e2',
+                    borderRadius: 12, boxShadow: '0 1px 3px rgba(220, 38, 38, 0.05)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{
+                      backgroundColor: '#fef2f2', color: '#dc2626',
+                      borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 700,
+                      letterSpacing: '0.04em',
+                    }}>
+                      ON LEAVE
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#0b3f3a' }}>
+                        {l.startDate} &rarr; {l.endDate}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                        {l.reason || 'Personal / Medical leave'}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteLeave(l.id)}
+                    disabled={readOnly || deletingLeaveId === l.id}
+                    title="Cancel this leave and restore availability"
+                    style={{
+                      background: 'transparent', border: '1px solid #fecaca',
+                      color: '#dc2626', borderRadius: 8, padding: '6px 12px',
+                      fontSize: 12, fontWeight: 600,
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      cursor: readOnly || deletingLeaveId === l.id ? 'not-allowed' : 'pointer',
+                      opacity: readOnly || deletingLeaveId === l.id ? 0.4 : 1,
+                    }}
+                  >
+                    {deletingLeaveId === l.id ? (
+                      <Loader2 size={13} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={13} />
+                    )}
+                    Cancel Leave
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </SectionCard>
     </PageTransition>

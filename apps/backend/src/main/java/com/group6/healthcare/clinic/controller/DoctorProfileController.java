@@ -2,6 +2,8 @@ package com.group6.healthcare.clinic.controller;
 
 import com.group6.healthcare.auth.service.AppUserPrincipal;
 import com.group6.healthcare.clinic.dto.AddSlotRequest;
+import com.group6.healthcare.clinic.dto.CreateDoctorLeaveRequest;
+import com.group6.healthcare.clinic.dto.DoctorLeaveResponse;
 import com.group6.healthcare.clinic.dto.DoctorMeResponse;
 import com.group6.healthcare.clinic.dto.ReplaceScheduleRequest;
 import com.group6.healthcare.clinic.dto.SlotResponse;
@@ -25,13 +27,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/doctors/me")
 @PreAuthorize("hasRole('DOCTOR')")
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "Doctor profile", description = "Doctor's own profile, schedule and ad-hoc slots")
+@Tag(name = "Doctor profile", description = "Doctor's own profile, schedule, leaves and ad-hoc slots")
 public class DoctorProfileController {
 
     private final DoctorProfileService profileService;
@@ -60,7 +63,7 @@ public class DoctorProfileController {
     }
 
     @PutMapping("/schedule")
-    @Operation(summary = "Replace the weekly template and regenerate slots for the next 28 days")
+    @Operation(summary = "Replace the weekly template and regenerate slots for the next 14 days")
     public ApiResponse<DoctorMeResponse> replaceSchedule(@AuthenticationPrincipal AppUserPrincipal principal,
                                                          @Valid @RequestBody ReplaceScheduleRequest req) {
         return ApiResponse.ok(profileService.replaceSchedule(principal.getId(), req));
@@ -80,6 +83,27 @@ public class DoctorProfileController {
     public ResponseEntity<Void> deleteSlot(@AuthenticationPrincipal AppUserPrincipal principal,
                                             @PathVariable UUID slotId) {
         profileService.deleteSlot(principal.getId(), slotId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/leaves")
+    @Operation(summary = "List all scheduled vacations/leaves for the signed-in doctor")
+    public ApiResponse<List<DoctorLeaveResponse>> listLeaves(@AuthenticationPrincipal AppUserPrincipal principal) {
+        return ApiResponse.ok(profileService.listLeaves(principal.getId()));
+    }
+
+    @PostMapping("/leaves")
+    @Operation(summary = "Mark a vacation/leave period, suppressing slot generation and removing unbooked slots")
+    public ApiResponse<DoctorLeaveResponse> addLeave(@AuthenticationPrincipal AppUserPrincipal principal,
+                                                     @Valid @RequestBody CreateDoctorLeaveRequest req) {
+        return ApiResponse.ok(profileService.createLeave(principal.getId(), req));
+    }
+
+    @DeleteMapping("/leaves/{leaveId}")
+    @Operation(summary = "Cancel a leave and restore slots from template")
+    public ResponseEntity<Void> deleteLeave(@AuthenticationPrincipal AppUserPrincipal principal,
+                                            @PathVariable UUID leaveId) {
+        profileService.deleteLeave(principal.getId(), leaveId);
         return ResponseEntity.noContent().build();
     }
 }
