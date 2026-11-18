@@ -20,7 +20,7 @@ VALUES
     ('b0000000-0000-0000-0000-000000000022','a0000000-0000-0000-0000-000000000005','Atorvastatin 20mg (Lipitor)','Pfizer','Statin for cholesterol control.','Atorvastatin Calcium 20mg','1 tablet at night.','Requires prescription.',3000,2700,70,'/atorvastatin.jpg',TRUE,TRUE),
     ('b0000000-0000-0000-0000-000000000023','a0000000-0000-0000-0000-000000000005','Glipizide 5mg (Glucotrol)','Novartis','Sulfonylurea for type 2 diabetes.','Glipizide 5mg','1 tablet before breakfast.','Requires prescription.',2200,2000,55,'/glipizide.jpg',TRUE,TRUE),
     -- Dermatology (OTC)
-    ('b0000000-0000-0000-0000-000000000024','a0000000-0000-0000-0000-000000000006','Sunscreen SPF 50+','Lakme','Broad spectrum sunscreen lotion.','Zinc Oxide 20%', 'Apply liberally 15 mins before sun exposure. Reapply every 2 hrs.',4000,3500,150,'/sunscreen.jpg',FALSE,TRUE),
+    ('b0000000-0000-0000-0000-000000000024','a0000000-0000-0000-0000-000000000006','Sunscreen SPF 50+','Lakme','Broad spectrum sunscreen lotion.','Zinc Oxide 20%','Apply liberally 15 mins before sun exposure.','Reapply every 2 hrs.',4000,3500,150,'/sunscreen.jpg',FALSE,TRUE),
     ('b0000000-0000-0000-0000-000000000025','a0000000-0000-0000-0000-000000000006','Hydrocortisone Cream 1%','Mylan','Mild steroid cream for eczema and dermatitis.','Hydrocortisone 1%','Apply thin layer to affected area 2-3 times daily.','Do not use on face for >7 days.',1200,0,200,'/hydrocortisone.jpg',FALSE,TRUE),
     -- Additional OTC mixtures and health products
     ('b0000000-0000-0000-0000-000000000026','a0000000-0000-0000-0000-000000000001','Paracetamol + Caffeine 500mg/65mg','Cipla','Pain relief with added caffeine for fatigue.','Paracetamol IP 500mg, Caffeine 65mg','1 tablet every 4-6 hrs as needed.','Avoid >4 tablets/day.',3800,3400,140,'/paracaffeine.jpg',FALSE,TRUE),
@@ -50,8 +50,6 @@ VALUES
     ('b0000000-0000-0000-0000-000000000047','a0000000-0000-0000-0000-000000000005','Rosiglitazone 4mg (Avandia)','GSK','Thiazolidinedione for type 2 diabetes.','Rosiglitazone 4mg','1 tablet daily with food.','Prescription required.',3100,2850,25,'/rosiglitazone.jpg',TRUE,TRUE),
     ('b0000000-0000-0000-0000-000000000048','a0000000-0000-0000-0000-000000000003','Magnesium 250mg (Mag-Tab)','Fresenius Kabi','Magnesium supplement for muscle function.','Magnesium Oxide 250mg','1 tablet after dinner.','OTC.',1500,1300,160,'/magnesium.jpg',FALSE,TRUE),
     ('b0000000-0000-0000-0000-000000000049','a0000000-0000-0000-0000-000000000006','Sodium Chloride 0.9% I.V. Solution 500ml','B Braun','IV saline solution for fluid replacement.','Sodium Chloride 0.9%','Administered by healthcare professional.','Prescription required.',12000,0,15,'/saline_iv.jpg',TRUE,TRUE),
-    ('b0000000-0000-0000-0000-000000000050','a0000000-0000-0000-0000-000000000001','Mild Pain Relief Spray','Sun Pharma','Topical analgesic spray.','Lidocaine 2%','Spray 2-3 times on affected area.','OTC.',2500,2300,75,'/pain_spray.jpg',FALSE,TRUE);
-
--- Ensure conflict handling same as previous seed
+    ('b0000000-0000-0000-0000-000000000050','a0000000-0000-0000-0000-000000000001','Mild Pain Relief Spray','Sun Pharma','Topical analgesic spray.','Lidocaine 2%','Spray 2-3 times on affected area.','OTC.',2500,2300,75,'/pain_spray.jpg',FALSE,TRUE)
 ON CONFLICT (id) DO NOTHING;
 
