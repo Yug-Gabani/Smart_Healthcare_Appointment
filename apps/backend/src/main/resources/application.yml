@@ -146,7 +146,7 @@ logging:
 # =========================================================================
 razorpay:
   key-id: ${RAZORPAY_KEY_ID:rzp_test_placeholder}
-  key-secret: ${RAZORPAY_KEY_SECRET:placeholder_secret}
+  key-secret: ${RAZORPAY_KEY_SECRET:placeholder_secret} # placeholder
 
 # WhatsApp Notification Gateway (Meta Cloud API / Twilio Sandbox)
 whatsapp:

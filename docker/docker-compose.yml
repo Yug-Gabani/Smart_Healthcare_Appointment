@@ -60,7 +60,7 @@ services:
     # Change the left side to "5434:5432" if needed, and point
     # DB_URL at jdbc:postgresql://localhost:5434/healthcare.
     ports:
-      - "5432:5432"
+      - "5434:5432"
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
