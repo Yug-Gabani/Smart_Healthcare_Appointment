@@ -2,10 +2,9 @@ package com.group6.healthcare.clinic.service;
 
 import com.group6.healthcare.clinic.entity.DoctorScheduleTemplate;
 import com.group6.healthcare.clinic.entity.DoctorSlot;
+import com.group6.healthcare.clinic.repository.DoctorLeaveRepository;
 import com.group6.healthcare.clinic.repository.DoctorScheduleTemplateRepository;
 import com.group6.healthcare.clinic.repository.DoctorSlotRepository;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,26 +18,24 @@ import java.util.UUID;
 /**
  * Materialises a doctor's weekly recurring schedule into concrete {@link DoctorSlot} rows.
  *
- * <p>Called whenever the doctor saves their weekly template. All <em>unbooked</em> future slots
- * are dropped first, then regenerated for the next {@value #DEFAULT_HORIZON_DAYS} days. Booked
- * slots are never touched. Duplicate rows at the same (doctor, time) are skipped using the
- * underlying {@code UNIQUE(doctor_id, slot_at)} constraint via INSERT ... ON CONFLICT DO NOTHING.
+ * <p>Slots are automatically generated for the next 14 days.
+ * Marking leave dates automatically suppresses slot creation and marks existing unbooked slots as unavailable.
  */
 @Service
 public class SlotGeneratorService {
 
-    public static final int DEFAULT_HORIZON_DAYS = 28;
+    public static final int DEFAULT_HORIZON_DAYS = 14;
 
     private final DoctorScheduleTemplateRepository templateRepository;
     private final DoctorSlotRepository slotRepository;
-
-    @PersistenceContext
-    private EntityManager em;
+    private final DoctorLeaveRepository leaveRepository;
 
     public SlotGeneratorService(DoctorScheduleTemplateRepository templateRepository,
-                                DoctorSlotRepository slotRepository) {
+                                DoctorSlotRepository slotRepository,
+                                DoctorLeaveRepository leaveRepository) {
         this.templateRepository = templateRepository;
         this.slotRepository = slotRepository;
+        this.leaveRepository = leaveRepository;
     }
 
     @Transactional
@@ -49,11 +46,7 @@ public class SlotGeneratorService {
     @Transactional
     public int regenerate(UUID doctorId, int horizonDays) {
         // Drop all unbooked future slots so stale template rows don't linger.
-        em.createNativeQuery(
-                "DELETE FROM doctor_slots " +
-                "WHERE doctor_id = :doctorId AND is_booked = false AND slot_at > NOW()")
-                .setParameter("doctorId", doctorId)
-                .executeUpdate();
+        slotRepository.deleteUnbookedFutureSlots(doctorId, OffsetDateTime.now());
 
         List<DoctorScheduleTemplate> templates =
                 templateRepository.findByDoctorIdOrderByDayOfWeekAscStartTimeAsc(doctorId);
@@ -66,6 +59,12 @@ public class SlotGeneratorService {
 
         for (int dayOffset = 0; dayOffset < horizonDays; dayOffset++) {
             LocalDate date = today.plusDays(dayOffset);
+
+            // Acceptance Criteria: Marking leave dates automatically suppresses slot creation
+            if (leaveRepository.existsByDoctorIdAndDateInRange(doctorId, date)) {
+                continue;
+            }
+
             int isoDow = date.getDayOfWeek().getValue();  // 1..7
             for (DoctorScheduleTemplate t : templates) {
                 if (t.getDayOfWeek() != isoDow) continue;
@@ -84,13 +83,15 @@ public class SlotGeneratorService {
     }
 
     private int insertIfAbsent(UUID doctorId, OffsetDateTime slotAt) {
-        // The unique (doctor_id, slot_at) constraint already prevents duplicates (incl. booked slots).
-        return em.createNativeQuery(
-                "INSERT INTO doctor_slots (id, doctor_id, slot_at, is_booked, created_at) " +
-                "VALUES (uuid_generate_v4(), :doctorId, :slotAt, false, NOW()) " +
-                "ON CONFLICT (doctor_id, slot_at) DO NOTHING")
-                .setParameter("doctorId", doctorId)
-                .setParameter("slotAt", slotAt)
-                .executeUpdate();
+        if (!slotRepository.existsByDoctorIdAndSlotAt(doctorId, slotAt)) {
+            slotRepository.save(DoctorSlot.builder()
+                    .doctorId(doctorId)
+                    .slotAt(slotAt)
+                    .booked(false)
+                    .available(true)
+                    .build());
+            return 1;
+        }
+        return 0;
     }
 }

@@ -3,8 +3,11 @@ package com.group6.healthcare.clinic.service;
 import com.group6.healthcare.clinic.dto.DoctorResponse;
 import com.group6.healthcare.clinic.dto.SlotResponse;
 import com.group6.healthcare.clinic.entity.Doctor;
+import com.group6.healthcare.clinic.entity.DoctorScheduleTemplate;
 import com.group6.healthcare.clinic.entity.DoctorSlot;
+import com.group6.healthcare.clinic.repository.DoctorLeaveRepository;
 import com.group6.healthcare.clinic.repository.DoctorRepository;
+import com.group6.healthcare.clinic.repository.DoctorScheduleTemplateRepository;
 import com.group6.healthcare.clinic.repository.DoctorSlotRepository;
 import com.group6.healthcare.common.exception.ResourceNotFoundException;
 import org.springframework.data.domain.PageRequest;
@@ -21,6 +24,15 @@ public class DoctorService {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private RedisSlotReservationService redisSlotReservationService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private SlotGeneratorService slotGenerator;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private DoctorScheduleTemplateRepository templateRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private DoctorLeaveRepository leaveRepository;
 
     private final DoctorRepository doctorRepository;
     private final DoctorSlotRepository slotRepository;
@@ -90,6 +102,7 @@ public class DoctorService {
                         s.getDoctorId(),
                         s.getSlotAt(),
                         s.isBooked(),
+                        s.isAvailable(),
                         false, false, 0L))
                 .toList();
     }
@@ -118,6 +131,15 @@ public class DoctorService {
 
     @Transactional
     public void replenishForwardSlots(Doctor doctor, int daysAhead) {
+        if (slotGenerator != null && templateRepository != null) {
+            List<DoctorScheduleTemplate> templates =
+                    templateRepository.findByDoctorIdOrderByDayOfWeekAscStartTimeAsc(doctor.getId());
+            if (!templates.isEmpty()) {
+                slotGenerator.regenerate(doctor.getId(), 14);
+                return;
+            }
+        }
+
         OffsetDateTime now = OffsetDateTime.now();
         java.time.LocalDate today = java.time.LocalDate.now();
         java.time.ZoneId zone = java.time.ZoneId.systemDefault();
@@ -127,6 +149,9 @@ public class DoctorService {
             if (date.getDayOfWeek() == java.time.DayOfWeek.SATURDAY || date.getDayOfWeek() == java.time.DayOfWeek.SUNDAY) {
                 continue;
             }
+            if (leaveRepository != null && leaveRepository.existsByDoctorIdAndDateInRange(doctor.getId(), date)) {
+                continue; // Suppress slot creation on marked leave dates
+            }
             for (java.time.LocalTime time : DAILY_SLOT_TIMES) {
                 OffsetDateTime slotAt = date.atTime(time).atZone(zone).toOffsetDateTime();
                 if (slotAt.isBefore(now)) continue;
@@ -135,6 +160,7 @@ public class DoctorService {
                             .doctorId(doctor.getId())
                             .slotAt(slotAt)
                             .booked(false)
+                            .available(true)
                             .build());
                 } catch (Exception ignored) {
                     // unique constraint skips duplicates quietly

@@ -39,6 +39,10 @@ public class DoctorSlot {
     @Column(name = "is_booked", nullable = false)
     private boolean booked;
 
+    @Column(name = "is_available", nullable = false)
+    @Builder.Default
+    private boolean available = true;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

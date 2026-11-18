@@ -6,8 +6,10 @@ import type {
   Attachment,
   ConsultationType,
   Doctor,
+  DoctorLeave,
   DoctorMe,
   DoctorReview,
+  DoctorSlotDetail,
   DoctorStatus,
   Hospital,
   PatientProfile,
@@ -446,6 +448,16 @@ export const doctorProfileApi = {
     request<Slot>('/v1/doctors/me/slots', { method: 'POST', body: JSON.stringify({ slotAt }) }),
   deleteSlot: (slotId: string): Promise<void> =>
     request<void>(`/v1/doctors/me/slots/${slotId}`, { method: 'DELETE' }),
+  getLeaves: (): Promise<DoctorLeave[]> =>
+    request<DoctorLeave[]>('/v1/doctors/me/leaves'),
+  addLeave: (body: { startDate: string; endDate: string; reason?: string }): Promise<DoctorLeave> =>
+    request<DoctorLeave>('/v1/doctors/me/leaves', { method: 'POST', body: JSON.stringify(body) }),
+  deleteLeave: (leaveId: string): Promise<void> =>
+    request<void>(`/v1/doctors/me/leaves/${leaveId}`, { method: 'DELETE' }),
+  getSlotsInventory: (days: number = 14): Promise<DoctorSlotDetail[]> =>
+    request<DoctorSlotDetail[]>(`/v1/doctors/me/slots-inventory?days=${days}`),
+  toggleSlotAvailability: (slotId: string): Promise<DoctorSlotDetail> =>
+    request<DoctorSlotDetail>(`/v1/doctors/me/slots/${slotId}/toggle`, { method: 'PUT' }),
 };
 
 // ---------- Admin — doctor verification ----------

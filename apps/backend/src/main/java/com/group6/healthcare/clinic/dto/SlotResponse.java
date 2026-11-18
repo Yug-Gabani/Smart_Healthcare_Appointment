@@ -8,11 +8,17 @@ public record SlotResponse(
         UUID doctorId,
         OffsetDateTime slotAt,
         boolean booked,
+        boolean available,
         boolean onHold,
         boolean heldByYou,
         Long remainingHoldSeconds
 ) {
     public SlotResponse(UUID id, UUID doctorId, OffsetDateTime slotAt, boolean booked) {
-        this(id, doctorId, slotAt, booked, false, false, 0L);
+        this(id, doctorId, slotAt, booked, true, false, false, 0L);
+    }
+
+    public SlotResponse(UUID id, UUID doctorId, OffsetDateTime slotAt, boolean booked,
+                        boolean onHold, boolean heldByYou, Long remainingHoldSeconds) {
+        this(id, doctorId, slotAt, booked, true, onHold, heldByYou, remainingHoldSeconds);
     }
 }

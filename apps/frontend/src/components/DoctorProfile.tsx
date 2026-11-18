@@ -115,7 +115,7 @@ export const DoctorProfile: React.FC = () => {
       const saved = await doctorProfileApi.replaceSchedule(payload);
       setMe(saved);
       setSchedule(saved.scheduleTemplate ?? []);
-      flashBanner('Schedule saved — slots regenerated for the next 28 days');
+      flashBanner('Schedule saved — slots regenerated for the next 14 days');
     } catch (e: any) {
       setError(e?.message || 'Could not save schedule');
     } finally {
@@ -257,7 +257,7 @@ export const DoctorProfile: React.FC = () => {
 
       <SectionCard title="Weekly availability" icon={<Calendar size={16} />}>
         <p style={{ fontSize: 13, color: '#6b7280', margin: '0 0 14px 0' }}>
-          Add one row per block of time you see patients. The system generates concrete slots for the next 28 days when you save.
+          Add one row per block of time you see patients. The system generates concrete slots for the next 14 days when you save.
         </p>
         {schedule.length === 0 && (
           <div style={{

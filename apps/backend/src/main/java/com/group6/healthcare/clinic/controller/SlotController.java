@@ -3,6 +3,7 @@ package com.group6.healthcare.clinic.controller;
 import com.group6.healthcare.auth.service.AppUserPrincipal;
 import com.group6.healthcare.clinic.dto.SlotHoldRequest;
 import com.group6.healthcare.clinic.dto.SlotHoldResponse;
+import com.group6.healthcare.clinic.repository.DoctorSlotRepository;
 import com.group6.healthcare.clinic.service.RedisSlotReservationService;
 import com.group6.healthcare.common.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,9 +30,11 @@ import java.util.UUID;
 public class SlotController {
 
     private final RedisSlotReservationService reservationService;
+    private final DoctorSlotRepository slotRepository;
 
-    public SlotController(RedisSlotReservationService reservationService) {
+    public SlotController(RedisSlotReservationService reservationService, DoctorSlotRepository slotRepository) {
         this.reservationService = reservationService;
+        this.slotRepository = slotRepository;
     }
 
     @PostMapping("/{slotId}/hold")
@@ -41,6 +44,18 @@ public class SlotController {
             @PathVariable UUID slotId,
             @AuthenticationPrincipal AppUserPrincipal principal,
             @RequestBody(required = false) SlotHoldRequest req) {
+        var slotOpt = slotRepository.findById(slotId);
+        if (slotOpt.isPresent()) {
+            var slot = slotOpt.get();
+            if (slot.isBooked()) {
+                SlotHoldResponse resp = new SlotHoldResponse(slotId, false, false, 0L, "Slot already booked");
+                return ResponseEntity.status(409).body(new ApiResponse<>(false, resp, resp.message(), Instant.now()));
+            }
+            if (!slot.isAvailable()) {
+                SlotHoldResponse resp = new SlotHoldResponse(slotId, false, false, 0L, "Slot is not available for booking");
+                return ResponseEntity.status(409).body(new ApiResponse<>(false, resp, resp.message(), Instant.now()));
+            }
+        }
         Long requestedTtl = req != null ? req.holdTtlSeconds() : 600L;
         SlotHoldResponse resp = reservationService.acquireHold(slotId, principal.getId(), requestedTtl);
         if (resp.success()) {

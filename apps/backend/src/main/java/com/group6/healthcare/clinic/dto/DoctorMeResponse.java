@@ -30,8 +30,39 @@ public record DoctorMeResponse(
         String email,
         String phone,
         Long totalAppointments,
-        Long completedConsultations
+        Long completedConsultations,
+        List<DoctorLeaveDto> leaves
 ) {
+    public DoctorMeResponse(
+            UUID id,
+            UUID userId,
+            String fullName,
+            String specialty,
+            String hospital,
+            UUID hospitalId,
+            String avatarUrl,
+            BigDecimal rating,
+            Integer reviewCount,
+            String bio,
+            DoctorStatus status,
+            String registrationNumber,
+            Integer yearsExperience,
+            BigDecimal consultationFee,
+            String languages,
+            String rejectionReason,
+            OffsetDateTime submittedAt,
+            OffsetDateTime reviewedAt,
+            List<ScheduleTemplateDto> scheduleTemplate,
+            String email,
+            String phone,
+            Long totalAppointments,
+            Long completedConsultations) {
+        this(id, userId, fullName, specialty, hospital, hospitalId, avatarUrl, rating, reviewCount,
+             bio, status, registrationNumber, yearsExperience, consultationFee, languages,
+             rejectionReason, submittedAt, reviewedAt, scheduleTemplate, email, phone,
+             totalAppointments, completedConsultations, List.of());
+    }
+
     public DoctorMeResponse(
             UUID id,
             UUID userId,
@@ -54,6 +85,6 @@ public record DoctorMeResponse(
             List<ScheduleTemplateDto> scheduleTemplate) {
         this(id, userId, fullName, specialty, hospital, hospitalId, avatarUrl, rating, reviewCount,
              bio, status, registrationNumber, yearsExperience, consultationFee, languages,
-             rejectionReason, submittedAt, reviewedAt, scheduleTemplate, null, null, null, null);
+             rejectionReason, submittedAt, reviewedAt, scheduleTemplate, null, null, null, null, List.of());
     }
 }

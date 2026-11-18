@@ -73,6 +73,9 @@ public class AppointmentService {
         if (slot.isBooked()) {
             throw new ConflictException("Slot already booked");
         }
+        if (!slot.isAvailable()) {
+            throw new BusinessRuleException("Slot is not available for booking");
+        }
 
         // Redis 2-Phase Concurrency Guard: Check if slot has an active soft hold by another patient
         if (redisSlotReservationService != null && !redisSlotReservationService.isSlotAvailableForPatient(req.slotId(), patientId)) {
@@ -321,6 +324,9 @@ public class AppointmentService {
         if (newSlot.isBooked()) {
             throw new ConflictException("New slot is already booked");
         }
+        if (!newSlot.isAvailable()) {
+            throw new BusinessRuleException("New slot is not available");
+        }
         if (newSlot.getSlotAt() != null
                 && newSlot.getSlotAt().isBefore(java.time.OffsetDateTime.now())) {
             throw new BusinessRuleException("New slot is in the past");
@@ -392,6 +398,9 @@ public class AppointmentService {
         }
         if (slot.isBooked()) {
             throw new ConflictException("Slot already booked");
+        }
+        if (!slot.isAvailable()) {
+            throw new BusinessRuleException("Slot is not available for booking");
         }
         if (slot.getSlotAt() != null
                 && slot.getSlotAt().isBefore(java.time.OffsetDateTime.now())) {

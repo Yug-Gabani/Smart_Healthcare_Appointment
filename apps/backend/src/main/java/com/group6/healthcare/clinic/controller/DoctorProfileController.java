@@ -2,7 +2,10 @@ package com.group6.healthcare.clinic.controller;
 
 import com.group6.healthcare.auth.service.AppUserPrincipal;
 import com.group6.healthcare.clinic.dto.AddSlotRequest;
+import com.group6.healthcare.clinic.dto.CreateDoctorLeaveRequest;
+import com.group6.healthcare.clinic.dto.DoctorLeaveDto;
 import com.group6.healthcare.clinic.dto.DoctorMeResponse;
+import com.group6.healthcare.clinic.dto.DoctorSlotDetailResponse;
 import com.group6.healthcare.clinic.dto.ReplaceScheduleRequest;
 import com.group6.healthcare.clinic.dto.SlotResponse;
 import com.group6.healthcare.clinic.dto.UpdateDoctorProfileRequest;
@@ -23,15 +26,17 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/doctors/me")
 @PreAuthorize("hasRole('DOCTOR')")
 @SecurityRequirement(name = "bearerAuth")
-@Tag(name = "Doctor profile", description = "Doctor's own profile, schedule and ad-hoc slots")
+@Tag(name = "Doctor profile", description = "Doctor's own profile, recurring schedule, vacations/leaves and slot inventory")
 public class DoctorProfileController {
 
     private final DoctorProfileService profileService;
@@ -41,7 +46,7 @@ public class DoctorProfileController {
     }
 
     @GetMapping
-    @Operation(summary = "Get the signed-in doctor's own profile (incl. verification status + schedule)")
+    @Operation(summary = "Get the signed-in doctor's own profile (incl. verification status, schedule + leaves)")
     public ApiResponse<DoctorMeResponse> me(@AuthenticationPrincipal AppUserPrincipal principal) {
         return ApiResponse.ok(profileService.getMyProfile(principal.getId()));
     }
@@ -60,10 +65,53 @@ public class DoctorProfileController {
     }
 
     @PutMapping("/schedule")
-    @Operation(summary = "Replace the weekly template and regenerate slots for the next 28 days")
+    @Operation(summary = "Replace the weekly recurring schedule and automatically generate slots for the next 14 days")
     public ApiResponse<DoctorMeResponse> replaceSchedule(@AuthenticationPrincipal AppUserPrincipal principal,
                                                          @Valid @RequestBody ReplaceScheduleRequest req) {
         return ApiResponse.ok(profileService.replaceSchedule(principal.getId(), req));
+    }
+
+    // ---------- Vacation & Leave Calendar (Issue #82) ----------
+
+    @GetMapping("/leaves")
+    @Operation(summary = "List all leaves and vacation blocks for the signed-in doctor")
+    public ApiResponse<List<DoctorLeaveDto>> getLeaves(@AuthenticationPrincipal AppUserPrincipal principal) {
+        return ApiResponse.ok(profileService.getLeaves(principal.getId()));
+    }
+
+    @PostMapping("/leaves")
+    @Operation(summary = "Mark a leave/vacation date or range — suppresses slot creation and marks unbooked slots unavailable")
+    public ResponseEntity<ApiResponse<DoctorLeaveDto>> addLeave(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @Valid @RequestBody CreateDoctorLeaveRequest req) {
+        DoctorLeaveDto created = profileService.addLeave(principal.getId(), req);
+        return ResponseEntity.ok(ApiResponse.ok(created, "Leave marked successfully"));
+    }
+
+    @DeleteMapping("/leaves/{leaveId}")
+    @Operation(summary = "Delete/cancel a marked leave — restores regular slot generation")
+    public ResponseEntity<Void> deleteLeave(@AuthenticationPrincipal AppUserPrincipal principal,
+                                            @PathVariable UUID leaveId) {
+        profileService.deleteLeave(principal.getId(), leaveId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ---------- Slots & Forward Inventory ----------
+
+    @GetMapping("/slots-inventory")
+    @Operation(summary = "Get the doctor's forward slot inventory (default 14 days) with booking and leave context")
+    public ApiResponse<List<DoctorSlotDetailResponse>> getSlotsInventory(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @RequestParam(name = "days", defaultValue = "14") int days) {
+        return ApiResponse.ok(profileService.getMySlots(principal.getId(), days));
+    }
+
+    @PutMapping("/slots/{slotId}/toggle")
+    @Operation(summary = "Toggle availability of an unbooked slot (Available <-> Unavailable)")
+    public ApiResponse<DoctorSlotDetailResponse> toggleSlotAvailability(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @PathVariable UUID slotId) {
+        return ApiResponse.ok(profileService.toggleSlotAvailability(principal.getId(), slotId));
     }
 
     @PostMapping("/slots")
@@ -72,7 +120,7 @@ public class DoctorProfileController {
                                                               @Valid @RequestBody AddSlotRequest req) {
         DoctorSlot s = profileService.addAdHocSlot(principal.getId(), req.slotAt());
         return ResponseEntity.ok(ApiResponse.ok(
-                new SlotResponse(s.getId(), s.getDoctorId(), s.getSlotAt(), s.isBooked())));
+                new SlotResponse(s.getId(), s.getDoctorId(), s.getSlotAt(), s.isBooked(), s.isAvailable(), false, false, 0L)));
     }
 
     @DeleteMapping("/slots/{slotId}")

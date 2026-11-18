@@ -76,6 +76,7 @@ export interface Slot {
   doctorId: string;
   slotAt: string;
   booked: boolean;
+  available?: boolean;
   onHold?: boolean;
   heldByYou?: boolean;
   remainingHoldSeconds?: number;
@@ -297,6 +298,28 @@ export interface ScheduleTemplate {
   slotDurationMinutes: number;    // 15 | 20 | 30 | 45 | 60
 }
 
+export interface DoctorLeave {
+  id: string;
+  doctorId: string;
+  startDate: string;              // "YYYY-MM-DD"
+  endDate: string;                // "YYYY-MM-DD"
+  reason?: string;
+  createdAt?: string;
+}
+
+export interface DoctorSlotDetail {
+  id: string;
+  doctorId: string;
+  slotAt: string;
+  booked: boolean;
+  available: boolean;
+  appointmentId?: string;
+  patientName?: string;
+  appointmentStatus?: AppointmentStatus;
+  onLeave?: boolean;
+  leaveReason?: string;
+}
+
 export interface DoctorMe {
   id: string;
   userId: string;
@@ -321,6 +344,7 @@ export interface DoctorMe {
   phone?: string;
   totalAppointments?: number;
   completedConsultations?: number;
+  leaves?: DoctorLeave[];
 }
 
 export const COMMON_SPECIALTIES = [
