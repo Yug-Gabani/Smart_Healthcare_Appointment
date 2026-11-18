@@ -3,6 +3,7 @@ package com.group6.healthcare.payment.service;
 import com.group6.healthcare.payment.config.KafkaPaymentConfig;
 import com.group6.healthcare.payment.entity.NotificationAuditLog;
 import com.group6.healthcare.payment.event.PaymentSuccessEvent;
+import jakarta.annotation.PostConstruct;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +57,19 @@ public class PaymentReceiptEmailService {
 
     @Value("${spring.mail.from:abhibrata.sarkar2020@gmail.com}")
     private String mailFrom;
+
+    @PostConstruct
+    public void init() {
+        boolean mailConfigured = mailUsername != null && !mailUsername.isBlank()
+                && mailPassword != null && !mailPassword.isBlank();
+        if (!mailConfigured) {
+            log.warn("[NOTIFICATIONS] SMTP Mail credentials not configured (MAIL_USERNAME / MAIL_PASSWORD are empty). "
+                    + "Email receipts will be recorded as simulated in audit logs without actual delivery. "
+                    + "To enable real email delivery, set MAIL_USERNAME and MAIL_PASSWORD in docker-compose.yml or environment.");
+        } else {
+            log.info("[NOTIFICATIONS] SMTP Mail sender active. Delivery address configured: {}", mailUsername);
+        }
+    }
 
     @KafkaListener(
             topics = KafkaPaymentConfig.PAYMENT_RECEIPT_TOPIC,
@@ -147,16 +161,27 @@ public class PaymentReceiptEmailService {
         // 4. Dispatch WhatsApp Notification (Dual Meta/Twilio Engine)
         if (whatsAppService != null) {
             try {
-                whatsAppService.sendPaymentReceipt(event);
+                boolean sent = whatsAppService.sendPaymentReceipt(event);
                 if (auditService != null) {
-                    auditService.recordLog(
-                            event.razorpayOrderId(),
-                            event.appointmentId(),
-                            NotificationAuditLog.Channel.WHATSAPP,
-                            event.phoneNumber(),
-                            NotificationAuditLog.Status.DELIVERED,
-                            "WhatsApp confirmation and receipt link delivered to " + event.phoneNumber()
-                    );
+                    if (sent) {
+                        auditService.recordLog(
+                                event.razorpayOrderId(),
+                                event.appointmentId(),
+                                NotificationAuditLog.Channel.WHATSAPP,
+                                event.phoneNumber(),
+                                NotificationAuditLog.Status.DELIVERED,
+                                "WhatsApp confirmation and receipt link delivered to " + event.phoneNumber()
+                        );
+                    } else {
+                        auditService.recordLog(
+                                event.razorpayOrderId(),
+                                event.appointmentId(),
+                                NotificationAuditLog.Channel.WHATSAPP,
+                                event.phoneNumber(),
+                                NotificationAuditLog.Status.PENDING,
+                                "WhatsApp dispatch skipped: credentials not configured (set META_WHATSAPP_TOKEN in environment)"
+                        );
+                    }
                 }
             } catch (Exception ex) {
                 log.error("[KAFKA CONSUMER] WhatsApp notification failed: {}", ex.getMessage());

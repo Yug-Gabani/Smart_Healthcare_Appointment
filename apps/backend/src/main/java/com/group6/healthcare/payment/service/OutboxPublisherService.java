@@ -9,6 +9,7 @@ import com.group6.healthcare.payment.repository.PaymentOutboxRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,6 +34,9 @@ public class OutboxPublisherService {
 
     @Autowired(required = false)
     private PaymentReceiptEmailService emailService;
+
+    @Value("${spring.kafka.listener.auto-startup:false}")
+    private boolean kafkaEnabled;
 
     public OutboxPublisherService(
             PaymentOutboxRepository outboxRepository,
@@ -74,7 +78,7 @@ public class OutboxPublisherService {
         try {
             PaymentSuccessEvent event = objectMapper.readValue(record.getPayload(), PaymentSuccessEvent.class);
 
-            if (kafkaTemplate != null) {
+            if (kafkaEnabled && kafkaTemplate != null) {
                 CompletableFuture<SendResult<String, PaymentSuccessEvent>> future = kafkaTemplate.send(
                         KafkaPaymentConfig.PAYMENT_RECEIPT_TOPIC,
                         record.getAggregateId(),
@@ -126,7 +130,7 @@ public class OutboxPublisherService {
                         NotificationAuditLog.Channel.KAFKA,
                         "Direct In-Memory Fallback",
                         NotificationAuditLog.Status.QUEUED,
-                        "Kafka broker absent. Routed to direct in-memory listener."
+                        "Kafka broker disabled (KAFKA_AUTO_STARTUP=false). Routed to direct in-memory listener."
                 );
 
                 if (emailService != null) {

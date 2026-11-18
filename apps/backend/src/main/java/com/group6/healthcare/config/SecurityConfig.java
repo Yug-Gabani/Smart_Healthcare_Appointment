@@ -27,6 +27,19 @@ import java.util.List;
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
+    /**
+     * Endpoints accessible without a valid JWT.
+     *
+     * <ul>
+     *   <li>Auth endpoints must be public so browsers can obtain tokens.</li>
+     *   <li>Payment webhook callbacks (/v1/payments/**) are server-to-server
+     *       calls from Razorpay; no user JWT is available on those requests.</li>
+     *   <li>The pharmacy catalogue (categories + medicines) is intentionally public
+     *       so unauthenticated visitors can browse medicines before logging in.</li>
+     *   <li>/pharmacy/cart/** is intentionally NOT listed here — cart operations
+     *       are user-scoped and MUST be protected by a valid JWT at all times.</li>
+     * </ul>
+     */
     private static final String[] PUBLIC_PATHS = {
             "/api/auth/register",
             "/api/auth/login",
@@ -34,14 +47,17 @@ public class SecurityConfig {
             "/api/auth/password-reset/request",
             "/api/auth/password-reset/confirm",
             "/api/ping",
+            // Razorpay webhook: server-to-server, no user JWT
             "/api/v1/payments/**",
             "/api/v1/slots/**",
             "/api/v1/hospitals/public/**",
             "/api/v1/files/**",
             "/api/v1/reviews/landing",
             "/api/v1/reviews/doctors/**",
+            // Public medicine catalogue — unauthenticated browse is intentional
             "/api/v1/pharmacy/categories/**",
             "/api/v1/pharmacy/medicines/**",
+            // NOTE: /api/v1/pharmacy/cart/** is NOT here on purpose — requires auth
             "/actuator/health",
             "/actuator/info",
             "/v3/api-docs/**",

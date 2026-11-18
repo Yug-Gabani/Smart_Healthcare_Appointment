@@ -140,10 +140,24 @@ logging:
     org.hibernate.SQL: INFO
     org.apache.kafka: ERROR
 
-# =========================================================================
-# Razorpay Credentials (SINGLE SOURCE OF TRUTH)
-# Loaded from environment or apps/backend/.env
-# =========================================================================
+# =============================================================================
+# Razorpay Payment Gateway
+# =============================================================================
+#
+# How to configure for a real project demo:
+#   1. Sign up / log in at https://dashboard.razorpay.com
+#   2. Settings → API Keys → Generate Test Key (dev/demo) or Live Key (prod).
+#   3. You receive ONE key-id (rzp_test_xxx or rzp_live_xxx) and ONE key-secret.
+#   4. Set as environment variables — do NOT commit real keys to source control:
+#
+#        export RAZORPAY_KEY_ID=rzp_test_YourKeyIdHere
+#        export RAZORPAY_KEY_SECRET=YourKeySecretHere
+#
+#   5. Or place them in a local .env file listed in .gitignore.
+#
+# The placeholder defaults below let the app start in dev/CI without real
+# credentials; payment flows return simulated responses in that case.
+#
 razorpay:
   key-id: ${RAZORPAY_KEY_ID:rzp_test_placeholder}
   key-secret: ${RAZORPAY_KEY_SECRET:placeholder_secret}

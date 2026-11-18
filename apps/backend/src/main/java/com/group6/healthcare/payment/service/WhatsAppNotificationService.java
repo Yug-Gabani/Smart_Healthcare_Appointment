@@ -147,6 +147,10 @@ public class WhatsAppNotificationService {
                 success = sendViaTwilio(targetPhone, body);
         } else if (hasTwilio) {
             success = sendViaTwilio(targetPhone, body);
+        } else {
+            log.warn("[WHATSAPP] Neither Meta WhatsApp nor Twilio credentials are configured. "
+                    + "WhatsApp receipt message to {} was not sent. "
+                    + "Set META_WHATSAPP_TOKEN and META_PHONE_NUMBER_ID (or TWILIO_*) in environment for live WhatsApp receipts.", targetPhone);
         }
         return success;
     }
