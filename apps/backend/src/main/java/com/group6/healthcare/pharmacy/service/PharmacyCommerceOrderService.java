@@ -52,6 +52,7 @@ public class PharmacyCommerceOrderService {
     private final MedicineRepository medicineRepository;
     private final UserRepository userRepository;
     private final PrescriptionRepository prescriptionRepository;
+    private final PharmacyInvoicePdfService invoicePdfService;
 
     @Autowired(required = false)
     private RazorpayClient razorpayClient;
@@ -71,7 +72,8 @@ public class PharmacyCommerceOrderService {
             PharmacyCartItemRepository cartItemRepository,
             MedicineRepository medicineRepository,
             UserRepository userRepository,
-            PrescriptionRepository prescriptionRepository
+            PrescriptionRepository prescriptionRepository,
+            @Autowired(required = false) PharmacyInvoicePdfService invoicePdfService
     ) {
         this.orderRepository = orderRepository;
         this.cartRepository = cartRepository;
@@ -79,6 +81,7 @@ public class PharmacyCommerceOrderService {
         this.medicineRepository = medicineRepository;
         this.userRepository = userRepository;
         this.prescriptionRepository = prescriptionRepository;
+        this.invoicePdfService = invoicePdfService != null ? invoicePdfService : new PharmacyInvoicePdfService();
     }
 
     @Transactional
@@ -327,6 +330,26 @@ public class PharmacyCommerceOrderService {
         }
 
         return CommerceOrderResponse.from(order);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generateInvoicePdf(UUID userId, UUID orderId) {
+        PharmacyCommerceOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("PharmacyCommerceOrder", orderId));
+
+        if (!order.getUserId().equals(userId)) {
+            throw new IllegalArgumentException("Access denied: You do not own this order");
+        }
+
+        return invoicePdfService.generateInvoicePdf(order);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generateInvoicePdfPublic(UUID orderId) {
+        PharmacyCommerceOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("PharmacyCommerceOrder", orderId));
+
+        return invoicePdfService.generateInvoicePdf(order);
     }
 
     private String computeHmacSha256(String data, String secret) {

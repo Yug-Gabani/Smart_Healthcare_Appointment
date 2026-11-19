@@ -8,17 +8,35 @@ import {
   CreditCard,
   AlertCircle,
   Loader2,
+  Download,
+  Receipt,
 } from 'lucide-react';
 import { PageTransition } from '../../motion/PageTransition';
 import { fadeInUp } from '../../motion/presets';
 import { pharmacyCommerceApi } from '../../services/api';
 import type { CommerceOrder } from '../../types';
+import { downloadPdfBlob } from '../../utils/pharmacyCartUtils';
 
 export const PharmacyCustomerOrdersPage: React.FC = () => {
   const navigate = useNavigate();
   const [orders, setOrders] = useState<CommerceOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingOrderId, setDownloadingOrderId] = useState<string | null>(null);
+
+  const handleDownloadInvoice = async (orderId: string, orderNumber: string) => {
+    try {
+      setDownloadingOrderId(orderId);
+      await downloadPdfBlob(
+        pharmacyCommerceApi.invoicePdfUrl(orderId),
+        `PulseCare_Pharmacy_Invoice_${orderNumber || orderId}.pdf`
+      );
+    } catch {
+      alert('Invoice download failed. Please try again.');
+    } finally {
+      setDownloadingOrderId(null);
+    }
+  };
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -266,6 +284,36 @@ export const PharmacyCustomerOrdersPage: React.FC = () => {
                           <div>Payment ID: <code>{order.razorpayPaymentId}</code></div>
                         )}
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadInvoice(order.id, order.orderNumber)}
+                        disabled={downloadingOrderId === order.id}
+                        style={{
+                          marginTop: 14,
+                          width: '100%',
+                          background: '#0f766e',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: 10,
+                          padding: '9px 14px',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: downloadingOrderId === order.id ? 'wait' : 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          boxShadow: '0 2px 6px rgba(15, 118, 110, 0.2)',
+                        }}
+                      >
+                        {downloadingOrderId === order.id ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Receipt size={14} />
+                        )}
+                        Download Tax Invoice (PDF)
+                      </button>
                     </div>
                   </div>
                 </div>

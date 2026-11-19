@@ -825,6 +825,7 @@ export const paymentsApi = {
       body: JSON.stringify(body),
     }),
   receiptPdfUrl: (orderId: string): string => '/api/v1/payments/receipt/' + orderId + '/pdf',
+  appointmentReceiptPdfUrl: (appointmentId: string): string => '/api/v1/payments/receipt/appointment/' + appointmentId + '/pdf',
   getNotificationAudit: (orderId: string): Promise<NotificationAuditLog[]> =>
     request<NotificationAuditLog[]>(`/v1/payments/${orderId}/notifications`),
   getGlobalAudit: (): Promise<NotificationAuditLog[]> =>
@@ -927,5 +928,11 @@ export const pharmacyCommerceApi = {
 
   getOrderDetails: (orderId: string): Promise<CommerceOrder> =>
     request<CommerceOrder>(`/v1/pharmacy/me/orders/${orderId}`),
+
+  invoicePdfUrl: (orderId: string): string =>
+    `/api/v1/pharmacy/me/orders/${orderId}/invoice/pdf`,
+
+  invoicePdfPublicUrl: (orderId: string): string =>
+    `/api/v1/payments/receipt/pharmacy/${orderId}/pdf`,
 };
 
