@@ -828,12 +828,12 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
       return;
     }
 
-    /* If consultation is VIDEO mode, bypass external payment gateway immediately so video communication testing is instant */
-    if (consultationType === 'VIDEO') {
-      await handleTestBooking(e as any);
-      return;
-    }
-
+    /*
+     * NOTE: VIDEO consultations also go through real Razorpay payment.
+     * The old "bypass for VIDEO" is intentionally removed — both VIDEO and
+     * IN-PERSON consultations must go through the payment gate.
+     * Use the "Instant Pass (Dev/Test)" button below for sandbox testing.
+     */
     try {
       const isLoaded = await loadRazorpayScript();
       if (!isLoaded) {
@@ -889,15 +889,20 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
       });
       rzp.open();
     } catch (err: any) {
-      console.warn('Razorpay checkout error, auto-completing via instant test booking:', err);
-      try {
-        let orderId = (payablePaise === 0 ? 'order_free_' : 'order_sb_') + Math.random().toString(36).substring(2, 12);
-        const simPaymentId = 'pay_sim_' + Math.random().toString(36).substring(2, 12);
-        await finalizePaymentAndBooking(orderId, simPaymentId, 'sandbox_signature');
-      } catch (fallbackErr: any) {
-        setBookingError(fallbackErr.message || 'Failed to complete appointment booking.');
-        setBooking(false);
-      }
+      /*
+       * Razorpay modal could not open (network error, invalid key, SDK load failure).
+       * We NO LONGER silently fall back to a sandbox booking here — that was the root
+       * cause of the "payment bypass" bug. Surface the error so the user can either:
+       *   a) Use "Instant Pass (Dev/Test)" for sandbox testing, or
+       *   b) Fix the Razorpay credentials in application.yml for a real demo.
+       */
+      console.error('[Razorpay] Checkout error:', err);
+      setBookingError(
+        err?.message?.includes('placeholder')
+          ? 'Razorpay is not configured. Set RAZORPAY_KEY_ID in the backend environment, or use "Instant Pass" below for testing.'
+          : (err?.message || 'Could not open Razorpay payment gateway. Please try again or use Instant Pass for testing.')
+      );
+      setBooking(false);
     }
   };
 
@@ -1655,28 +1660,57 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
 
             {bookingError && <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 12, background: 'rgba(220,38,38,.08)', color: 'var(--danger)', font: `400 13px ${FONT}` }}>{bookingError}</div>}
 
-            {/* Dual Action Buttons: Live Razorpay & Instant Test */}
+            {/*
+              * Razorpay demo-mode banner.
+              * When the backend key is the placeholder value, the Razorpay modal will
+              * fail to open. Surface a clear warning so devs/demo runners know they need
+              * to either set a real test key (see application.yml) or use Instant Pass.
+              */}
+            <div style={{
+              marginTop: 16, padding: '10px 14px', borderRadius: 10,
+              background: 'rgba(234, 179, 8, 0.10)', border: '1px solid rgba(234, 179, 8, 0.4)',
+              font: `500 12px ${FONT}`, color: '#854d0e', display: 'flex', gap: 8, alignItems: 'flex-start',
+            }}>
+              <span style={{ fontSize: 15 }}>⚠️</span>
+              <span>
+                <strong>Demo mode:</strong> Razorpay is running with placeholder credentials.
+                "Pay with Razorpay" will show an error — use <strong>Instant Pass</strong> for testing,
+                or set a real <code>RAZORPAY_KEY_ID</code> in the backend environment for a live demo.
+              </span>
+            </div>
+
+            {/* Action Buttons: Razorpay (mandatory real payment) + Instant Pass (dev/test sandbox) */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 24, flexWrap: 'wrap' }}>
               <button type="button" onClick={() => setStep(2)} style={btnGhost}><ArrowLeft size={15} /> Back</button>
 
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {/* Instant Test / Bypass Payment Button */}
+                {/*
+                  * Instant Pass — Dev/Test only.
+                  * Skips the Razorpay modal and books with a simulated payment ID.
+                  * This is intentionally visible in dev so testers can bypass the gateway.
+                  * In a production build this button should be hidden or removed.
+                  */}
                 <button
                   type="button"
                   onClick={handleTestBooking}
                   disabled={booking || !selectedDoctorId || !selectedSlotId}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 18px',
-                    borderRadius: 12, border: '1.5px solid #0f766e', color: '#0f766e', background: '#f0fdf9',
+                    borderRadius: 12, border: '1.5px dashed #0f766e', color: '#0f766e', background: '#f0fdf9',
                     font: `600 13px ${FONT}`, cursor: (booking || !selectedSlotId) ? 'not-allowed' : 'pointer', minHeight: 46,
+                    opacity: (booking || !selectedSlotId) ? 0.6 : 1,
                   }}
-                  title="Bypass payment checks and book immediately for testing video call"
+                  title="Dev/Test: Bypass Razorpay and book immediately with a simulated payment ID"
                 >
                   {booking ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} color="#0f766e" />}
-                  <span>Instant Test / Bypass Payment</span>
+                  <span>Instant Pass (Dev/Test)</span>
                 </button>
 
-                {/* Primary Action Button */}
+                {/*
+                  * Pay with Razorpay — the real, mandatory payment gateway button.
+                  * For VIDEO and IN-PERSON consultations alike — no consultation type bypass.
+                  * Shows ₹0 button text only when a 100% coupon is applied (free consultation).
+                  */}
                 <button
                   type="submit"
                   disabled={booking || !selectedDoctorId || !selectedSlotId}
@@ -1688,12 +1722,10 @@ export const PatientTriageBooking: React.FC<PatientTriageBookingProps> = ({ curr
                 >
                   {booking ? (
                     <><Loader2 size={16} className="animate-spin" /> Processing…</>
-                  ) : consultationType === 'VIDEO' ? (
-                    <><Video size={16} /> Confirm &amp; Join Video Call</>
                   ) : payablePaise === 0 ? (
                     <><Check size={16} /> Confirm Free Consultation</>
                   ) : (
-                    <><CreditCard size={16} /> Confirm Consultation</>
+                    <><CreditCard size={16} /> Pay ₹{(payablePaise / 100).toFixed(0)} with Razorpay</>
                   )}
                 </button>
               </div>

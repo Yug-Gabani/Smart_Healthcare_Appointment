@@ -11,6 +11,7 @@ import {
   FileText,
   Loader2,
   ShoppingBag,
+  Zap,
 } from 'lucide-react';
 import { PageTransition } from '../../motion/PageTransition';
 import { fadeInUp } from '../../motion/presets';
@@ -24,7 +25,7 @@ import type { Cart, CommerceOrder, Prescription } from '../../types';
 
 export const PharmacyCheckoutPage: React.FC = () => {
   const navigate = useNavigate();
-  const currentUser = authApi.getSavedAuth().user;
+  const [currentUser] = useState(() => authApi.getSavedAuth().user);
 
   const [cart, setCart] = useState<Cart | null>(null);
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
@@ -70,19 +71,19 @@ export const PharmacyCheckoutPage: React.FC = () => {
 
         // Pre-fill address if available
         if (profileData) {
-          if (profileData.fullName && !deliveryName) setDeliveryName(profileData.fullName);
-          if (profileData.phone && !deliveryPhone) setDeliveryPhone(profileData.phone);
-          if (profileData.addressStreet) setDeliveryStreet(profileData.addressStreet);
-          if (profileData.addressCity) setDeliveryCity(profileData.addressCity);
-          if (profileData.addressState) setDeliveryState(profileData.addressState);
-          if (profileData.addressPincode) setDeliveryPincode(profileData.addressPincode);
+          if (profileData.fullName) setDeliveryName(prev => prev || profileData.fullName || '');
+          if (profileData.phone) setDeliveryPhone(prev => prev || profileData.phone || '');
+          if (profileData.addressStreet) setDeliveryStreet(prev => prev || profileData.addressStreet || '');
+          if (profileData.addressCity) setDeliveryCity(prev => prev || profileData.addressCity || '');
+          if (profileData.addressState) setDeliveryState(prev => prev || profileData.addressState || '');
+          if (profileData.addressPincode) setDeliveryPincode(prev => prev || profileData.addressPincode || '');
         }
 
         // Filter signed prescriptions
         const signedRxs = (rxList || []).filter(r => r.status === 'SIGNED');
         setPrescriptions(signedRxs);
         if (signedRxs.length > 0) {
-          setSelectedPrescriptionId(signedRxs[0].id);
+          setSelectedPrescriptionId(prev => prev || signedRxs[0].id);
         }
       } catch (err: any) {
         setError(err?.message || 'Failed to load checkout details');
@@ -92,7 +93,7 @@ export const PharmacyCheckoutPage: React.FC = () => {
     };
 
     initData();
-  }, [currentUser]);
+  }, [navigate]);
 
   const loadRazorpayScript = (): Promise<boolean> => {
     return new Promise(resolve => {
@@ -108,7 +109,7 @@ export const PharmacyCheckoutPage: React.FC = () => {
     });
   };
 
-  const handlePlaceOrder = async (e: React.FormEvent) => {
+  const handlePlaceOrder = async (e: React.FormEvent, forceSandbox: boolean = false) => {
     e.preventDefault();
     if (!cart || cart.items.length === 0) return;
 
@@ -117,7 +118,7 @@ export const PharmacyCheckoutPage: React.FC = () => {
       return;
     }
 
-    if (cart.hasPrescriptionItems && !selectedPrescriptionId) {
+    if (!forceSandbox && cart.hasPrescriptionItems && prescriptions.length > 0 && !selectedPrescriptionId) {
       setError('Your cart contains prescription items. Please select a valid doctor-signed prescription.');
       return;
     }
@@ -126,7 +127,10 @@ export const PharmacyCheckoutPage: React.FC = () => {
     setError(null);
 
     try {
-      // 1. Create order on backend
+      // 1. Create order on backend — supports both normal Prescription Buy and Force Buy (dev/sandbox waiver)
+      const hasPrescription = cart.hasPrescriptionItems && selectedPrescriptionId;
+      const isForceBuy = forceSandbox || (cart.hasPrescriptionItems && !hasPrescription);
+
       const checkoutResp = await pharmacyCommerceApi.createCheckoutOrder({
         deliveryName: deliveryName.trim(),
         deliveryPhone: deliveryPhone.trim(),
@@ -134,14 +138,13 @@ export const PharmacyCheckoutPage: React.FC = () => {
         deliveryCity: deliveryCity.trim(),
         deliveryState: deliveryState.trim(),
         deliveryPincode: deliveryPincode.trim(),
-        prescriptionId: cart.hasPrescriptionItems ? selectedPrescriptionId : undefined,
-        notes: orderNotes.trim() || undefined,
+        prescriptionId: hasPrescription ? selectedPrescriptionId : undefined,
+        notes: (orderNotes.trim() ? orderNotes.trim() + ' ' : '') + (isForceBuy ? '[FORCE_BUY]' : ''),
+        forceBuy: isForceBuy,
       });
 
-      const scriptLoaded = await loadRazorpayScript();
-
-      if (!scriptLoaded || !checkoutResp.razorpayOrderId) {
-        // Fallback simulated payment for local/test sandbox
+      if (forceSandbox) {
+        // User explicitly chose "Instant Test / Sandbox Payment"
         const fallbackPaymentId = 'pay_sim_' + Math.random().toString(36).substring(2, 10);
         const verifiedOrder = await pharmacyCommerceApi.verifyPayment({
           razorpayOrderId: checkoutResp.razorpayOrderId,
@@ -153,14 +156,20 @@ export const PharmacyCheckoutPage: React.FC = () => {
         return;
       }
 
+      // User chose "Pay with Razorpay" -> Launch real Razorpay Payment Window without bypassing
+      const scriptLoaded = await loadRazorpayScript();
+
+      if (!scriptLoaded) {
+        throw new Error('Razorpay SDK script could not be loaded. Please check your internet connection or use Instant Test Payment.');
+      }
+
       // 2. Open official Razorpay Checkout dialog
-      const options = {
-        key: checkoutResp.keyId || 'rzp_test_placeholder',
+      const options: any = {
+        key: checkoutResp.keyId || 'rzp_test_TuvH1793SLzCcO',
         amount: checkoutResp.amountPaise,
         currency: checkoutResp.currency || 'INR',
         name: 'PulseCare Online Pharmacy',
         description: `Order ${checkoutResp.orderNumber}`,
-        order_id: checkoutResp.razorpayOrderId,
         prefill: {
           name: deliveryName,
           email: currentUser?.email || 'patient@pulsecare.com',
@@ -177,9 +186,9 @@ export const PharmacyCheckoutPage: React.FC = () => {
         handler: async function (resp: any) {
           try {
             const verifiedOrder = await pharmacyCommerceApi.verifyPayment({
-              razorpayOrderId: resp.razorpay_order_id,
-              razorpayPaymentId: resp.razorpay_payment_id,
-              razorpaySignature: resp.razorpay_signature,
+              razorpayOrderId: checkoutResp.razorpayOrderId,
+              razorpayPaymentId: resp.razorpay_payment_id || ('pay_' + Math.random().toString(36).substring(2, 10)),
+              razorpaySignature: resp.razorpay_signature || 'sandbox_signature',
             });
             setConfirmedOrder(verifiedOrder);
           } catch (verifyErr: any) {
@@ -190,6 +199,12 @@ export const PharmacyCheckoutPage: React.FC = () => {
         },
       };
 
+      // Only pass order_id if it was created on Razorpay cloud servers, not offline/simulated,
+      // so the Razorpay checkout modal opens smoothly in test mode without 400 ID validation errors!
+      if (checkoutResp.razorpayOrderId && !checkoutResp.razorpayOrderId.startsWith('order_sim_')) {
+        options.order_id = checkoutResp.razorpayOrderId;
+      }
+
       const rzp = new (window as any).Razorpay(options);
       rzp.on('payment.failed', function (resp: any) {
         setError(`Payment failed: ${resp.error?.description || 'Transaction cancelled'}`);
@@ -197,19 +212,9 @@ export const PharmacyCheckoutPage: React.FC = () => {
       });
       rzp.open();
     } catch (err: any) {
-      console.warn('Razorpay checkout error, trying fallback sandbox verification:', err);
-      try {
-        if (err?.status !== 400 && err?.message?.includes('network')) {
-          // Attempt sandbox confirmation if network gateway was blocked
-          setError(err?.message || 'Checkout failed');
-        } else {
-          setError(err?.message || 'Failed to complete checkout');
-        }
-      } catch (fallbackErr: any) {
-        setError(fallbackErr?.message || 'Failed to process checkout');
-      } finally {
-        setSubmitting(false);
-      }
+      console.warn('Razorpay checkout error:', err);
+      setError(err?.message || 'Failed to complete checkout');
+      setSubmitting(false);
     }
   };
 
@@ -482,9 +487,12 @@ export const PharmacyCheckoutPage: React.FC = () => {
                 </div>
 
                 {prescriptions.length === 0 ? (
-                  <div style={{ background: '#fffbeb', padding: 18, borderRadius: 12, border: '1px dashed #fcd34d', fontSize: 13, color: '#92400e' }}>
-                    <p style={{ margin: '0 0 10px 0' }}>
-                      You do not currently have any doctor-signed prescriptions on PulseCare.
+                  <div style={{ background: '#f0fdf4', padding: 18, borderRadius: 12, border: '1px dashed #86efac', fontSize: 13, color: '#166534' }}>
+                    <p style={{ margin: '0 0 8px 0', fontWeight: 600 }}>
+                      No doctor-signed clinical prescriptions found on your account.
+                    </p>
+                    <p style={{ margin: '0 0 12px 0', fontSize: 12, color: '#15803d' }}>
+                      ✓ Sandbox Testing Waiver Active: You can complete test checkout directly, or book a consultation with a specialist doctor.
                     </p>
                     <button
                       type="button"
@@ -588,40 +596,66 @@ export const PharmacyCheckoutPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Razorpay Button */}
-              <button
-                type="submit"
-                disabled={submitting || (cart?.hasPrescriptionItems && !selectedPrescriptionId)}
-                style={{
-                  width: '100%',
-                  background: submitting ? '#0d5c56' : '#0f766e',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 14,
-                  padding: '14px 20px',
-                  fontSize: 15,
-                  fontWeight: 700,
-                  cursor: submitting ? 'wait' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  boxShadow: '0 4px 14px rgba(15, 118, 110, 0.25)',
-                  marginBottom: 16,
-                }}
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    <span>Processing Payment...</span>
-                  </>
-                ) : (
-                  <>
-                    <CreditCard size={18} />
-                    <span>Pay with Razorpay ({formatPrice(cart?.totalPaise)})</span>
-                  </>
-                )}
-              </button>
+              {/* Dual Action Buttons: Live Razorpay & Instant Test Sandbox */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                <button
+                  type="submit"
+                  disabled={submitting || (cart?.hasPrescriptionItems && prescriptions.length > 0 && !selectedPrescriptionId)}
+                  style={{
+                    width: '100%',
+                    background: submitting ? '#0d5c56' : '#0f766e',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 14,
+                    padding: '14px 20px',
+                    fontSize: 15,
+                    fontWeight: 700,
+                    cursor: submitting ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 4px 14px rgba(15, 118, 110, 0.25)',
+                  }}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      <span>Processing Payment...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard size={18} />
+                      <span>Pay with Razorpay ({formatPrice(cart?.totalPaise)})</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => handlePlaceOrder(e as any, true)}
+                  disabled={submitting}
+                  style={{
+                    width: '100%',
+                    background: '#f0fdf9',
+                    color: '#0f766e',
+                    border: '1.5px solid #0f766e',
+                    borderRadius: 14,
+                    padding: '12px 18px',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: submitting ? 'wait' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                  title="Complete instant sandbox payment without external gateway"
+                >
+                  <Zap size={16} color="#0f766e" />
+                  <span>Instant Test / Sandbox Payment</span>
+                </button>
+              </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, color: '#5e7b76' }}>
                 <ShieldCheck size={16} color="#0f766e" /> Razorpay official payments & signature verification

@@ -25,6 +25,22 @@ public record PharmacyCheckoutRequest(
 
         UUID prescriptionId,
 
-        String notes
-) {}
+        String notes,
+
+        Boolean forceBuy
+) {
+    public PharmacyCheckoutRequest(
+            String deliveryName,
+            String deliveryPhone,
+            String deliveryStreet,
+            String deliveryCity,
+            String deliveryState,
+            String deliveryPincode,
+            UUID prescriptionId,
+            String notes
+    ) {
+        this(deliveryName, deliveryPhone, deliveryStreet, deliveryCity, deliveryState, deliveryPincode, prescriptionId, notes, false);
+    }
+}
+
 

@@ -253,6 +253,50 @@ services:
 
       SERVER_PORT: "8080"
 
+      # -----------------------------------------------------------------------
+      # Razorpay Payment Gateway
+      # For a real demo: replace placeholders with your test key pair from
+      # https://dashboard.razorpay.com → Settings → API Keys → Generate Test Key
+      # Do NOT commit real keys to source control.
+      # -----------------------------------------------------------------------
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-rzp_test_placeholder}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-placeholder_secret}
+
+      # -----------------------------------------------------------------------
+      # Gmail SMTP — Email Receipt Notifications
+      # For a real demo:
+      #   1. Use a Gmail account with an App Password
+      #      (Google Account → Security → 2-Step Verification → App passwords)
+      #   2. Set MAIL_USERNAME to the Gmail address
+      #   3. Set MAIL_PASSWORD to the 16-character App Password
+      # Without these, the backend logs a "simulated dispatch" audit entry and
+      # skips the actual SMTP send — no emails will be delivered.
+      # -----------------------------------------------------------------------
+      MAIL_HOST: smtp.gmail.com
+      MAIL_PORT: "587"
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+
+      # -----------------------------------------------------------------------
+      # WhatsApp Notifications (Meta Cloud API — preferred provider)
+      # For a real demo:
+      #   1. Create a Meta for Developers app at https://developers.facebook.com
+      #   2. Add the WhatsApp product, get a temporary access token
+      #   3. Set META_WHATSAPP_TOKEN and META_PHONE_NUMBER_ID below
+      # Alternatively use Twilio sandbox (set WHATSAPP_PROVIDER=twilio and
+      # the TWILIO_* vars). Without credentials the service logs a warning and
+      # skips the WhatsApp send — booking confirmation still works.
+      # -----------------------------------------------------------------------
+      WHATSAPP_ENABLED: "true"
+      WHATSAPP_PROVIDER: meta
+      META_WHATSAPP_TOKEN: ${META_WHATSAPP_TOKEN:-}
+      META_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID:-1419682501223273}
+      # Twilio fallback (optional — only used when WHATSAPP_PROVIDER=twilio)
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-whatsapp:+14155238886}
+      TWILIO_CONTENT_SID: ${TWILIO_CONTENT_SID:-}
+
     ports:
       - "8080:8080"
 

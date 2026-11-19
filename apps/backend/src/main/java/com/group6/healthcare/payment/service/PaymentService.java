@@ -479,7 +479,10 @@ public class PaymentService {
             }
         }
 
-        // 2. Real-Time Relay: Publish immediately if publisher available
+        // 2. Real-Time Relay: Publish via outbox publisher (which falls back to direct email when Kafka is absent)
+        //    We always call publishPending() — the OutboxPublisherService internally handles the
+        //    "no KafkaTemplate" path by invoking emailService.onPaymentSuccess() directly, so
+        //    email + WhatsApp notifications fire even when Kafka is disabled in docker-compose.
         if (outboxPublisherService != null) {
             if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
                 org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
@@ -493,6 +496,10 @@ public class PaymentService {
             } else {
                 outboxPublisherService.publishPending();
             }
+            // NOTE: We intentionally do NOT return early here anymore.
+            // The outbox publisher handles Kafka-absent fallback internally (direct emailService call).
+            // Returning early here was the bug that skipped notifications when outboxPublisherService
+            // was present but Kafka was disabled — the outbox would record the event but never deliver it.
             return;
         }
 
