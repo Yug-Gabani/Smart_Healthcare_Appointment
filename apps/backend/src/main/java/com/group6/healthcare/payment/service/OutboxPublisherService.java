@@ -78,7 +78,7 @@ public class OutboxPublisherService {
         try {
             PaymentSuccessEvent event = objectMapper.readValue(record.getPayload(), PaymentSuccessEvent.class);
 
-            if (kafkaEnabled && kafkaTemplate != null) {
+            if (kafkaTemplate != null) {
                 CompletableFuture<SendResult<String, PaymentSuccessEvent>> future = kafkaTemplate.send(
                         KafkaPaymentConfig.PAYMENT_RECEIPT_TOPIC,
                         record.getAggregateId(),
@@ -163,8 +163,8 @@ public class OutboxPublisherService {
                 "Publish error (attempt " + record.getRetryCount() + "): " + (ex != null ? ex.getMessage() : "broker error")
         );
 
-        // Resilient fallback if retries are climbing: direct execution
-        if (record.getRetryCount() >= 3 && emailService != null) {
+        // Resilient fallback: direct execution so notifications are dispatched even if Kafka is down
+        if (emailService != null) {
             log.info("[TRANSACTIONAL OUTBOX] Invoking direct notification pipeline fallback for order {}", record.getAggregateId());
             emailService.onPaymentSuccess(event);
         }

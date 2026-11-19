@@ -897,6 +897,7 @@ export const pharmacyCommerceApi = {
     deliveryPincode: string;
     prescriptionId?: string;
     notes?: string;
+    forceBuy?: boolean;
   }): Promise<PharmacyCheckoutResponse> =>
     request<PharmacyCheckoutResponse>('/v1/pharmacy/checkout/create-order', {
       method: 'POST',

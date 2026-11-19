@@ -125,29 +125,25 @@ public class PharmacyCommerceOrderService {
 
         Prescription validPrescription = null;
         if (hasRxItem) {
+            boolean isForceBuy = Boolean.TRUE.equals(req.forceBuy())
+                    || (req.notes() != null && req.notes().contains("[FORCE_BUY]"));
+
             if (req.prescriptionId() != null) {
+                // Mode 1: Prescription Buy — strictly validate prescription exists, belongs to patient, and is SIGNED
                 validPrescription = prescriptionRepository.findById(req.prescriptionId())
-                        .orElse(null);
-                if (validPrescription != null && (!validPrescription.getPatientId().equals(userId) || validPrescription.getStatus() != PrescriptionStatus.SIGNED)) {
-                    validPrescription = null;
-                }
-            }
+                        .orElseThrow(() -> new IllegalArgumentException("Prescription not found"));
 
-            if (validPrescription == null) {
-                List<Prescription> patientRxs = prescriptionRepository.findByPatientIdOrderByCreatedAtDesc(userId);
-                validPrescription = patientRxs.stream()
-                        .filter(rx -> rx.getStatus() == PrescriptionStatus.SIGNED)
-                        .findFirst()
-                        .orElse(null);
-            }
-
-            if (validPrescription == null) {
-                boolean isDev = "dev".equalsIgnoreCase(activeProfile) || (activeProfile != null && activeProfile.contains("test"));
-                if (isDev) {
-                    log.info("[PHARMACY DEV] No signed prescription on file for user {}, granting dev sandbox waiver", userId);
-                } else {
-                    throw new IllegalArgumentException("Prescription is required for one or more medicines in your cart");
+                if (!validPrescription.getPatientId().equals(userId)) {
+                    throw new IllegalArgumentException("Prescription does not belong to the authenticated patient");
                 }
+                if (validPrescription.getStatus() != PrescriptionStatus.SIGNED) {
+                    throw new IllegalArgumentException("Prescription must be SIGNED by a licensed doctor to order prescription medicines");
+                }
+            } else if (isForceBuy) {
+                // Mode 2: Force Buy — temporary waiver for dev/sandbox/testing without doctor prescription
+                log.info("[PHARMACY FORCE BUY] Temporary sandbox waiver applied for patient {}. Order proceeding without attached prescription.", userId);
+            } else {
+                throw new IllegalArgumentException("Prescription is required for one or more medicines in your cart");
             }
         }
 

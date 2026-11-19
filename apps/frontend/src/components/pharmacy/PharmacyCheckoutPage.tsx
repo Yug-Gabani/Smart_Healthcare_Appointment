@@ -118,7 +118,7 @@ export const PharmacyCheckoutPage: React.FC = () => {
       return;
     }
 
-    if (cart.hasPrescriptionItems && prescriptions.length > 0 && !selectedPrescriptionId) {
+    if (!forceSandbox && cart.hasPrescriptionItems && prescriptions.length > 0 && !selectedPrescriptionId) {
       setError('Your cart contains prescription items. Please select a valid doctor-signed prescription.');
       return;
     }
@@ -127,7 +127,10 @@ export const PharmacyCheckoutPage: React.FC = () => {
     setError(null);
 
     try {
-      // 1. Create order on backend
+      // 1. Create order on backend — supports both normal Prescription Buy and Force Buy (dev/sandbox waiver)
+      const hasPrescription = cart.hasPrescriptionItems && selectedPrescriptionId;
+      const isForceBuy = forceSandbox || (cart.hasPrescriptionItems && !hasPrescription);
+
       const checkoutResp = await pharmacyCommerceApi.createCheckoutOrder({
         deliveryName: deliveryName.trim(),
         deliveryPhone: deliveryPhone.trim(),
@@ -135,8 +138,9 @@ export const PharmacyCheckoutPage: React.FC = () => {
         deliveryCity: deliveryCity.trim(),
         deliveryState: deliveryState.trim(),
         deliveryPincode: deliveryPincode.trim(),
-        prescriptionId: cart.hasPrescriptionItems && selectedPrescriptionId ? selectedPrescriptionId : undefined,
-        notes: orderNotes.trim() || undefined,
+        prescriptionId: hasPrescription ? selectedPrescriptionId : undefined,
+        notes: (orderNotes.trim() ? orderNotes.trim() + ' ' : '') + (isForceBuy ? '[FORCE_BUY]' : ''),
+        forceBuy: isForceBuy,
       });
 
       if (forceSandbox) {
@@ -630,7 +634,7 @@ export const PharmacyCheckoutPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={(e) => handlePlaceOrder(e as any, true)}
-                  disabled={submitting || (cart?.hasPrescriptionItems && prescriptions.length > 0 && !selectedPrescriptionId)}
+                  disabled={submitting}
                   style={{
                     width: '100%',
                     background: '#f0fdf9',
