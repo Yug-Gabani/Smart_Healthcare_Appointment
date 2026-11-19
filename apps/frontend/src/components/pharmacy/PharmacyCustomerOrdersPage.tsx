@@ -8,7 +8,6 @@ import {
   CreditCard,
   AlertCircle,
   Loader2,
-  Download,
   Receipt,
 } from 'lucide-react';
 import { PageTransition } from '../../motion/PageTransition';

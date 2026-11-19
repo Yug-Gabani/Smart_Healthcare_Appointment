@@ -37,7 +37,6 @@ import { describePrescriptionItem } from '../types';
 import {
   appointmentsApi,
   patientOrdersApi,
-  pharmacyCommerceApi,
   prescriptionsApi,
 } from '../services/api';
 import { SlotPickerModal } from './SlotPickerModal';

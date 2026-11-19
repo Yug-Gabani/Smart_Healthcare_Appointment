@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Loader2,
   Calendar,
-  FileText,
   Stethoscope,
   AlertCircle,
   Pill,
