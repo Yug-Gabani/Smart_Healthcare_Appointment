@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageTransition } from '../motion/PageTransition';
-import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw, AlertCircle, CalendarClock } from 'lucide-react';
-import type { Appointment } from '../types';
-import { appointmentsApi } from '../services/api';
+import { ArrowLeft, Calendar, Clock, Loader2, MapPin, Video, XCircle, FileText, RotateCcw, AlertCircle, CalendarClock, Download, Receipt, ShoppingBag } from 'lucide-react';
+import type { Appointment, Prescription } from '../types';
+import { appointmentsApi, prescriptionsApi, paymentsApi } from '../services/api';
 import { CancelRefundModal } from './CancelRefundModal';
 import { SlotPickerModal } from './SlotPickerModal';
 import { getAppointmentStatusDetails, formatAppointmentSlot } from '../utils/appointmentStatus';
+import { addPrescriptionToCart, downloadPdfBlob } from '../utils/pharmacyCartUtils';
 
 function formatSlot(iso?: string): string {
   return formatAppointmentSlot(iso);
@@ -28,8 +29,10 @@ export const AppointmentDetail: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [appt, setAppt] = useState<Appointment | null>(null);
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
   const [refundSummary, setRefundSummary] = useState<string | null>(null);
@@ -38,12 +41,51 @@ export const AppointmentDetail: React.FC = () => {
     if (!id) return;
     setLoading(true);
     setError(null);
-    appointmentsApi
-      .get(id)
-      .then(setAppt)
+    Promise.all([
+      appointmentsApi.get(id),
+      prescriptionsApi.listForAppointment(id).catch(() => [] as Prescription[]),
+    ])
+      .then(([a, p]) => {
+        setAppt(a);
+        setPrescriptions(p);
+      })
       .catch(err => setError(err.message || 'Could not load appointment'))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const handleDownloadRx = async (rxId: string) => {
+    try {
+      setBusyActionId(`rx-${rxId}`);
+      await downloadPdfBlob(prescriptionsApi.pdfUrl(rxId), `prescription-${rxId}.pdf`);
+    } catch {
+      alert('Prescription download failed. Please try again.');
+    } finally {
+      setBusyActionId(null);
+    }
+  };
+
+  const handleDownloadInvoice = async (apptId: string) => {
+    try {
+      setBusyActionId(`inv-${apptId}`);
+      await downloadPdfBlob(paymentsApi.appointmentReceiptPdfUrl(apptId), `PulseCare_Invoice_${apptId}.pdf`);
+    } catch {
+      alert('Invoice download failed. Please try again.');
+    } finally {
+      setBusyActionId(null);
+    }
+  };
+
+  const handleOrderMedicines = async (rx: Prescription) => {
+    try {
+      setBusyActionId(`order-${rx.id}`);
+      await addPrescriptionToCart(rx);
+      navigate('/pharmacy/cart');
+    } catch {
+      alert('Could not add medicines to cart.');
+    } finally {
+      setBusyActionId(null);
+    }
+  };
 
   const details = appt ? getAppointmentStatusDetails(appt) : null;
   const canCancel = details ? details.canCancel : false;
@@ -224,11 +266,60 @@ export const AppointmentDetail: React.FC = () => {
                 <Calendar size={16} /> Book New Consultation
               </button>
             )}
+
+            {/* 1-Click Invoice Download for Completed Consultations */}
+            {appt.status === 'COMPLETED' && (
+              <button
+                onClick={() => handleDownloadInvoice(appt.id)}
+                disabled={busyActionId === `inv-${appt.id}`}
+                className="btn btn-secondary hover-lift"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                {busyActionId === `inv-${appt.id}` ? <Loader2 size={16} className="animate-spin" /> : <Receipt size={16} />}
+                Download Invoice (PDF)
+              </button>
+            )}
+
+            {/* 1-Click Download Prescription PDF & Order Medicines */}
+            {prescriptions.filter(p => p.status === 'SIGNED').map(rx => (
+              <React.Fragment key={rx.id}>
+                <button
+                  onClick={() => handleDownloadRx(rx.id)}
+                  disabled={busyActionId === `rx-${rx.id}`}
+                  className="btn btn-primary hover-lift"
+                  style={{
+                    backgroundColor: '#0f766e', borderColor: '#0f766e',
+                    display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  }}
+                >
+                  {busyActionId === `rx-${rx.id}` ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                  Download Prescription (PDF)
+                </button>
+
+                {rx.items && rx.items.length > 0 && (
+                  <button
+                    onClick={() => handleOrderMedicines(rx)}
+                    disabled={busyActionId === `order-${rx.id}`}
+                    className="btn hover-lift"
+                    style={{
+                      background: '#f0fdf4', color: '#166534',
+                      border: '1px solid #bbf7d0',
+                      display: 'inline-flex', alignItems: 'center', gap: '8px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {busyActionId === `order-${rx.id}` ? <Loader2 size={16} className="animate-spin" /> : <ShoppingBag size={16} />}
+                    Order Prescribed Medicines
+                  </button>
+                )}
+              </React.Fragment>
+            ))}
+
             <button
               onClick={() => navigate('/prescriptions')}
               className="btn btn-secondary hover-lift"
             >
-              View prescriptions
+              View all prescriptions
             </button>
             {canReschedule && (
               <button

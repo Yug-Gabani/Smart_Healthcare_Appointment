@@ -7,6 +7,10 @@ import com.group6.healthcare.pharmacy.service.PharmacyCommerceOrderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +47,20 @@ public class PharmacyUserOrdersController {
             @PathVariable UUID orderId
     ) {
         return ApiResponse.ok(orderService.getOrderDetails(principal.getId(), orderId));
+    }
+
+    @GetMapping(value = "/{orderId}/invoice/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
+    @Operation(summary = "Download official OpenPDF Pharmacy Tax Invoice & Insurance Receipt")
+    public ResponseEntity<byte[]> downloadInvoicePdf(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @PathVariable UUID orderId
+    ) {
+        byte[] pdfBytes = orderService.generateInvoicePdf(principal.getId(), orderId);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDispositionFormData("inline", "PulseCare_Pharmacy_Invoice_" + orderId + ".pdf");
+        headers.setContentLength(pdfBytes.length);
+        return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
     }
 }
 

@@ -15,6 +15,7 @@ import com.group6.healthcare.payment.entity.PaymentRefund;
 import com.group6.healthcare.payment.service.NotificationAuditService;
 import com.group6.healthcare.payment.service.PaymentService;
 import com.group6.healthcare.payment.service.RefundService;
+import com.group6.healthcare.pharmacy.service.PharmacyCommerceOrderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -42,6 +43,9 @@ public class PaymentController {
     private final PaymentService paymentService;
     private final NotificationAuditService auditService;
     private final RefundService refundService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PharmacyCommerceOrderService pharmacyOrderService;
 
     public PaymentController(
             PaymentService paymentService,
@@ -80,6 +84,35 @@ public class PaymentController {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_PDF);
         headers.setContentDispositionFormData("inline", "PulseCare_Receipt_" + orderId + ".pdf");
+        headers.setContentLength(pdfBytes.length);
+
+        return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
+    }
+
+    @GetMapping("/receipt/appointment/{appointmentId}/pdf")
+    @Operation(summary = "Download or stream official OpenPDF Medical Tax Invoice for an appointment")
+    public ResponseEntity<byte[]> getReceiptPdfByAppointmentId(@PathVariable UUID appointmentId) {
+        byte[] pdfBytes = paymentService.getReceiptPdfByAppointmentId(appointmentId);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDispositionFormData("inline", "PulseCare_Invoice_Appt_" + appointmentId + ".pdf");
+        headers.setContentLength(pdfBytes.length);
+
+        return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
+    }
+
+    @GetMapping("/receipt/pharmacy/{orderId}/pdf")
+    @Operation(summary = "Download or stream official OpenPDF Pharmacy Tax Invoice by order ID")
+    public ResponseEntity<byte[]> getPharmacyReceiptPdf(@PathVariable UUID orderId) {
+        if (pharmacyOrderService == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        byte[] pdfBytes = pharmacyOrderService.generateInvoicePdfPublic(orderId);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDispositionFormData("inline", "PulseCare_Pharmacy_Invoice_" + orderId + ".pdf");
         headers.setContentLength(pdfBytes.length);
 
         return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);

@@ -41,6 +41,7 @@ import {
   prescriptionsApi,
 } from '../services/api';
 import { SlotPickerModal } from './SlotPickerModal';
+import { addPrescriptionToCart, downloadPdfBlob } from '../utils/pharmacyCartUtils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -153,62 +154,8 @@ export const MyPrescriptions: React.FC = () => {
   // ---------------------------------------------------------------------------
 
   /**
-   * Attempts to add every item in a prescription to the pharmacy cart.
-   *
-   * Strategy:
-   *   1. For each prescription item, search the medicine catalogue by drug name.
-   *   2. If no match is found → record a "not found" warning.
-   *   3. If the matched medicine is out of stock (stockQuantity < 1) → record
-   *      an "out of stock" warning.
-   *   4. Otherwise call addToCart with quantity = 1 (prescriptions store dosage
-   *      text, not numeric quantities, so we default to 1 unit per medicine).
-   *
-   * Returns an array of warning strings for items that could not be added.
-   * On success (all items added) the array is empty.
-   *
-   * @param rx - The prescription whose items should be added to the cart.
-   */
-  const addPrescriptionToCart = async (rx: Prescription): Promise<string[]> => {
-    const warnings: string[] = [];
-
-    for (const item of rx.items) {
-      try {
-        // Search catalogue by drug name (case-insensitive, partial match via backend ILIKE)
-        const result = await pharmacyCommerceApi.getMedicines({
-          search: item.drugName,
-          size: 5,
-        });
-
-        // Pick the best match: prefer an exact name match, fall back to first result
-        const match =
-          result.content.find(
-            m => m.name.toLowerCase() === item.drugName.toLowerCase(),
-          ) ?? result.content[0];
-
-        if (!match) {
-          warnings.push(`"${item.drugName}" — not found in pharmacy catalogue`);
-          continue;
-        }
-
-        if (match.stockQuantity < 1) {
-          warnings.push(`"${match.name}" — currently out of stock`);
-          continue;
-        }
-
-        // Add with quantity = 1 (default; doctor's dosage is in the instructions, not a cart qty)
-        await pharmacyCommerceApi.addToCart(match.id, 1);
-      } catch (err: any) {
-        // Catch per-item errors so one failed item does not block the rest
-        warnings.push(`"${item.drugName}" — could not be added (${err?.message ?? 'unknown error'})`);
-      }
-    }
-
-    return warnings;
-  };
-
-  /**
    * Click handler for the "Order Prescribed Medicines" button.
-   * Runs the cart-add flow, stores any warnings, then navigates to /pharmacy/cart.
+   * Runs the shared cart-add flow, stores any warnings, then navigates to /pharmacy/cart.
    */
   const handleOrderFromPrescription = async (rx: Prescription) => {
     setCartAdding(rx.id);
@@ -228,21 +175,17 @@ export const MyPrescriptions: React.FC = () => {
   // PDF download
   // ---------------------------------------------------------------------------
 
-  const downloadPdf = (id: string) => {
-    const token = localStorage.getItem('pulsecare_token');
-    fetch(prescriptionsApi.pdfUrl(id), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then(r => r.blob())
-      .then(blob => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `prescription-${id}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-      })
-      .catch(() => alert('Download failed'));
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const downloadPdf = async (id: string) => {
+    try {
+      setDownloadingId(id);
+      await downloadPdfBlob(prescriptionsApi.pdfUrl(id), `prescription-${id}.pdf`);
+    } catch {
+      alert('Download failed');
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -534,8 +477,12 @@ export const MyPrescriptions: React.FC = () => {
 
                     {/* Row 1: PDF + View appointment */}
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      <button onClick={() => downloadPdf(rx.id)} className="btn btn-secondary hover-lift">
-                        <Download size={14} /> PDF
+                      <button
+                        onClick={() => downloadPdf(rx.id)}
+                        disabled={downloadingId === rx.id}
+                        className="btn btn-secondary hover-lift"
+                      >
+                        {downloadingId === rx.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} PDF
                       </button>
                       <button onClick={() => navigate(`/appointments/${rx.appointmentId}`)} className="btn btn-secondary hover-lift">
                         <FileText size={14} /> View appointment

@@ -5,6 +5,7 @@ import { Loader2, Plus, Trash2, X, Download } from 'lucide-react';
 import type { MealTiming, Prescription, PrescriptionItem } from '../types';
 import { describePrescriptionItem } from '../types';
 import { prescriptionsApi } from '../services/api';
+import { downloadPdfBlob } from '../utils/pharmacyCartUtils';
 
 // Chips omit UNSPECIFIED from the regular lists; it's a separate "none" state.
 
@@ -234,22 +235,18 @@ export const PrescriptionEditor: React.FC<PrescriptionEditorProps> = ({
     }
   };
 
-  const downloadPdf = () => {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const downloadPdf = async () => {
     if (!active) return;
-    const token = localStorage.getItem('pulsecare_token');
-    fetch(prescriptionsApi.pdfUrl(active.id), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then(r => r.blob())
-      .then(blob => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `prescription-${active.id}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
-      })
-      .catch(() => setError('PDF download failed'));
+    try {
+      setIsDownloading(true);
+      await downloadPdfBlob(prescriptionsApi.pdfUrl(active.id), `prescription-${active.id}.pdf`);
+    } catch {
+      setError('PDF download failed');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
@@ -612,8 +609,8 @@ export const PrescriptionEditor: React.FC<PrescriptionEditorProps> = ({
           )}
           {isSigned && (
             <>
-              <button onClick={downloadPdf} className="hover-lift" style={ghostBtn('#0f766e')}>
-                <Download size={14} /> Download PDF
+              <button onClick={downloadPdf} disabled={isDownloading} className="hover-lift" style={ghostBtn('#0f766e')}>
+                {isDownloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Download PDF
               </button>
               <button onClick={() => setVoidOpen(true)} disabled={!!busy}
                 className="hover-lift"

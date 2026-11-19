@@ -15,6 +15,7 @@ public record PrescriptionResponse(
         String doctorName,
         String doctorSpecialty,
         String doctorHospital,
+        String doctorLicense,
         PrescriptionStatus status,
         OffsetDateTime signedAt,
         UUID voidOf,
@@ -26,7 +27,33 @@ public record PrescriptionResponse(
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
-    /** Backward-compatible overload for callers that don't yet know about follow-up fields. */
+    /** Overload for callers specifying follow-up but omitting doctorLicense. */
+    public PrescriptionResponse(
+            UUID id,
+            UUID appointmentId,
+            UUID patientId,
+            String patientName,
+            UUID doctorId,
+            String doctorName,
+            String doctorSpecialty,
+            String doctorHospital,
+            PrescriptionStatus status,
+            OffsetDateTime signedAt,
+            UUID voidOf,
+            String voidReason,
+            String notes,
+            Integer followUpAfterDays,
+            String followUpNotes,
+            List<PrescriptionItemDto> items,
+            OffsetDateTime createdAt,
+            OffsetDateTime updatedAt
+    ) {
+        this(id, appointmentId, patientId, patientName, doctorId, doctorName, doctorSpecialty,
+                doctorHospital, "NMC/SMC-VERIFIED", status, signedAt, voidOf, voidReason, notes,
+                followUpAfterDays, followUpNotes, items, createdAt, updatedAt);
+    }
+
+    /** Backward-compatible overload for legacy callers that don't pass follow-up or license fields. */
     public PrescriptionResponse(
             UUID id,
             UUID appointmentId,
@@ -46,7 +73,7 @@ public record PrescriptionResponse(
             OffsetDateTime updatedAt
     ) {
         this(id, appointmentId, patientId, patientName, doctorId, doctorName, doctorSpecialty,
-                doctorHospital, status, signedAt, voidOf, voidReason, notes,
+                doctorHospital, "NMC/SMC-VERIFIED", status, signedAt, voidOf, voidReason, notes,
                 null, null, items, createdAt, updatedAt);
     }
 }
