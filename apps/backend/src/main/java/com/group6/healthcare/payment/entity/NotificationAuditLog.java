@@ -32,7 +32,7 @@ public class NotificationAuditLog {
     }
 
     public enum Status {
-        QUEUED, DISPATCHED, DELIVERED, FAILED, DLQ_ROUTED, PROCESSED
+        QUEUED, DISPATCHED, DELIVERED, FAILED, DLQ_ROUTED, PROCESSED, PENDING
     }
 
     @Id
@@ -71,4 +71,3 @@ public class NotificationAuditLog {
     @Column(name = "completed_at")
     private Instant completedAt;
 }
-
