@@ -296,6 +296,10 @@ public class PrescriptionService {
                     it.getMealTimingList()
             ));
         }
+        String doctorLicense = (doctor != null && doctor.getRegistrationNumber() != null && !doctor.getRegistrationNumber().isBlank())
+                ? doctor.getRegistrationNumber()
+                : "NMC/SMC-" + (doctor != null && doctor.getId() != null ? doctor.getId().toString().substring(0, 8).toUpperCase() : "VERIFIED");
+
         return new PrescriptionResponse(
                 rx.getId(),
                 rx.getAppointmentId(),
@@ -305,6 +309,7 @@ public class PrescriptionService {
                 doctor != null ? doctor.getFullName() : null,
                 doctor != null ? doctor.getSpecialty() : null,
                 doctor != null ? doctor.getHospital() : null,
+                doctorLicense,
                 rx.getStatus(),
                 rx.getSignedAt(),
                 rx.getVoidOf(),

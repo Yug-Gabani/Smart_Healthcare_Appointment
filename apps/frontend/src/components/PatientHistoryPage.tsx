@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Loader2,
   Calendar,
-  FileText,
   Stethoscope,
   AlertCircle,
   Pill,
@@ -11,10 +10,14 @@ import {
   MapPin,
   CalendarClock,
   ChevronRight,
+  Download,
+  Receipt,
+  ShoppingBag,
 } from 'lucide-react';
 import { PageTransition } from '../motion/PageTransition';
 import type { Appointment, Prescription } from '../types';
-import { appointmentsApi, prescriptionsApi } from '../services/api';
+import { appointmentsApi, prescriptionsApi, paymentsApi } from '../services/api';
+import { addPrescriptionToCart, downloadPdfBlob } from '../utils/pharmacyCartUtils';
 
 /**
  * Consolidated patient history timeline.
@@ -61,6 +64,41 @@ export const PatientHistoryPage: React.FC = () => {
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busyActionId, setBusyActionId] = useState<string | null>(null);
+
+  const handleDownloadRx = async (rxId: string) => {
+    try {
+      setBusyActionId(`rx-${rxId}`);
+      await downloadPdfBlob(prescriptionsApi.pdfUrl(rxId), `prescription-${rxId}.pdf`);
+    } catch {
+      alert('Prescription download failed. Please try again.');
+    } finally {
+      setBusyActionId(null);
+    }
+  };
+
+  const handleDownloadInvoice = async (apptId: string) => {
+    try {
+      setBusyActionId(`inv-${apptId}`);
+      await downloadPdfBlob(paymentsApi.appointmentReceiptPdfUrl(apptId), `PulseCare_Invoice_${apptId}.pdf`);
+    } catch {
+      alert('Invoice download failed. Please try again.');
+    } finally {
+      setBusyActionId(null);
+    }
+  };
+
+  const handleOrderFromRx = async (rx: Prescription) => {
+    try {
+      setBusyActionId(`order-${rx.id}`);
+      await addPrescriptionToCart(rx);
+      navigate('/pharmacy/cart');
+    } catch {
+      alert('Could not add medicines to cart.');
+    } finally {
+      setBusyActionId(null);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -311,7 +349,7 @@ export const PatientHistoryPage: React.FC = () => {
                     </div>
                   )}
 
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     <button
                       type="button"
                       onClick={() => navigate('/appointments/' + appt.id)}
@@ -331,10 +369,13 @@ export const PatientHistoryPage: React.FC = () => {
                     >
                       Open visit <ChevronRight size={12} />
                     </button>
-                    {signedRx.length > 0 && (
+
+                    {/* 1-Click Invoice Download */}
+                    {appt.status === 'COMPLETED' && (
                       <button
                         type="button"
-                        onClick={() => navigate('/prescriptions')}
+                        onClick={() => handleDownloadInvoice(appt.id)}
+                        disabled={busyActionId === `inv-${appt.id}`}
                         style={{
                           padding: '6px 12px',
                           background: '#ffffff',
@@ -343,14 +384,76 @@ export const PatientHistoryPage: React.FC = () => {
                           borderRadius: 10,
                           fontSize: 12,
                           fontWeight: 500,
-                          cursor: 'pointer',
+                          cursor: busyActionId === `inv-${appt.id}` ? 'wait' : 'pointer',
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 4,
                         }}
                       >
-                        <FileText size={12} /> Prescriptions
+                        {busyActionId === `inv-${appt.id}` ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Receipt size={12} />
+                        )}
+                        Invoice (PDF)
                       </button>
+                    )}
+
+                    {/* 1-Click Prescription Actions */}
+                    {signedRx.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadRx(signedRx[0].id)}
+                          disabled={busyActionId === `rx-${signedRx[0].id}`}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#0f766e',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: 10,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            cursor: busyActionId === `rx-${signedRx[0].id}` ? 'wait' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          {busyActionId === `rx-${signedRx[0].id}` ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Download size={12} />
+                          )}
+                          Download Rx (PDF)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleOrderFromRx(signedRx[0])}
+                          disabled={busyActionId === `order-${signedRx[0].id}`}
+                          style={{
+                            padding: '6px 12px',
+                            background: '#f0fdf4',
+                            color: '#166534',
+                            border: '1px solid #bbf7d0',
+                            borderRadius: 10,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: busyActionId === `order-${signedRx[0].id}` ? 'wait' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          {busyActionId === `order-${signedRx[0].id}` ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <ShoppingBag size={12} />
+                          )}
+                          Order Medicines
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>

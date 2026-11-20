@@ -230,6 +230,7 @@ export interface Prescription {
   doctorName?: string;
   doctorSpecialty?: string;
   doctorHospital?: string;
+  doctorLicense?: string;
   status: PrescriptionStatus;
   signedAt?: string;
   voidOf?: string;

@@ -183,13 +183,15 @@ public class PdfReceiptGeneratorService {
                 itemTable.addCell(cell);
             }
 
-            // Row 1: Doctor Consultation Fee
-            addTableRow(itemTable, "Specialist Doctor Consultation & E-Prescription Review", "1", formattedAmount, formattedAmount, false);
+            // Row 1: Doctor Consultation Fee with SAC code
+            addTableRow(itemTable, "Specialist Doctor Consultation & E-Prescription Review (SAC 999312)", "1", formattedAmount, formattedAmount, false);
             // Row 2: Digital Healthcare Platform & Gateway processing
             addTableRow(itemTable, "PulseCare Digital Platform & Gateway Processing Fee", "1", "Rs. 0.00", "Rs. 0.00 (Waived)", false);
-            // Row 3: Healthcare Service Tax (Exempted)
-            addTableRow(itemTable, "Healthcare Services Tax (GST Exempt Under Notif. 12/2017)", "—", "0.00%", "Rs. 0.00", false);
-            // Row 4: Net Total
+            // Row 3: Central GST (CGST 0%)
+            addTableRow(itemTable, "Central GST (CGST @ 0.00% — Healthcare Exempt Notif. 12/2017)", "—", "0.00%", "Rs. 0.00", false);
+            // Row 4: State GST (SGST 0%)
+            addTableRow(itemTable, "State GST (SGST @ 0.00% — Healthcare Exempt Notif. 12/2017)", "—", "0.00%", "Rs. 0.00", false);
+            // Row 5: Net Total
             addTableRow(itemTable, "NET AMOUNT PAID", "", "", formattedAmount, true);
 
             document.add(itemTable);
@@ -204,20 +206,22 @@ public class PdfReceiptGeneratorService {
             auditCell.setBackgroundColor(new Color(248, 250, 252));
             auditCell.setBorderColor(BORDER_COLOR);
 
-            Paragraph auditHeader = new Paragraph("AUDIT FOOTPRINT & PAYMENT PROVENANCE", sectionHeaderFont);
+            Paragraph auditHeader = new Paragraph("AUDIT FOOTPRINT, GST BREAKDOWN & INSURANCE REIMBURSEMENT", sectionHeaderFont);
             auditHeader.setSpacingAfter(4);
             auditCell.addElement(auditHeader);
 
             Paragraph audit1 = new Paragraph(String.format("• Razorpay Order ID: %s    • Razorpay Payment ID: %s",
                     event.razorpayOrderId() != null ? event.razorpayOrderId() : "N/A",
                     event.razorpayPaymentId() != null ? event.razorpayPaymentId() : "N/A"), regularText);
-            Paragraph audit2 = new Paragraph(String.format("• Event Pipeline: Apache Kafka (%s)    • Currency: %s",
+            Paragraph audit2 = new Paragraph(String.format("• Event Pipeline: Apache Kafka (%s)    • Currency: %s    • Service SAC: 999312",
                     "payment-receipt-topic", event.currency() != null ? event.currency() : "INR"), mutedTextFont);
-            Paragraph disclaimer = new Paragraph("This is an electronically generated official medical tax receipt issued by PulseCare Health Systems. In accordance with the IT Act 2000, no physical signature is required.", mutedTextFont);
+            Paragraph insuranceClaim = new Paragraph("• Medical Insurance Claim: Eligible for reimbursement claim under Outpatient Department (OPD) & Telehealth medical insurance coverage as per applicable policy terms.", regularText);
+            Paragraph disclaimer = new Paragraph("This is an electronically generated official medical tax receipt issued by PulseCare Health Systems (GSTIN: 27AABCP1234F1Z8). In accordance with the IT Act 2000, no physical signature is required.", mutedTextFont);
             disclaimer.setSpacingBefore(6);
 
             auditCell.addElement(audit1);
             auditCell.addElement(audit2);
+            auditCell.addElement(insuranceClaim);
             auditCell.addElement(disclaimer);
             auditTable.addCell(auditCell);
 
