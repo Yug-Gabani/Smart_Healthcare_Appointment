@@ -46,7 +46,7 @@ class AuthFlowIntegrationTest {
 
     private JsonNode registerAlice() throws Exception {
         var req = new RegisterRequest(
-                "alice@example.com", "Secret12345", "Alice Patient", "+10000000000", Role.PATIENT,
+                "alice@example.com", "Secret12345!", "Alice Patient", "+10000000000", Role.PATIENT,
                 null, null, null, null);
         MvcResult result = mvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -83,7 +83,7 @@ class AuthFlowIntegrationTest {
                 .andExpect(jsonPath("$.data.email").value("alice@example.com"))
                 .andExpect(jsonPath("$.data.role").value("PATIENT"));
 
-        var login = new LoginRequest("alice@example.com", "Secret12345");
+        var login = new LoginRequest("alice@example.com", "Secret12345!");
         mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(login)))
@@ -95,7 +95,7 @@ class AuthFlowIntegrationTest {
     void duplicateEmailReturnsConflict() throws Exception {
         registerAlice();
         var req = new RegisterRequest(
-                "ALICE@EXAMPLE.COM", "Another12345", "Alice Dupe", null, Role.DOCTOR,
+                "ALICE@EXAMPLE.COM", "Another12345!", "Alice Dupe", null, Role.DOCTOR,
                 "Cardiology", "Test Hospital", null, "REG-12345");
         mvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -106,7 +106,7 @@ class AuthFlowIntegrationTest {
     @Test
     void loginWithWrongPasswordIs401() throws Exception {
         registerAlice();
-        var login = new LoginRequest("alice@example.com", "WrongPassword1");
+        var login = new LoginRequest("alice@example.com", "WrongPassword1!");
         mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(login)))
@@ -162,5 +162,17 @@ class AuthFlowIntegrationTest {
                         .content(bad))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors").isArray());
+    }
+
+    @Test
+    void registerRejectsWeakPassword() throws Exception {
+        var weakReq = new RegisterRequest(
+                "weak@example.com", "password123", "Weak User", null, Role.PATIENT,
+                null, null, null, null);
+        mvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(weakReq)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("password"));
     }
 }

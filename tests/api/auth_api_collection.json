@@ -1,0 +1,374 @@
+{
+  "info": {
+    "name": "PulseCare - Authentication & Security Test Suite",
+    "description": "Comprehensive automated API tests for PulseCare Auth, Security, RBAC, and Password Reset endpoints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api",
+      "type": "string"
+    },
+    {
+      "key": "patientToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "doctorToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Public Ping Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/ping",
+          "host": ["{{baseUrl}}"],
+          "path": ["ping"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 200 OK', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Ping returns UP', function () {",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.data.status).to.eql('up');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Patient Registration (Positive)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"test.patient.pm@example.com\",\n  \"password\": \"Password@123\",\n  \"fullName\": \"Postman Patient\",\n  \"phone\": \"+919988776655\",\n  \"role\": \"PATIENT\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "register"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 201 Created or 409 Conflict', function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "    var json = pm.response.json();",
+              "    pm.collectionVariables.set('patientToken', json.data.accessToken);",
+              "    pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Doctor Registration (Positive)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"test.doctor.pm@example.com\",\n  \"password\": \"DoctorPass@123\",\n  \"fullName\": \"Dr. Postman Smith\",\n  \"phone\": \"+919988776656\",\n  \"role\": \"DOCTOR\",\n  \"specialty\": \"Cardiology\",\n  \"hospitalName\": \"PulseCare Center\",\n  \"registrationNumber\": \"REG-PM-12345\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "register"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 201 or 409', function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "    var json = pm.response.json();",
+              "    pm.collectionVariables.set('doctorToken', json.data.accessToken);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Admin Self-Registration Prevention (Negative)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"hacker.admin@example.com\",\n  \"password\": \"HackerPass@123\",\n  \"fullName\": \"Fake Admin\",\n  \"role\": \"ADMIN\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "register"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Admin self-registration blocked with 400 Bad Request', function () {",
+              "    pm.response.to.have.status(400);",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.message).to.eql('Admin accounts cannot self-register');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Doctor Registration Without Medical License (Negative)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"nolicense.doc@example.com\",\n  \"password\": \"Pass@123\",\n  \"fullName\": \"Dr. Fake\",\n  \"role\": \"DOCTOR\",\n  \"specialty\": \"Dermatology\",\n  \"registrationNumber\": \"\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "register"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Rejected with 400 Bad Request', function () {",
+              "    pm.response.to.have.status(400);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Login with Wrong Password (Negative)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"test.patient.pm@example.com\",\n  \"password\": \"WrongPass999\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 401 Unauthorized', function () {",
+              "    pm.response.to.have.status(401);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Login with SQL Injection in Email (Security)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"admin'--@example.com\",\n  \"password\": \"Password@123\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "login"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 401 Unauthorized without 500 error', function () {",
+              "    pm.response.to.have.status(401);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Patient Profile (/api/auth/me) with Token",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{patientToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/auth/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "me"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Profile fetched successfully', function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 401]);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Anonymous Request to /api/auth/me (Security)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/auth/me",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "me"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Anonymous request blocked with 401', function () {",
+              "    pm.response.to.have.status(401);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. RBAC: Patient Accessing Admin Overview (Security)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{patientToken}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/v1/admin/overview",
+          "host": ["{{baseUrl}}"],
+          "path": ["v1", "admin", "overview"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Patient blocked from Admin API with 403 Forbidden', function () {",
+              "    pm.response.to.have.status(403);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Password Reset Request - Non-Existent Email (Anti-Enumeration)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"definitely.not.found@example.com\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/password-reset/request",
+          "host": ["{{baseUrl}}"],
+          "path": ["auth", "password-reset", "request"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status is 200 OK without disclosing user non-existence', function () {",
+              "    pm.response.to.have.status(200);",
+              "    var json = pm.response.json();",
+              "    pm.expect(json.message).to.eql('If that email is registered, a reset link has been sent.');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ]
+}

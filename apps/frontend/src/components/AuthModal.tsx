@@ -3,6 +3,7 @@ import { X, AlertCircle } from 'lucide-react';
 import { authApi } from '../services/api';
 import type { User as UserType } from '../types';
 import { WaveInput } from './WaveInput';
+import { validateStrongPassword } from '../utils/passwordValidator';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -34,6 +35,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
         onLoginSuccess(me, tokens.accessToken);
         onClose();
       } else {
+        const passwordValidation = validateStrongPassword(password);
+        if (!passwordValidation.isValid) {
+          setError(passwordValidation.message);
+          setLoading(false);
+          return;
+        }
         const tokens = await authApi.register({ email, password, fullName, phone, role: 'PATIENT' });
         localStorage.setItem('accessToken', tokens.accessToken);
         const me = await authApi.getMe(tokens.accessToken);
@@ -167,7 +174,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
 
           <WaveInput
             id="modalPassword"
-            label="Password"
+            label={isLogin ? 'Password' : 'Password (min 8 chars, A-Z, a-z, 0-9, symbol)'}
             type="password"
             value={password}
             onChange={setPassword}
