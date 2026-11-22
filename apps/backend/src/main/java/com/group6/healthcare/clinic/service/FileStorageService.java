@@ -171,6 +171,29 @@ public class FileStorageService {
         attachmentRepository.saveAll(attachments);
     }
 
+    @Transactional
+    public void deleteAttachment(UUID requesterId, UUID attachmentId, boolean isAdmin) {
+        TriageAttachment attachment = attachmentRepository.findById(attachmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attachment", attachmentId.toString()));
+
+        if (!isAdmin && !attachment.getPatientId().equals(requesterId)) {
+            throw new org.springframework.security.access.AccessDeniedException("Cannot delete attachments belonging to another patient");
+        }
+
+        if (attachment.getStoredFileName() != null && cloudinary.isEmpty()) {
+            try {
+                Path file = this.uploadDir.resolve(attachment.getStoredFileName()).normalize();
+                if (file.startsWith(this.uploadDir)) {
+                    Files.deleteIfExists(file);
+                }
+            } catch (IOException e) {
+                log.warn("Failed to delete local file for attachment {}: {}", attachmentId, e.getMessage());
+            }
+        }
+
+        attachmentRepository.delete(attachment);
+    }
+
     // ---------- private helpers ----------
 
     @SuppressWarnings("unchecked")
