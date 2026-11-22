@@ -1,5 +1,6 @@
 import type {
   AdminAppointmentItem,
+  AdminAnalyticsData,
   AdminOverviewData,
   AdminPaymentItem,
   Appointment,
@@ -512,6 +513,49 @@ export const adminApi = {
     request<AdminAppointmentItem[]>('/v1/admin/appointments'),
   getPayments: (): Promise<AdminPaymentItem[]> =>
     request<AdminPaymentItem[]>('/v1/admin/payments'),
+  getAnalytics: (): Promise<AdminAnalyticsData> =>
+    request<AdminAnalyticsData>('/v1/admin/analytics'),
+  exportAppointmentsCsv: (startDate?: string, endDate?: string): void => {
+    const token = localStorage.getItem('pulsecare_token');
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const url = `${API_BASE}/v1/admin/export/appointments${params.toString() ? '?' + params.toString() : ''}`;
+    const a = document.createElement('a');
+    a.href = url;
+    // Pass auth token via query string workaround for file downloads
+    // (fetch + blob approach for proper auth header)
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const blobUrl = URL.createObjectURL(blob);
+        a.href = blobUrl;
+        a.download = `appointments${startDate ? '_from_' + startDate : ''}${endDate ? '_to_' + endDate : ''}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      });
+  },
+  exportPaymentsCsv: (startDate?: string, endDate?: string): void => {
+    const token = localStorage.getItem('pulsecare_token');
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const url = `${API_BASE}/v1/admin/export/payments${params.toString() ? '?' + params.toString() : ''}`;
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = `payments${startDate ? '_from_' + startDate : ''}${endDate ? '_to_' + endDate : ''}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+      });
+  },
 };
 
 // ---------- Files & Medical Attachments ----------

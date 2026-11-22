@@ -171,6 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isAdminDoctors = isAdmin && (location.pathname === '/admin/doctors' || (location.pathname.startsWith('/admin') && adminHash === '#doctors'));
   const isAdminConsultations = isAdmin && location.pathname.startsWith('/admin') && (adminHash === '#consultations' || adminHash === '#appointments');
   const isAdminPayments = isAdmin && location.pathname.startsWith('/admin') && adminHash === '#payments';
+  const isAdminAnalytics = isAdmin && location.pathname.startsWith('/admin') && adminHash === '#analytics';
 
   const wordmarkChars = ['p', 'u', 'l', 's', 'e', 'c', 'a', 'r', 'e'];
 
@@ -313,6 +314,16 @@ export const Header: React.FC<HeaderProps> = ({
           onClick: (e: React.MouseEvent) => {
             e.preventDefault();
             navigate('/admin#payments');
+          },
+        },
+        {
+          id: 'admin-analytics',
+          label: 'Analytics & Reports',
+          href: '/admin#analytics',
+          isActive: isAdminAnalytics,
+          onClick: (e: React.MouseEvent) => {
+            e.preventDefault();
+            navigate('/admin#analytics');
           },
         },
       ]
