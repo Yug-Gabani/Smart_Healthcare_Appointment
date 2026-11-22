@@ -19,6 +19,7 @@ import { COMMON_SPECIALTIES, type Role, type User } from '../types';
 import { PageTransition } from '../motion/PageTransition';
 import { WaveInput } from './WaveInput';
 import { CustomSelect } from './CustomSelect';
+import { validateStrongPassword } from '../utils/passwordValidator';
 
 interface AuthPageProps {
   onLoginSuccess: (user: User, token: string) => void;
@@ -108,8 +109,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
         if (!fullName.trim()) {
           throw new Error('Please provide your full legal name');
         }
-        if (password.length < 8) {
-          throw new Error('Password must be at least 8 characters');
+        const passwordValidation = validateStrongPassword(password);
+        if (!passwordValidation.isValid) {
+          throw new Error(passwordValidation.message);
         }
 
         if (role === 'DOCTOR') {
@@ -567,7 +569,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
                 )}
                 <WaveInput
                   id="password"
-                  label={isLogin ? 'Password' : 'Password (min 8 characters)'}
+                  label={isLogin ? 'Password' : 'Password (min 8 chars, A-Z, a-z, 0-9, symbol)'}
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}

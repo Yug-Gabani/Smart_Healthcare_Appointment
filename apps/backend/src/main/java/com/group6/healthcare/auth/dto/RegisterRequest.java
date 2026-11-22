@@ -4,6 +4,7 @@ import com.group6.healthcare.user.entity.Role;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.util.UUID;
@@ -15,7 +16,12 @@ import java.util.UUID;
  */
 public record RegisterRequest(
         @NotBlank @Email @Size(max = 255) String email,
-        @NotBlank @Size(min = 8, max = 100) String password,
+        @NotBlank @Size(min = 8, max = 100)
+        @Pattern(
+                regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z0-9]).{8,100}$",
+                message = "Password must be at least 8 characters and include uppercase, lowercase, number, and special character"
+        )
+        String password,
         @NotBlank @Size(max = 255) String fullName,
         @Size(max = 50) String phone,
         @NotNull Role role,
