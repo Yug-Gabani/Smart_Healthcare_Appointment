@@ -47,11 +47,24 @@ export interface Doctor {
   slots?: string[];
 }
 
+export type AttachmentCategory =
+  | 'BLOOD_REPORT'
+  | 'MRI'
+  | 'XRAY'
+  | 'PRESCRIPTION'
+  | 'PRIOR_PRESCRIPTION'
+  | 'LAB_REPORT'
+  | 'SYMPTOM_IMAGE'
+  | 'OTHER';
+
 export interface Attachment {
   id: string;
+  patientId?: string;
+  assessmentId?: string;
+  appointmentId?: string;
   fileName: string;
   fileUrl: string;
-  fileCategory: 'SYMPTOM_IMAGE' | 'PRIOR_PRESCRIPTION' | 'LAB_REPORT' | 'OTHER';
+  fileCategory: AttachmentCategory | string;
   mimeType: string;
   fileSizeBytes: number;
   createdAt: string;
