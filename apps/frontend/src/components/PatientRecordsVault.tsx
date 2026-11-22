@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PageTransition } from '../motion/PageTransition';
 import { listItem } from '../motion/presets';
@@ -10,17 +9,11 @@ import {
   Download,
   Trash2,
   Search,
-  Filter,
   CheckCircle,
   AlertCircle,
   Loader2,
   ShieldCheck,
-  Plus,
   FolderOpen,
-  Calendar,
-  HardDrive,
-  FileSpreadsheet,
-  Activity,
   ArrowUpDown,
 } from 'lucide-react';
 import type { Attachment, AttachmentCategory } from '../types';
@@ -44,8 +37,6 @@ const CATEGORY_OPTIONS: { key: AttachmentCategory; label: string; icon: string }
 ];
 
 export const PatientRecordsVault: React.FC = () => {
-  const navigate = useNavigate();
-
   const [records, setRecords] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -540,11 +531,6 @@ export const PatientRecordsVault: React.FC = () => {
             }}
           >
             {filteredRecords.map(doc => {
-              const isPdf =
-                doc.mimeType === 'application/pdf' ||
-                doc.fileName.toLowerCase().endsWith('.pdf') ||
-                doc.fileUrl.toLowerCase().includes('.pdf');
-
               const isImage =
                 doc.mimeType?.startsWith('image/') ||
                 /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(doc.fileName) ||

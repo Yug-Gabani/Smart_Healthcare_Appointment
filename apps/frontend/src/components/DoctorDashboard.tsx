@@ -33,7 +33,6 @@ import {
   MedicalDocumentPreviewModal,
   formatCategoryLabel,
   getCategoryBadgeStyle,
-  formatFileSize,
 } from './MedicalDocumentPreviewModal';
 
 /**
