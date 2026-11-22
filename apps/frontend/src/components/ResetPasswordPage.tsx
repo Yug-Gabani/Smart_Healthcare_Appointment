@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { authApi } from '../services/api';
 import { PageTransition } from '../motion/PageTransition';
 import { WaveInput } from './WaveInput';
+import { validateStrongPassword } from '../utils/passwordValidator';
 
 /**
  * Password-reset step 2: user arrives from the email link carrying ?token=... in
@@ -26,7 +27,8 @@ export const ResetPasswordPage: React.FC = () => {
 
   const validation = useMemo(() => {
     if (!password) return { ok: false, message: '' };
-    if (password.length < 8) return { ok: false, message: 'Use at least 8 characters.' };
+    const passCheck = validateStrongPassword(password);
+    if (!passCheck.isValid) return { ok: false, message: passCheck.message };
     if (confirmPassword && password !== confirmPassword) {
       return { ok: false, message: 'Passwords do not match.' };
     }
@@ -206,7 +208,7 @@ export const ResetPasswordPage: React.FC = () => {
               <div style={{ marginBottom: 16 }}>
                 <WaveInput
                   id="new-password"
-                  label="New password (min 8 characters)"
+                  label="New password (min 8 chars, A-Z, a-z, 0-9, symbol)"
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
