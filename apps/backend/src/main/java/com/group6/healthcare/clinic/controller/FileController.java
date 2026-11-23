@@ -2,6 +2,9 @@ package com.group6.healthcare.clinic.controller;
 
 import com.group6.healthcare.auth.service.AppUserPrincipal;
 import com.group6.healthcare.clinic.dto.AttachmentResponse;
+import com.group6.healthcare.clinic.entity.Doctor;
+import com.group6.healthcare.clinic.repository.AppointmentRepository;
+import com.group6.healthcare.clinic.repository.DoctorRepository;
 import com.group6.healthcare.clinic.service.FileStorageService;
 import com.group6.healthcare.common.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -12,14 +15,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -33,9 +32,15 @@ import java.util.UUID;
 public class FileController {
 
     private final FileStorageService fileStorageService;
+    private final DoctorRepository doctorRepository;
+    private final AppointmentRepository appointmentRepository;
 
-    public FileController(FileStorageService fileStorageService) {
+    public FileController(FileStorageService fileStorageService,
+            DoctorRepository doctorRepository,
+            AppointmentRepository appointmentRepository) {
         this.fileStorageService = fileStorageService;
+        this.doctorRepository = doctorRepository;
+        this.appointmentRepository = appointmentRepository;
     }
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -54,8 +59,7 @@ public class FileController {
                 file,
                 category,
                 assessmentId,
-                appointmentId
-        );
+                appointmentId);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response, "File uploaded successfully"));
     }
 
@@ -66,7 +70,8 @@ public class FileController {
         String contentType = null;
         try {
             contentType = Files.probeContentType(file.getFile().toPath());
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
 
         if (contentType == null) {
             contentType = "application/octet-stream";
@@ -85,5 +90,43 @@ public class FileController {
     public ApiResponse<List<AttachmentResponse>> myAttachments(
             @AuthenticationPrincipal AppUserPrincipal principal) {
         return ApiResponse.ok(fileStorageService.getAttachmentsForPatient(principal.getId()));
+    }
+
+    @GetMapping("/patient/{patientId}")
+    @PreAuthorize("hasRole('PATIENT') or hasRole('DOCTOR') or hasRole('ADMIN')")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "List all historical attachments of a patient. Patients can view own, doctors can view their patients', admins can view all.")
+    public ApiResponse<List<AttachmentResponse>> getPatientAttachments(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @PathVariable UUID patientId) {
+
+        String role = principal.getRole();
+        if ("PATIENT".equals(role)) {
+            if (!principal.getId().equals(patientId)) {
+                throw new AccessDeniedException("Patients can only view their own medical records");
+            }
+        } else if ("DOCTOR".equals(role)) {
+            Doctor doctor = doctorRepository.findByUserId(principal.getId())
+                    .orElseThrow(() -> new AccessDeniedException("Signed in user is not linked to a doctor profile"));
+            boolean hasRelationship = appointmentRepository.existsByDoctorIdAndPatientId(doctor.getId(), patientId);
+            if (!hasRelationship) {
+                throw new AccessDeniedException("Doctor is not authorized to view records for this patient");
+            }
+        }
+        // ADMIN is permitted
+
+        return ApiResponse.ok(fileStorageService.getAttachmentsForPatient(patientId));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('PATIENT') or hasRole('ADMIN')")
+    @SecurityRequirement(name = "bearerAuth")
+    @Operation(summary = "Delete an attachment uploaded by the patient")
+    public ApiResponse<Void> deleteAttachment(
+            @AuthenticationPrincipal AppUserPrincipal principal,
+            @PathVariable UUID id) {
+        boolean isAdmin = "ADMIN".equals(principal.getRole());
+        fileStorageService.deleteAttachment(principal.getId(), id, isAdmin);
+        return ApiResponse.ok(null, "Attachment deleted successfully");
     }
 }

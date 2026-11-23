@@ -21,6 +21,7 @@ import { PharmacyCartPage } from './components/pharmacy/PharmacyCartPage';
 import { PharmacyCheckoutPage } from './components/pharmacy/PharmacyCheckoutPage';
 import { PharmacyCustomerOrdersPage } from './components/pharmacy/PharmacyCustomerOrdersPage';
 import { PatientHistoryPage } from './components/PatientHistoryPage';
+import { PatientRecordsVault } from './components/PatientRecordsVault';
 import { VideoConsultationRoom } from './components/VideoConsultationRoom';
 import { AppointmentReminderBanner } from './components/AppointmentReminderBanner';
 import { AuthPage } from './components/AuthPage';
@@ -215,6 +216,17 @@ export const App: React.FC = () => {
               ) : null
             }
           />
+          <Route
+            path="/patient/records"
+            element={
+              sessionReady ? (
+                <ProtectedRoute user={currentUser} roles={['PATIENT']}>
+                  <PatientRecordsVault />
+                </ProtectedRoute>
+              ) : null
+            }
+          />
+          <Route path="/records" element={<Navigate to="/patient/records" replace />} />
           <Route
             path="/hospitals"
             element={

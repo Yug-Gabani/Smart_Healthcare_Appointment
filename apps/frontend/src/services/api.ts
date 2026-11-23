@@ -4,6 +4,7 @@ import type {
   AdminPaymentItem,
   Appointment,
   Attachment,
+  AttachmentCategory,
   ConsultationType,
   Doctor,
   DoctorMe,
@@ -527,7 +528,7 @@ export const adminApi = {
 export const filesApi = {
   upload: async (
     file: File,
-    category: 'SYMPTOM_IMAGE' | 'PRIOR_PRESCRIPTION' | 'LAB_REPORT' | 'OTHER' = 'SYMPTOM_IMAGE',
+    category: AttachmentCategory | string = 'OTHER',
     assessmentId?: string,
     appointmentId?: string
   ): Promise<Attachment> => {
@@ -558,6 +559,10 @@ export const filesApi = {
     return json.data as Attachment;
   },
   myAttachments: (): Promise<Attachment[]> => request<Attachment[]>('/v1/files/my'),
+  getPatientAttachments: (patientId: string): Promise<Attachment[]> =>
+    request<Attachment[]>(`/v1/files/patient/${patientId}`),
+  deleteAttachment: (id: string): Promise<void> =>
+    request<void>(`/v1/files/${id}`, { method: 'DELETE' }),
 };
 
 // ---------- Doctor Reviews & Ratings ----------

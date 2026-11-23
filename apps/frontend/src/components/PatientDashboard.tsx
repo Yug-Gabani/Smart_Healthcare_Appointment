@@ -146,7 +146,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
     { label: 'Book appointment', icon: <PlusCircle size={16} strokeWidth={1.75} />, action: () => navigate('/book') },
     { label: 'My appointments', icon: <FileText size={16} strokeWidth={1.75} />, action: () => navigate('/appointments') },
     { label: 'Prescriptions', icon: <Pill size={16} strokeWidth={1.75} />, action: () => navigate('/prescriptions') },
-    { label: 'Upload records', icon: <Upload size={16} strokeWidth={1.75} />, action: () => navigate('/book') },
+    { label: 'Upload records', icon: <Upload size={16} strokeWidth={1.75} />, action: () => navigate('/patient/records') },
   ];
 
   /* Small action pill — stays pill-shaped at this size (24px tall-ish controls), per the
@@ -933,7 +933,7 @@ export const PatientDashboard: React.FC<PatientDashboardProps> = ({ currentUser 
               </div>
             </div>
             <button
-              onClick={() => navigate('/prescriptions')}
+              onClick={() => navigate('/patient/records')}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 4,
                 background: 'none', border: 'none', cursor: 'pointer',

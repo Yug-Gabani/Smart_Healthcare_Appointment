@@ -155,6 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isBookVisit = isPatient && location.pathname === '/book';
   const isMyAppointments = isPatient && location.pathname.startsWith('/appointments');
   const isPrescriptions  = isPatient && location.pathname.startsWith('/prescriptions');
+  const isRecords        = isPatient && (location.pathname.startsWith('/patient/records') || location.pathname.startsWith('/records'));
   const isHospitals      = isPatient && location.pathname.startsWith('/hospitals');
 
   // Active tab detection for Doctor
@@ -262,6 +263,7 @@ export const Header: React.FC<HeaderProps> = ({
         { id: 'book', label: 'Book Visit', href: '/book', isActive: isBookVisit, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/book'); } },
         { id: 'appointments', label: 'My Appointments', href: '/appointments', isActive: isMyAppointments, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/appointments'); } },
         { id: 'prescriptions', label: 'Prescriptions', href: '/prescriptions', isActive: isPrescriptions, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/prescriptions'); } },
+        { id: 'records', label: 'Medical Records', href: '/patient/records', isActive: isRecords, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/patient/records'); } },
         { id: 'hospitals', label: 'Hospitals', href: '/hospitals', isActive: isHospitals, onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/hospitals'); } },
         { id: 'pharmacy', label: 'Pharmacy', href: '/store', isActive: location.pathname.startsWith('/store') || location.pathname.startsWith('/orders/pharmacy') || location.pathname === '/cart', onClick: (e: React.MouseEvent) => { e.preventDefault(); navigate('/store'); } },
       ]

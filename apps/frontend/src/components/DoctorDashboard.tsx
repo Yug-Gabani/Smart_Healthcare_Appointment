@@ -23,11 +23,17 @@ import {
   ChevronDown,
   ChevronUp,
   MessageSquare,
+  Eye,
 } from 'lucide-react';
 import type { Appointment, DoctorStatus, Attachment, QueueAdvisorResponse, ConsultationSession, DoctorLeave } from '../types';
-import { appointmentsApi, doctorProfileApi, aiAdvisorApi, consultationsApi } from '../services/api';
+import { appointmentsApi, doctorProfileApi, aiAdvisorApi, consultationsApi, filesApi } from '../services/api';
 import { PrescriptionEditor } from './PrescriptionEditor';
 import { MeetingSummaryModal } from './MeetingSummaryModal';
+import {
+  MedicalDocumentPreviewModal,
+  formatCategoryLabel,
+  getCategoryBadgeStyle,
+} from './MedicalDocumentPreviewModal';
 
 /**
  * Map a backend Appointment to the queue item shape this screen was originally built around.
@@ -44,6 +50,7 @@ function appointmentToQueueItem(a: Appointment): QueueItem {
   return {
     id: a.id,
     patientId: shortId,
+    rawPatientId: a.patientId,
     patientName: a.patientName ?? 'Anonymous Patient',
     age: 0,
     gender: '—',
@@ -65,6 +72,7 @@ function appointmentToQueueItem(a: Appointment): QueueItem {
 interface QueueItem {
   id: string;
   patientId: string;
+  rawPatientId: string;
   patientName: string;
   age: number;
   gender: string;
@@ -122,6 +130,27 @@ export const DoctorDashboard: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [tab, setTab] = useState<ViewTab>('active');
+
+  // Historical patient vault documents for the selected drawer item
+  const [patientVaultDocs, setPatientVaultDocs] = useState<Attachment[]>([]);
+  const [loadingVaultDocs, setLoadingVaultDocs] = useState<boolean>(false);
+  const [drawerPreviewDoc, setDrawerPreviewDoc] = useState<Attachment | null>(null);
+
+  useEffect(() => {
+    if (selectedItem?.rawPatientId) {
+      setLoadingVaultDocs(true);
+      filesApi
+        .getPatientAttachments(selectedItem.rawPatientId)
+        .then((docs) => setPatientVaultDocs(docs || []))
+        .catch((err) => {
+          console.warn('Could not fetch historical patient vault records:', err);
+          setPatientVaultDocs(selectedItem.attachments || []);
+        })
+        .finally(() => setLoadingVaultDocs(false));
+    } else {
+      setPatientVaultDocs([]);
+    }
+  }, [selectedItem?.rawPatientId, selectedItem?.id]);
 
   // AI Queue Advisor state (LangChain Triage Pipeline)
   const [aiAdvice, setAiAdvice] = useState<QueueAdvisorResponse | null>(null);
@@ -2515,48 +2544,48 @@ export const DoctorDashboard: React.FC = () => {
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                     <div style={{ fontSize: '13px', fontWeight: 700, color: '#0b3f3a' }}>
-                      Attached Files ({selectedItem.attachments?.length || 0})
+                      Historical Records & Lab Vault ({loadingVaultDocs ? '…' : patientVaultDocs.length})
                     </div>
+                    {loadingVaultDocs && (
+                      <span style={{ fontSize: '11px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Loader2 size={12} className="animate-spin" /> Loading…
+                      </span>
+                    )}
                   </div>
-                  {selectedItem.attachments && selectedItem.attachments.length > 0 ? (
+                  {patientVaultDocs.length > 0 ? (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px' }}>
-                      {selectedItem.attachments.map((att) => {
+                      {patientVaultDocs.map((att) => {
                         const isImg = att.mimeType?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(att.fileName);
+                        const isCurrent = att.appointmentId === selectedItem.id;
+                        const badge = getCategoryBadgeStyle(att.fileCategory);
                         return (
-                          <a
+                          <div
                             key={att.id}
-                            href={att.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             style={{
                               display: 'flex',
                               flexDirection: 'column',
                               borderRadius: '10px',
-                              border: '1px solid #d9ece7',
+                              border: isCurrent ? '1.5px solid #0f766e' : '1px solid #d9ece7',
                               overflow: 'hidden',
-                              textDecoration: 'none',
                               backgroundColor: '#ffffff',
                               boxShadow: '0 1px 3px rgba(11,63,58,0.06)',
-                              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.transform = 'translateY(-2px)';
-                              e.currentTarget.style.boxShadow = '0 4px 10px rgba(11,63,58,0.12)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.transform = 'none';
-                              e.currentTarget.style.boxShadow = '0 1px 3px rgba(11,63,58,0.06)';
+                              position: 'relative',
                             }}
                           >
-                            <div style={{
-                              height: '75px',
-                              backgroundColor: '#eaf6f2',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              overflow: 'hidden',
-                              position: 'relative',
-                            }}>
+                            <div
+                              onClick={() => setDrawerPreviewDoc(att)}
+                              style={{
+                                height: '75px',
+                                backgroundColor: '#eaf6f2',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                overflow: 'hidden',
+                                position: 'relative',
+                                cursor: 'pointer',
+                              }}
+                              title="Click to preview"
+                            >
                               {isImg ? (
                                 <img
                                   src={att.fileUrl}
@@ -2570,17 +2599,33 @@ export const DoctorDashboard: React.FC = () => {
                                 position: 'absolute',
                                 bottom: '4px',
                                 right: '4px',
-                                background: 'rgba(11,63,58,0.7)',
-                                color: '#ffffff',
+                                background: badge.bg,
+                                color: badge.text,
+                                border: `1px solid ${badge.border}`,
                                 borderRadius: '4px',
                                 padding: '2px 4px',
                                 fontSize: '9px',
                                 fontWeight: 700,
                               }}>
-                                {att.fileCategory === 'SYMPTOM_IMAGE' ? 'PHOTO' : att.fileCategory === 'PRIOR_PRESCRIPTION' ? 'RX' : 'REPORT'}
+                                {formatCategoryLabel(att.fileCategory)}
                               </span>
+                              {isCurrent && (
+                                <span style={{
+                                  position: 'absolute',
+                                  top: '4px',
+                                  left: '4px',
+                                  backgroundColor: '#0f766e',
+                                  color: '#ffffff',
+                                  borderRadius: '4px',
+                                  padding: '2px 4px',
+                                  fontSize: '8px',
+                                  fontWeight: 700,
+                                }}>
+                                  CURRENT
+                                </span>
+                              )}
                             </div>
-                            <div style={{ padding: '6px 8px' }}>
+                            <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                               <div style={{
                                 fontSize: '11px',
                                 fontWeight: 600,
@@ -2591,11 +2636,43 @@ export const DoctorDashboard: React.FC = () => {
                               }} title={att.fileName}>
                                 {att.fileName}
                               </div>
-                              <div style={{ fontSize: '10px', color: '#52736d', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
-                                <ExternalLink size={10} /> View
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '10px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setDrawerPreviewDoc(att)}
+                                  style={{
+                                    border: 'none',
+                                    background: 'none',
+                                    color: '#0f766e',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '2px',
+                                    padding: 0,
+                                  }}
+                                >
+                                  <Eye size={10} /> Preview
+                                </button>
+                                <a
+                                  href={att.fileUrl}
+                                  download={att.fileName}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{
+                                    color: '#52736d',
+                                    textDecoration: 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '2px',
+                                  }}
+                                  title="Open file"
+                                >
+                                  <ExternalLink size={10} />
+                                </a>
                               </div>
                             </div>
-                          </a>
+                          </div>
                         );
                       })}
                     </div>
@@ -2609,7 +2686,7 @@ export const DoctorDashboard: React.FC = () => {
                       border: '1px dashed #d9ece7',
                       textAlign: 'center',
                     }}>
-                      No images or prior prescriptions uploaded for this consultation.
+                      No historical medical records or attached documents found for this patient.
                     </div>
                   )}
                 </div>
@@ -2836,6 +2913,13 @@ export const DoctorDashboard: React.FC = () => {
         <MeetingSummaryModal
           appointment={selectedSummaryAppt}
           onClose={() => setSelectedSummaryAppt(null)}
+        />
+      )}
+
+      {drawerPreviewDoc && (
+        <MedicalDocumentPreviewModal
+          document={drawerPreviewDoc}
+          onClose={() => setDrawerPreviewDoc(null)}
         />
       )}
     </PageTransition>
