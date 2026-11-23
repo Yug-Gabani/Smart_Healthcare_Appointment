@@ -221,12 +221,12 @@
 }
 
 /* Universal input focus animation with expanding underline and highlight ripple */
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="number"],
-input[type="date"],
-textarea,
+input[type="text"]:not(.boxed-input),
+input[type="email"]:not(.boxed-input),
+input[type="password"]:not(.boxed-input),
+input[type="number"]:not(.boxed-input),
+input[type="date"]:not(.boxed-input),
+textarea:not(.boxed-input),
 .form-input,
 .form-textarea {
   position: relative;
@@ -239,18 +239,33 @@ textarea,
               background-size 0.32s var(--enter);
 }
 
-input[type="text"]:focus,
-input[type="email"]:focus,
-input[type="password"]:focus,
-input[type="number"]:focus,
-input[type="date"]:focus,
-textarea:focus,
+input[type="text"]:not(.boxed-input):focus,
+input[type="email"]:not(.boxed-input):focus,
+input[type="password"]:not(.boxed-input):focus,
+input[type="number"]:not(.boxed-input):focus,
+input[type="date"]:not(.boxed-input):focus,
+textarea:not(.boxed-input):focus,
 .form-input:focus,
 .form-textarea:focus {
   border-color: #0f766e !important;
   background-size: 100% 2.5px;
   animation: inputHighlighter 0.35s var(--enter) forwards;
   outline: none;
+}
+
+/* Explicit Reset for Boxed Clean Inputs (Prevents inner rectangular box-shadow or green underline) */
+.boxed-input,
+.boxed-input:focus,
+.boxed-input:hover,
+.boxed-input:active {
+  background-image: none !important;
+  background-color: transparent !important;
+  background-size: 0 0 !important;
+  background-repeat: no-repeat !important;
+  animation: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
 }
 
 @keyframes inputHighlighter {
@@ -538,6 +553,57 @@ input:focus ~ .highlight,
   left: 0;
 }
 
+/* Autofill fix: prevent browser default pale blue/yellow background */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  -webkit-text-fill-color: #0b3f3a !important;
+  caret-color: #0b3f3a !important;
+  font-family: inherit !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Integrated Left Element (e.g. Country Code Selector) */
+.input-container .element-left,
+.wave-group .element-left {
+  position: absolute;
+  left: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  z-index: 3;
+}
+
+.input-container input.has-left-element,
+.wave-group input.has-left-element {
+  padding-left: 88px !important;
+}
+
+.input-container .label.has-left-element,
+.wave-group .label.has-left-element {
+  left: 88px !important;
+}
+
+.input-container input:focus.has-left-element ~ .label,
+.input-container input:valid.has-left-element ~ .label,
+.input-container input:not(:placeholder-shown).has-left-element ~ .label,
+.input-container input:-webkit-autofill.has-left-element ~ .label,
+.input-container.is-active .label.has-left-element,
+.wave-group input:focus.has-left-element ~ .label,
+.wave-group input:valid.has-left-element ~ .label,
+.wave-group input:not(:placeholder-shown).has-left-element ~ .label,
+.wave-group input:-webkit-autofill.has-left-element ~ .label,
+.wave-group.is-active .label.has-left-element {
+  top: -18px;
+  left: 0 !important;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f766e;
+}
+
 /* Satwinder04 .underline expanding effect */
 .input-container .underline,
 .wave-group .underline {
@@ -563,6 +629,51 @@ input:focus ~ .highlight,
 }
 
 
+
+/* Unslopped Focused Authentication Layout */
+.auth-page-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f8fafc;
+  color: #0f172a;
+  position: relative;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  background-color: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.04), 0 20px 25px -5px rgba(15, 23, 42, 0.05);
+  padding: 32px 30px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 520px) {
+  .auth-card {
+    padding: 24px 20px;
+    border-radius: 14px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  }
+}
+
+/* Smooth Tab Fade & Glide Transition Effect */
+@keyframes authTabFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.auth-form-transition {
+  animation: authTabFade 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
 /* Global Reduced Motion Override */
 @media (prefers-reduced-motion: reduce) {

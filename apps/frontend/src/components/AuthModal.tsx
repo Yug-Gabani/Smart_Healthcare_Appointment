@@ -64,18 +64,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
     }
   };
 
-  const handleDemoLogin = (role: 'PATIENT' | 'DOCTOR') => {
-    const demoUser: UserType = {
-      id: role === 'DOCTOR' ? 'doc-kavita' : 'pat-avi',
-      email: role === 'DOCTOR' ? 'dr.kavita.shah@apollo.org' : 'avi.patel@example.org',
-      fullName: role === 'DOCTOR' ? 'Dr. Kavita Shah' : 'Avi Patel',
-      phone: '+91 98250 12345',
-      role,
-    };
-    onLoginSuccess(demoUser, 'demo-jwt-token');
-    onClose();
-  };
-
   return (
     <div style={{
       position: 'fixed',
@@ -225,56 +213,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
           >
             {isLogin ? 'Register now' : 'Sign In'}
           </button>
-        </div>
-
-        {/* 1-Click Demo Login */}
-        <div style={{
-          marginTop: '24px',
-          paddingTop: '20px',
-          borderTop: '1px solid #d9ece7',
-          textAlign: 'center',
-        }}>
-          <div style={{ fontSize: '11px', color: '#8aa39d', marginBottom: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Instant Demo Account (1-Click Switch):
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <button
-              type="button"
-              onClick={() => handleDemoLogin('PATIENT')}
-              className="hover-lift"
-              style={{
-                padding: '8px 14px',
-                fontSize: '13px',
-                borderRadius: '10px',
-                backgroundColor: '#eaf6f2',
-                border: '1px solid #d9ece7',
-                color: '#0b3f3a',
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontFamily: "'Space Grotesk', sans-serif",
-              }}
-            >
-              Demo Patient
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDemoLogin('DOCTOR')}
-              className="hover-lift"
-              style={{
-                padding: '8px 14px',
-                fontSize: '13px',
-                borderRadius: '10px',
-                backgroundColor: '#eaf6f2',
-                border: '1px solid #d9ece7',
-                color: '#0b3f3a',
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontFamily: "'Space Grotesk', sans-serif",
-              }}
-            >
-              Demo Doctor (MD)
-            </button>
-          </div>
         </div>
       </div>
     </div>

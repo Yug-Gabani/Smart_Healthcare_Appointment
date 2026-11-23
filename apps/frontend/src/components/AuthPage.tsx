@@ -12,6 +12,8 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
+  Loader2,
+  Activity,
 } from 'lucide-react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { authApi } from '../services/api';
@@ -39,20 +41,17 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
     setIsLogin(!location.pathname.includes('/signup'));
   }, [location.pathname]);
 
-  // Where to land after successful auth.
-  //
-  // Patients are intentionally sent to the public landing page (practo-style single home).
-  // Everything they need — hospital search, specialty grid, body-map triage, their own
-  // appointments/prescriptions/orders via the top-right profile chip — is reachable from there.
-  // Workforce roles (admin / pharmacist / doctor) still go to their role-specific dashboard
-  // because that *is* their job. A ?next= override wins for deep-link flows.
   const nextParam = new URLSearchParams(location.search).get('next');
   const landingFor = (role: Role) =>
-    nextParam ? nextParam
-      : role === 'ADMIN'      ? '/admin/doctors'
-      : role === 'PHARMACIST' ? '/pharmacy'
-      : role === 'DOCTOR'     ? '/doctor'
-                              : '/';
+    nextParam
+      ? nextParam
+      : role === 'ADMIN'
+      ? '/admin/doctors'
+      : role === 'PHARMACIST'
+      ? '/pharmacy'
+      : role === 'DOCTOR'
+      ? '/doctor'
+      : '/';
 
   // If already logged in, redirect to appropriate landing
   useEffect(() => {
@@ -67,6 +66,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [countryCode, setCountryCode] = useState('+91');
   const [role, setRole] = useState<Role>('PATIENT');
   const [showPassword, setShowPassword] = useState(false);
 
@@ -87,6 +87,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
     navigate(loginMode ? '/login' : '/signup', { replace: true });
   };
 
+  const clearError = () => {
+    if (error) setError(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -99,11 +103,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
         const normalizedEmail = email.trim().toLowerCase();
         const data = await authApi.login(normalizedEmail, password);
         authApi.saveAuth(data);
-        setSuccessMsg('Authentication successful! Redirecting...');
+        setSuccessMsg('Authentication successful! Entering portal...');
         setTimeout(() => {
           onLoginSuccess(data.user, data.accessToken);
           navigate(landingFor(data.user.role));
-        }, 400);
+        }, 350);
       } else {
         // --- REAL BACKEND REGISTRATION ---
         if (!fullName.trim()) {
@@ -120,11 +124,13 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
         }
 
         const normalizedEmail = email.trim().toLowerCase();
+        const formattedPhone = phone.trim() ? `${countryCode} ${phone.trim()}` : undefined;
+
         const data = await authApi.register({
           email: normalizedEmail,
           password,
           fullName: fullName.trim(),
-          phone: phone.trim() || undefined,
+          phone: formattedPhone,
           role,
           specialty: role === 'DOCTOR' ? specialty.trim() : undefined,
           hospitalName: role === 'DOCTOR' ? (hospitalName.trim() || undefined) : undefined,
@@ -132,11 +138,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
         });
 
         authApi.saveAuth(data);
-        setSuccessMsg('Account created successfully! Redirecting to dashboard...');
+        setSuccessMsg('Account created successfully! Redirecting...');
         setTimeout(() => {
           onLoginSuccess(data.user, data.accessToken);
           navigate(landingFor(data.user.role));
-        }, 500);
+        }, 400);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Authentication failed';
@@ -146,191 +152,152 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
     }
   };
 
-  // 1-Click Quick Demo Login (Uses registered test users)
-  const handleQuickDemo = async (demoRole: 'PATIENT' | 'DOCTOR') => {
-    setError(null);
-    setLoading(true);
-    const demoEmail = demoRole === 'DOCTOR' ? 'doctor.shah@pulsecare.com' : 'patient.test@pulsecare.com';
-    const demoPass = 'Password123!';
-
-    try {
-      const data = await authApi.login(demoEmail, demoPass);
-      authApi.saveAuth(data);
-      setSuccessMsg(`Welcome, ${data.user.fullName}! Entering demo mode...`);
-      setTimeout(() => {
-        onLoginSuccess(data.user, data.accessToken);
-        navigate(landingFor(demoRole));
-      }, 350);
-    } catch {
-      // Fallback demo user if backend is rebooting
-      const fallbackUser: User = {
-        id: demoRole === 'DOCTOR' ? 'demo-doctor-uuid' : 'demo-patient-uuid',
-        email: demoEmail,
-        fullName: demoRole === 'DOCTOR' ? 'Dr. Kavita Shah' : 'Sarah Jenkins',
-        role: demoRole,
-      };
-      onLoginSuccess(fallbackUser, 'mock-jwt-token');
-      navigate(landingFor(demoRole));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <PageTransition>
-      <div
-        style={{
-          minHeight: '100vh',
-          maxHeight: isLogin ? '100vh' : undefined,
-          overflowY: 'auto',
-          backgroundColor: '#eaf6f2',
-          display: 'flex',
-          flexDirection: 'column',
-          color: '#0b3f3a',
-          fontFamily: "'Space Grotesk', system-ui, -apple-system, sans-serif",
-        }}
-      >
-        {/* Top mini-bar with Back to Home only */}
-        <div
+      <div className="auth-page-container">
+        {/* Navigation Bar */}
+        <header
           style={{
-            padding: '14px 24px 0 24px',
+            padding: '18px 24px',
             display: 'flex',
-            justifyContent: 'flex-start',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            maxWidth: '1200px',
-            margin: '0 auto',
-            width: '100%',
-            boxSizing: 'border-box',
+            zIndex: 10,
           }}
         >
-          <Link
-            to="/"
-            className="hover-lift"
+          <button
+            onClick={() => navigate('/')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '8px',
-              color: '#0f766e',
-              textDecoration: 'none',
-              fontSize: '14px',
-              fontWeight: 600,
-              padding: '6px 14px',
-              borderRadius: '9999px',
+              gap: '6px',
               backgroundColor: '#ffffff',
-              border: '1px solid #d9ece7',
-              boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '7px 14px',
+              fontSize: '13px',
+              fontWeight: 500,
+              color: '#334155',
+              cursor: 'pointer',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
               transition: 'all 0.15s ease',
+              fontFamily: 'inherit',
             }}
             onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = '#def0eb';
+              e.currentTarget.style.borderColor = '#cbd5e1';
+              e.currentTarget.style.color = '#0f172a';
             }}
             onMouseLeave={e => {
-              e.currentTarget.style.backgroundColor = '#ffffff';
+              e.currentTarget.style.borderColor = '#e2e8f0';
+              e.currentTarget.style.color = '#334155';
             }}
           >
-            <ArrowLeft size={16} />
-            Back to Home
-          </Link>
-        </div>
+            <ArrowLeft size={15} />
+            Home
+          </button>
+        </header>
 
-        {/* Main Container - Centered Single Form Card */}
-        <div
+        {/* Main Content: Focused, Unslopped Auth Card */}
+        <main
           style={{
             flex: 1,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: isLogin ? '8px 16px 14px 16px' : '20px 20px 48px 20px',
+            padding: '12px 20px 48px 20px',
             boxSizing: 'border-box',
           }}
         >
-          <div
-            style={{
-              maxWidth: '460px',
-              width: '100%',
-              backgroundColor: '#ffffff',
-              borderRadius: '20px',
-              boxShadow: '0 10px 24px rgba(20, 60, 55, 0.10)',
-              border: '1px solid #d9ece7',
-              padding: isLogin ? '26px 32px 20px 32px' : '36px 32px',
-              boxSizing: 'border-box',
-            }}
-          >
-            {/* Logo & Header */}
-            <div style={{ textAlign: 'center', marginBottom: isLogin ? '18px' : '24px' }}>
+          <div className="auth-card">
+            {/* Brand Mark & Header */}
+            <div style={{ textAlign: 'center', marginBottom: '22px' }}>
               <div
                 style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  backgroundColor: '#f0fdfa',
+                  border: '1px solid #ccfbf1',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '10px',
-                  marginBottom: '16px',
+                  justifyContent: 'center',
+                  marginBottom: '10px',
                 }}
               >
-                <div
-                  style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    backgroundColor: '#0f766e',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 2px 8px rgba(15, 118, 110, 0.24)',
-                  }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M2 12h4l3-7 4 14 3-7h6" />
-                  </svg>
-                </div>
-                <span style={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-0.02em', color: '#0b3f3a' }}>
-                  pulsecare
-                </span>
+                <Activity size={20} color="#0f766e" />
               </div>
-
               <h1
                 style={{
-                  fontSize: '26px',
+                  fontSize: '20px',
                   fontWeight: 700,
-                  color: '#0b3f3a',
+                  color: '#0f172a',
                   margin: '0 0 6px 0',
                   letterSpacing: '-0.02em',
-                  lineHeight: 1.1,
                 }}
               >
-                {isLogin ? 'Sign In to pulsecare' : 'Create an Account'}
+                {isLogin ? 'Sign In to PulseCare' : 'Create an Account'}
               </h1>
-              <p style={{ fontSize: '14px', color: '#52736d', margin: 0, lineHeight: 1.5 }}>
+              <p
+                style={{
+                  fontSize: '13px',
+                  color: '#64748b',
+                  margin: 0,
+                  minHeight: '20px',
+                  lineHeight: '20px',
+                }}
+              >
                 {isLogin
-                  ? 'Enter your credentials to access your health portal'
-                  : 'Get started with smart healthcare triage & consultations'}
+                  ? 'Access your appointments and consultations'
+                  : 'Register as a patient or healthcare provider'}
               </p>
             </div>
 
-            {/* Toggle Switch */}
+            {/* Smooth Sliding Segmented Tab Switch */}
             <div
               style={{
                 display: 'flex',
-                backgroundColor: '#eaf6f2',
-                borderRadius: '12px',
-                padding: '4px',
-                marginBottom: '26px',
+                position: 'relative',
+                backgroundColor: '#f1f5f9',
+                borderRadius: '10px',
+                padding: '3px',
+                marginBottom: '14px',
+                userSelect: 'none',
               }}
             >
+              {/* Sliding Pill Indicator */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '3px',
+                  bottom: '3px',
+                  left: '3px',
+                  width: 'calc(50% - 3px)',
+                  transform: isLogin ? 'translateX(0)' : 'translateX(100%)',
+                  backgroundColor: '#ffffff',
+                  borderRadius: '8px',
+                  boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04)',
+                  transition: 'transform 240ms cubic-bezier(0.16, 1, 0.3, 1)',
+                  pointerEvents: 'none',
+                  zIndex: 1,
+                }}
+              />
+
               <button
                 type="button"
                 onClick={() => switchMode(true)}
                 style={{
+                  position: 'relative',
+                  zIndex: 2,
                   flex: 1,
-                  padding: '9px',
-                  borderRadius: '9px',
+                  padding: '8px 0',
+                  borderRadius: '8px',
                   border: 'none',
-                  fontSize: '14px',
-                  fontWeight: 600,
+                  background: 'transparent',
+                  fontSize: '13.5px',
+                  fontWeight: isLogin ? 600 : 500,
+                  color: isLogin ? '#0f172a' : '#64748b',
                   cursor: 'pointer',
-                  backgroundColor: isLogin ? '#ffffff' : 'transparent',
-                  color: isLogin ? '#0b3f3a' : '#52736d',
-                  boxShadow: isLogin ? '0 2px 8px rgba(20, 60, 55, 0.08)' : 'none',
-                  transition: 'all 0.2s ease',
+                  transition: 'color 180ms ease',
                   fontFamily: "'Space Grotesk', sans-serif",
                 }}
               >
@@ -340,17 +307,18 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
                 type="button"
                 onClick={() => switchMode(false)}
                 style={{
+                  position: 'relative',
+                  zIndex: 2,
                   flex: 1,
-                  padding: '9px',
-                  borderRadius: '9px',
+                  padding: '8px 0',
+                  borderRadius: '8px',
                   border: 'none',
-                  fontSize: '14px',
-                  fontWeight: 600,
+                  background: 'transparent',
+                  fontSize: '13.5px',
+                  fontWeight: !isLogin ? 600 : 500,
+                  color: !isLogin ? '#0f172a' : '#64748b',
                   cursor: 'pointer',
-                  backgroundColor: !isLogin ? '#ffffff' : 'transparent',
-                  color: !isLogin ? '#0b3f3a' : '#52736d',
-                  boxShadow: !isLogin ? '0 2px 8px rgba(20, 60, 55, 0.08)' : 'none',
-                  transition: 'all 0.2s ease',
+                  transition: 'color 180ms ease',
                   fontFamily: "'Space Grotesk', sans-serif",
                 }}
               >
@@ -358,370 +326,479 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
               </button>
             </div>
 
-            {/* Error Message */}
-            {error && (
-              <div
-                style={{
-                  backgroundColor: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  borderRadius: '12px',
-                  padding: '12px 14px',
-                  marginBottom: '18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  color: '#dc2626',
-                  fontSize: '13px',
-                }}
-              >
-                <AlertCircle size={16} style={{ flexShrink: 0 }} />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Success Message */}
-            {successMsg && (
-              <div
-                style={{
-                  backgroundColor: '#eaf6f2',
-                  border: '1px solid #d9ece7',
-                  borderRadius: '12px',
-                  padding: '12px 14px',
-                  marginBottom: '18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  color: '#0f766e',
-                  fontSize: '13px',
-                }}
-              >
-                <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
-                <span>{successMsg}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit}>
-              {/* Role Selection (Only shown when Creating Account) */}
-              {!isLogin && (
-                <div style={{ marginBottom: '20px' }}>
-                  <label
-                    style={{
-                      display: 'block',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      color: '#0b3f3a',
-                      marginBottom: '8px',
-                    }}
-                  >
-                    I am registering as:
-                  </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div
-                      onClick={() => setRole('PATIENT')}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: '14px',
-                        border: `2px solid ${role === 'PATIENT' ? '#0f766e' : '#d9ece7'}`,
-                        backgroundColor: role === 'PATIENT' ? '#eaf6f2' : '#ffffff',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      <UserIcon size={16} color={role === 'PATIENT' ? '#0f766e' : '#8aa39d'} />
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#0b3f3a' }}>Patient</div>
-                        <div style={{ fontSize: '11px', color: '#52736d' }}>Seek medical care</div>
-                      </div>
-                    </div>
-
-                    <div
-                      onClick={() => setRole('DOCTOR')}
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: '14px',
-                        border: `2px solid ${role === 'DOCTOR' ? '#0f766e' : '#d9ece7'}`,
-                        backgroundColor: role === 'DOCTOR' ? '#eaf6f2' : '#ffffff',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        transition: 'all 0.15s ease',
-                      }}
-                    >
-                      <Stethoscope size={16} color={role === 'DOCTOR' ? '#0f766e' : '#8aa39d'} />
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#0b3f3a' }}>Doctor</div>
-                        <div style={{ fontSize: '11px', color: '#52736d' }}>Clinical provider</div>
-                      </div>
-                    </div>
-                  </div>
+            {/* Reserved Fixed-Height Error / Status Container (Zero Layout Shifts) */}
+            <div
+              style={{
+                minHeight: '40px',
+                height: '40px',
+                marginBottom: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                boxSizing: 'border-box',
+              }}
+            >
+              {error ? (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#fef2f2',
+                    border: '1px solid #fee2e2',
+                    borderRadius: '8px',
+                    padding: '0 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#991b1b',
+                    fontSize: '12.5px',
+                    fontWeight: 500,
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <AlertCircle size={15} color="#dc2626" style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {error}
+                  </span>
                 </div>
-              )}
+              ) : successMsg ? (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: '#f0fdf4',
+                    border: '1px solid #dcfce7',
+                    borderRadius: '8px',
+                    padding: '0 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#166534',
+                    fontSize: '12.5px',
+                    fontWeight: 500,
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <CheckCircle2 size={15} color="#16a34a" style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {successMsg}
+                  </span>
+                </div>
+              ) : null}
+            </div>
 
-              {/* Full Name Field (Registration only) */}
-              {!isLogin && (
-                <WaveInput
-                  id="fullName"
-                  label="Full Legal Name"
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={setFullName}
-                  icon={<UserIcon size={17} color="#0f766e" />}
-                />
-              )}
-
-              {/* Email Field */}
-              <WaveInput
-                id="email"
-                label="Email Address"
-                type="email"
-                required
-                value={email}
-                onChange={setEmail}
-                icon={<Mail size={17} color="#0f766e" />}
-              />
-
-              {/* Phone Field (Optional, Registration only) */}
-              {!isLogin && (
-                <WaveInput
-                  id="phone"
-                  label="Phone Number (Optional)"
-                  type="tel"
-                  value={phone}
-                  onChange={setPhone}
-                  icon={<Phone size={17} color="#0f766e" />}
-                />
-              )}
-
-              {/* Doctor-specific fields (Registration + role=DOCTOR) */}
-              {!isLogin && role === 'DOCTOR' && (
-                <div style={{
-                  padding: '14px 14px 2px', borderRadius: 14,
-                  border: '1px solid #d9ece7', background: '#f3faf8',
-                  marginBottom: 16,
-                }}>
-                  <div style={{
-                    fontSize: 12, fontWeight: 700, color: '#0f766e',
-                    textTransform: 'uppercase', letterSpacing: '0.04em',
-                    marginBottom: 10,
-                  }}>
-                    Clinical details
-                  </div>
-
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#5e7b76', marginBottom: 6 }}>
-                      Specialty
+            {/* Form Container with Smooth Cross-Transition */}
+            <form onSubmit={handleSubmit}>
+              <div key={isLogin ? 'signin-pane' : 'signup-pane'} className="auth-form-transition">
+                {/* Role Selection (Only shown when Creating Account) */}
+                {!isLogin && (
+                  <div style={{ marginBottom: '14px' }}>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '12px',
+                        fontWeight: 500,
+                        color: '#334155',
+                        marginBottom: '6px',
+                      }}
+                    >
+                      I am registering as:
                     </label>
-                    <CustomSelect
-                      value={specialty}
-                      onChange={setSpecialty}
-                      options={COMMON_SPECIALTIES.map(s => ({ value: s, label: s }))}
-                      placeholder="Select your specialty"
-                      variant="input"
-                    />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                      <div
+                        onClick={() => setRole('PATIENT')}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: '10px',
+                          border: `1.5px solid ${role === 'PATIENT' ? '#0f766e' : '#e2e8f0'}`,
+                          backgroundColor: role === 'PATIENT' ? '#f0fdf9' : '#ffffff',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <UserIcon size={17} color={role === 'PATIENT' ? '#0f766e' : '#64748b'} />
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: role === 'PATIENT' ? '#0f172a' : '#475569' }}>
+                            Patient
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Seek medical care</div>
+                        </div>
+                      </div>
+
+                      <div
+                        onClick={() => setRole('DOCTOR')}
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: '10px',
+                          border: `1.5px solid ${role === 'DOCTOR' ? '#0f766e' : '#e2e8f0'}`,
+                          backgroundColor: role === 'DOCTOR' ? '#f0fdf9' : '#ffffff',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        <Stethoscope size={17} color={role === 'DOCTOR' ? '#0f766e' : '#64748b'} />
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: 600, color: role === 'DOCTOR' ? '#0f172a' : '#475569' }}>
+                            Doctor
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Clinical provider</div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+                )}
 
+                {/* Full Name Field (Registration only) */}
+                {!isLogin && (
                   <WaveInput
-                    id="hospital"
-                    label="Hospital / clinic name (optional)"
-                    type="text"
-                    value={hospitalName}
-                    onChange={setHospitalName}
-                    icon={<Building2 size={17} color="#0f766e" />}
-                  />
-
-                  <WaveInput
-                    id="registration"
-                    label="Medical registration number"
+                    id="fullName"
+                    label="Full Legal Name"
                     type="text"
                     required
-                    value={registrationNumber}
-                    onChange={setRegistrationNumber}
-                    icon={<FileText size={17} color="#0f766e" />}
+                    value={fullName}
+                    onChange={val => {
+                      setFullName(val);
+                      clearError();
+                    }}
+                    variant="boxed"
+                    icon={<UserIcon size={16} color="#0f766e" />}
                   />
-
-                  <div style={{
-                    marginTop: 2, padding: '8px 10px',
-                    background: '#fff', border: '1px solid #d9ece7',
-                    borderRadius: 10, fontSize: 11, color: '#5e7b76', lineHeight: 1.4,
-                  }}>
-                    Doctor accounts are reviewed by an admin before they appear in patient search.
-                    You can log in right after signing up to track your verification status.
-                  </div>
-                </div>
-              )}
-
-              {/* Password Field */}
-              <div style={{ marginBottom: '8px' }}>
-                {isLogin && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-6px' }}>
-                    <Link
-                      to="/auth/forgot-password"
-                      style={{ fontSize: '12px', color: '#0f766e', textDecoration: 'none', fontWeight: 600 }}
-                    >
-                      Forgot password?
-                    </Link>
-                  </div>
                 )}
+
+                {/* Email Field */}
                 <WaveInput
-                  id="password"
-                  label={isLogin ? 'Password' : 'Password (min 8 chars, A-Z, a-z, 0-9, symbol)'}
-                  type={showPassword ? 'text' : 'password'}
+                  id="email"
+                  label="Email Address"
+                  type="email"
                   required
-                  value={password}
-                  onChange={setPassword}
-                  icon={<Lock size={17} color="#0f766e" />}
-                  rightElement={
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                  value={email}
+                  onChange={val => {
+                    setEmail(val);
+                    clearError();
+                  }}
+                  variant="boxed"
+                  icon={<Mail size={16} color="#0f766e" />}
+                />
+
+                {/* Phone Field with Integrated Country Code & Divider (Registration only) */}
+                {!isLogin && (
+                  <WaveInput
+                    id="phone"
+                    label="Phone Number (Optional)"
+                    type="tel"
+                    placeholder="Enter phone number"
+                    value={phone}
+                    onChange={val => {
+                      setPhone(val);
+                      clearError();
+                    }}
+                    variant="boxed"
+                    icon={<Phone size={16} color="#0f766e" />}
+                    leftElement={
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <select
+                          value={countryCode}
+                          onChange={e => setCountryCode(e.target.value)}
+                          aria-label="Country Code"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            fontSize: '13px',
+                            fontWeight: 500,
+                            color: '#0f766e',
+                            outline: 'none',
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            padding: '0 4px 0 0',
+                          }}
+                        >
+                          <option value="+91">+91 (IN)</option>
+                          <option value="+1">+1 (US)</option>
+                          <option value="+44">+44 (UK)</option>
+                          <option value="+61">+61 (AU)</option>
+                          <option value="+971">+971 (AE)</option>
+                        </select>
+                        <div
+                          style={{
+                            width: '1px',
+                            height: '18px',
+                            backgroundColor: '#cbd5e1',
+                            marginLeft: '6px',
+                          }}
+                        />
+                      </div>
+                    }
+                  />
+                )}
+
+                {/* Doctor-specific fields (Registration + role=DOCTOR) */}
+                {!isLogin && role === 'DOCTOR' && (
+                  <div
+                    style={{
+                      padding: '12px 14px 2px',
+                      borderRadius: 12,
+                      border: '1px solid #e2e8f0',
+                      background: '#f8fafc',
+                      marginBottom: 14,
+                    }}
+                  >
+                    <div
                       style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#8aa39d',
-                        cursor: 'pointer',
-                        padding: '4px',
-                        display: 'flex',
-                        alignItems: 'center',
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        color: '#0f766e',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        marginBottom: 8,
                       }}
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  }
-                />
-              </div>
+                      Clinical Profile Details
+                    </div>
 
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={loading}
-                className="hover-lift"
-                style={{
-                  width: '100%',
-                  backgroundColor: '#0f766e',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: '14px',
-                  padding: '13px',
-                  fontSize: '15px',
-                  fontWeight: 600,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.7 : 1,
-                  boxShadow: '0 2px 10px rgba(20, 60, 55, 0.08)',
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  transition: 'background-color 0.15s ease',
-                  marginTop: '12px',
-                }}
-                onMouseEnter={e => {
-                  if (!loading) e.currentTarget.style.backgroundColor = '#0d655e';
-                }}
-                onMouseLeave={e => {
-                  if (!loading) e.currentTarget.style.backgroundColor = '#0f766e';
-                }}
-              >
-                {loading
-                  ? 'Processing...'
-                  : isLogin
-                  ? 'Sign In to pulsecare'
-                  : 'Create pulsecare Account'}
-              </button>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#334155', marginBottom: 6 }}>
+                        Specialty
+                      </label>
+                      <CustomSelect
+                        value={specialty}
+                        onChange={val => {
+                          setSpecialty(val);
+                          clearError();
+                        }}
+                        options={COMMON_SPECIALTIES.map(s => ({ value: s, label: s }))}
+                        placeholder="Select medical specialty"
+                        variant="input"
+                      />
+                    </div>
 
-              {/* Alternate switch text */}
-              <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '13px', color: '#52736d' }}>
-                {isLogin ? (
-                  <>
-                    Don&apos;t have an account yet?{' '}
-                    <span
-                      onClick={() => switchMode(false)}
-                      style={{ color: '#ff6b5b', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
-                    >
-                      Register now
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    Already have an account?{' '}
-                    <span
-                      onClick={() => switchMode(true)}
-                      style={{ color: '#ff6b5b', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
-                    >
-                      Sign in here
-                    </span>
-                  </>
+                    <WaveInput
+                      id="hospital"
+                      label="Hospital / Clinic Name (Optional)"
+                      type="text"
+                      value={hospitalName}
+                      onChange={val => {
+                        setHospitalName(val);
+                        clearError();
+                      }}
+                      variant="boxed"
+                      icon={<Building2 size={16} color="#0f766e" />}
+                    />
+
+                    <WaveInput
+                      id="registration"
+                      label="Medical Registration / License Number"
+                      type="text"
+                      required
+                      value={registrationNumber}
+                      onChange={val => {
+                        setRegistrationNumber(val);
+                        clearError();
+                      }}
+                      variant="boxed"
+                      icon={<FileText size={16} color="#0f766e" />}
+                    />
+                  </div>
                 )}
-              </div>
 
-              {/* Subtle Demo Logins */}
-              <div
-                style={{
-                  marginTop: '24px',
-                  paddingTop: '18px',
-                  borderTop: '1px solid #d9ece7',
-                  textAlign: 'center',
-                }}
-              >
-                <div style={{ fontSize: '11px', fontWeight: 600, color: '#8aa39d', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Quick 1-Click Demo
+                {/* Password Field */}
+                <div>
+                  <WaveInput
+                    id="password"
+                    label={isLogin ? 'Password' : 'Password (min 8 characters)'}
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={password}
+                    onChange={val => {
+                      setPassword(val);
+                      clearError();
+                    }}
+                    variant="boxed"
+                    icon={<Lock size={16} color="#0f766e" />}
+                    rightElement={
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#94a3b8',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    }
+                  />
+
+                  {/* Clean Forgot Password link aligned to right */}
+                  {isLogin && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '-6px', marginBottom: '14px' }}>
+                      <Link
+                        to="/auth/forgot-password"
+                        style={{
+                          fontSize: '12px',
+                          color: '#0f766e',
+                          textDecoration: 'none',
+                          fontWeight: 500,
+                          transition: 'color 0.15s ease',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#0b3f3a')}
+                        onMouseLeave={e => (e.currentTarget.style.color = '#0f766e')}
+                      >
+                        Forgot password?
+                      </Link>
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickDemo('PATIENT')}
-                    disabled={loading}
-                    className="hover-lift"
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{
+                    width: '100%',
+                    backgroundColor: loading ? '#0d655e' : '#0f766e',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '10px',
+                    height: '44px',
+                    padding: '0 16px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.8 : 1,
+                    boxShadow: '0 1px 3px rgba(15, 118, 110, 0.18)',
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    transition: 'all 0.15s ease',
+                    marginTop: isLogin ? '4px' : '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    outline: 'none',
+                  }}
+                  onFocus={e => (e.currentTarget.style.boxShadow = '0 0 0 3px rgba(15, 118, 110, 0.25)')}
+                  onBlur={e => (e.currentTarget.style.boxShadow = '0 1px 3px rgba(15, 118, 110, 0.18)')}
+                  onMouseEnter={e => {
+                    if (!loading) {
+                      e.currentTarget.style.backgroundColor = '#0d655e';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!loading) {
+                      e.currentTarget.style.backgroundColor = '#0f766e';
+                    }
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Processing...</span>
+                    </>
+                  ) : isLogin ? (
+                    'Sign In'
+                  ) : (
+                    'Create Account'
+                  )}
+                </button>
+
+                {/* Switch link */}
+                <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '13px', color: '#64748b' }}>
+                  {isLogin ? (
+                    <>
+                      Don&apos;t have an account yet?{' '}
+                      <span
+                        onClick={() => switchMode(false)}
+                        style={{ color: '#0f766e', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        Register
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      Already have an account?{' '}
+                      <span
+                        onClick={() => switchMode(true)}
+                        style={{ color: '#0f766e', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                      >
+                        Sign in
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* Doctor Demo Quick-Fill Bar (Sign In only) */}
+                {isLogin && (
+                  <div
                     style={{
-                      padding: '8px 12px',
+                      marginTop: '18px',
+                      padding: '10px 12px',
+                      backgroundColor: '#f8fafc',
+                      border: '1px solid #e2e8f0',
                       borderRadius: '10px',
-                      backgroundColor: '#eaf6f2',
-                      border: '1px solid #d9ece7',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#0b3f3a',
-                      cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      fontFamily: "'Space Grotesk', sans-serif",
+                      justifyContent: 'space-between',
+                      gap: '8px',
                     }}
                   >
-                    <UserIcon size={13} color="#0f766e" />
-                    Patient Demo
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleQuickDemo('DOCTOR')}
-                    disabled={loading}
-                    className="hover-lift"
-                    style={{
-                      padding: '8px 12px',
-                      borderRadius: '10px',
-                      backgroundColor: '#eaf6f2',
-                      border: '1px solid #d9ece7',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: '#0b3f3a',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '6px',
-                      fontFamily: "'Space Grotesk', sans-serif",
-                    }}
-                  >
-                    <Stethoscope size={13} color="#0f766e" />
-                    Doctor Demo
-                  </button>
-                </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <Stethoscope size={15} color="#0f766e" style={{ flexShrink: 0 }} />
+                      <div style={{ fontSize: '11.5px', color: '#334155', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontWeight: 600, color: '#0f172a' }}>Doctor demo: </span>
+                        <code style={{ background: '#f1f5f9', padding: '1px 4px', borderRadius: '4px', fontSize: '11px', color: '#0f766e' }}>
+                          doctor1@pulse.test
+                        </code>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEmail('doctor1@pulse.test');
+                        setPassword('Password123!');
+                        clearError();
+                      }}
+                      title="Auto-fill Doctor credentials"
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        color: '#0f766e',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                        transition: 'all 0.15s ease',
+                        fontFamily: "'Space Grotesk', sans-serif",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.borderColor = '#0f766e';
+                        e.currentTarget.style.backgroundColor = '#f0fdfa';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.borderColor = '#cbd5e1';
+                        e.currentTarget.style.backgroundColor = '#ffffff';
+                      }}
+                    >
+                      Auto-fill
+                    </button>
+                  </div>
+                )}
               </div>
             </form>
           </div>
-        </div>
+        </main>
       </div>
     </PageTransition>
   );
