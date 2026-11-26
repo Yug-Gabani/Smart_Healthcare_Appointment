@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Activity,
   AlertTriangle,
+  BarChart2,
   Calendar,
   CheckCircle2,
   Clock,
@@ -14,6 +15,7 @@ import {
   Search,
   Server,
   Shield,
+  TrendingUp,
   Video,
   X,
 } from 'lucide-react';
@@ -23,11 +25,12 @@ import type {
   AdminOverviewData,
   AdminAppointmentItem,
   AdminPaymentItem,
+  AdminAnalyticsData,
   AppointmentStatus,
 } from '../types';
 import { AdminDoctors } from './AdminDoctors';
 
-export type AdminTab = 'OVERVIEW' | 'DOCTORS' | 'APPOINTMENTS' | 'PAYMENTS';
+export type AdminTab = 'OVERVIEW' | 'DOCTORS' | 'APPOINTMENTS' | 'PAYMENTS' | 'ANALYTICS';
 
 interface AdminDashboardProps {
   defaultTab?: AdminTab;
@@ -43,6 +46,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
     if (location.pathname === '/admin/doctors' || hash === '#doctors') return 'DOCTORS';
     if (hash === '#consultations' || hash === '#appointments') return 'APPOINTMENTS';
     if (hash === '#payments') return 'PAYMENTS';
+    if (hash === '#analytics') return 'ANALYTICS';
     return defaultTab || 'OVERVIEW';
   }, [location.pathname, location.hash, defaultTab]);
 
@@ -65,6 +69,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
   const [paymentsError, setPaymentsError] = useState<string | null>(null);
   const [paySearch, setPaySearch] = useState('');
   const [payStatusFilter, setPayStatusFilter] = useState<string>('ALL');
+
+  // Analytics state
+  const [analytics, setAnalytics] = useState<AdminAnalyticsData | null>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState<boolean>(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [exportStartDate, setExportStartDate] = useState('');
+  const [exportEndDate, setExportEndDate] = useState('');
+  const [exporting, setExporting] = useState<'appointments' | 'payments' | null>(null);
 
   const todayLabel = useMemo(() => {
     return new Date().toLocaleDateString(undefined, {
@@ -119,6 +131,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
     }
   };
 
+  // Load Analytics Data
+  const fetchAnalytics = async () => {
+    setLoadingAnalytics(true);
+    setAnalyticsError(null);
+    try {
+      const data = await adminApi.getAnalytics();
+      setAnalytics(data);
+    } catch (err: any) {
+      console.error('Failed to fetch analytics:', err);
+      setAnalyticsError(err?.message || 'Failed to fetch analytics data');
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
   useEffect(() => {
     fetchOverview();
   }, []);
@@ -128,6 +155,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
       fetchAppointments();
     } else if (activeTab === 'PAYMENTS' && payments.length === 0) {
       fetchPayments();
+    } else if (activeTab === 'ANALYTICS' && !analytics) {
+      fetchAnalytics();
     }
   }, [activeTab]);
 
@@ -135,6 +164,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
     if (activeTab === 'OVERVIEW') fetchOverview();
     else if (activeTab === 'APPOINTMENTS') fetchAppointments();
     else if (activeTab === 'PAYMENTS') fetchPayments();
+    else if (activeTab === 'ANALYTICS') fetchAnalytics();
   };
 
   // Filtered Appointments
@@ -237,6 +267,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
             {activeTab === 'DOCTORS' && 'Practitioner verification'}
             {activeTab === 'APPOINTMENTS' && 'Master consultations ledger'}
             {activeTab === 'PAYMENTS' && 'Financial transactions & settlements'}
+            {activeTab === 'ANALYTICS' && 'Platform analytics & report export'}
           </h1>
           <div style={{ fontSize: '14px', color: '#52736d', marginTop: '4px' }}>
             Real-time platform operations &middot; Provider credentialing &middot; Razorpay settlements
@@ -1352,6 +1383,306 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
             </div>
           </motion.div>
         )}
+
+        {/* Platform Analytics & Performance Reports Tab */}
+        {activeTab === 'ANALYTICS' && (
+          <motion.div
+            key="tab-analytics"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            {analyticsError && (
+              <div
+                style={{
+                  backgroundColor: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  color: '#b91c1c',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                  fontSize: '13px',
+                  marginBottom: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <AlertTriangle size={15} />
+                <span>{analyticsError}</span>
+              </div>
+            )}
+
+            {loadingAnalytics ? (
+              <div style={{ padding: '80px 20px', textAlign: 'center', color: '#52736d' }}>
+                <Loader2 size={28} className="animate-spin" color="#0f766e" style={{ display: 'inline', marginRight: '8px' }} />
+                Aggregating platform performance metrics…
+              </div>
+            ) : analytics ? (
+              <>
+                {/* Monthly Revenue & Volume Trends */}
+                <div
+                  style={{
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #d9ece7',
+                    borderRadius: '16px',
+                    padding: '24px',
+                    marginBottom: '20px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+                    <TrendingUp size={18} color="#0f766e" />
+                    <div>
+                      <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#0b3f3a', margin: 0 }}>
+                        Monthly Revenue & Settlement Volume
+                      </h2>
+                      <div style={{ fontSize: '12px', color: '#52736d', marginTop: '2px' }}>
+                        Gross billing, refunds, and net collections over the last 6 months
+                      </div>
+                    </div>
+                  </div>
+                  <RevenueBarChart data={analytics.monthlyRevenue || []} />
+                </div>
+
+                {/* Top Specialties & Cancellation/No-Show Metrics */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+                    gap: '20px',
+                    marginBottom: '20px',
+                  }}
+                >
+                  {/* Top Specialties */}
+                  <div
+                    style={{
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #d9ece7',
+                      borderRadius: '16px',
+                      padding: '24px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                      <BarChart2 size={18} color="#0f766e" />
+                      <div>
+                        <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#0b3f3a', margin: 0 }}>
+                          Top Clinical Specialties
+                        </h2>
+                        <div style={{ fontSize: '12px', color: '#52736d', marginTop: '2px' }}>
+                          Distribution of consultations and departmental revenue
+                        </div>
+                      </div>
+                    </div>
+                    <SpecialtyChart data={analytics.topSpecialties || []} />
+                  </div>
+
+                  {/* Cancellation & No-Show Audit */}
+                  <div
+                    style={{
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #d9ece7',
+                      borderRadius: '16px',
+                      padding: '24px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                      <Activity size={18} color="#0f766e" />
+                      <div>
+                        <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#0b3f3a', margin: 0 }}>
+                          No-Show & Cancellation Audit
+                        </h2>
+                        <div style={{ fontSize: '12px', color: '#52736d', marginTop: '2px' }}>
+                          Operational attrition rates & clinical utilization metrics
+                        </div>
+                      </div>
+                    </div>
+                    <CancellationPanel metrics={analytics.cancellationMetrics} />
+                  </div>
+                </div>
+
+                {/* Date-Filtered Audit Export (CSV) */}
+                <div
+                  style={{
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #d9ece7',
+                    borderRadius: '16px',
+                    padding: '24px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                    <Download size={18} color="#0f766e" />
+                    <div>
+                      <h2 style={{ fontSize: '16px', fontWeight: 600, color: '#0b3f3a', margin: 0 }}>
+                        Export Hospital Audit Reports (CSV)
+                      </h2>
+                      <div style={{ fontSize: '12px', color: '#52736d', marginTop: '2px' }}>
+                        Stream large datasets safely without JVM out-of-memory errors. Formatted for Excel with UTF-8 BOM.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '16px',
+                      alignItems: 'center',
+                      backgroundColor: '#f8faf9',
+                      padding: '16px',
+                      borderRadius: '12px',
+                      marginBottom: '20px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 500, color: '#0b3f3a' }}>From:</span>
+                      <input
+                        type="date"
+                        value={exportStartDate}
+                        onChange={(e) => setExportStartDate(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid #d9ece7',
+                          backgroundColor: '#ffffff',
+                          fontSize: '13px',
+                          color: '#0b3f3a',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 500, color: '#0b3f3a' }}>To:</span>
+                      <input
+                        type="date"
+                        value={exportEndDate}
+                        onChange={(e) => setExportEndDate(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid #d9ece7',
+                          backgroundColor: '#ffffff',
+                          fontSize: '13px',
+                          color: '#0b3f3a',
+                          outline: 'none',
+                        }}
+                      />
+                    </div>
+
+                    {(exportStartDate || exportEndDate) && (
+                      <button
+                        onClick={() => {
+                          setExportStartDate('');
+                          setExportEndDate('');
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#52736d',
+                          fontSize: '12px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <X size={13} /> Reset filter
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => {
+                        setExporting('appointments');
+                        adminApi.exportAppointmentsCsv(exportStartDate || undefined, exportEndDate || undefined);
+                        setTimeout(() => setExporting(null), 1500);
+                      }}
+                      disabled={exporting === 'appointments'}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        backgroundColor: '#0f766e',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '10px',
+                        padding: '10px 18px',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        cursor: exporting === 'appointments' ? 'default' : 'pointer',
+                        transition: 'background-color 160ms ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (exporting !== 'appointments') e.currentTarget.style.backgroundColor = '#0d655e';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (exporting !== 'appointments') e.currentTarget.style.backgroundColor = '#0f766e';
+                      }}
+                    >
+                      {exporting === 'appointments' ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Download size={15} />
+                      )}
+                      <span>Export Appointments CSV</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setExporting('payments');
+                        adminApi.exportPaymentsCsv(exportStartDate || undefined, exportEndDate || undefined);
+                        setTimeout(() => setExporting(null), 1500);
+                      }}
+                      disabled={exporting === 'payments'}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        backgroundColor: '#ffffff',
+                        color: '#0f766e',
+                        border: '1px solid #0f766e',
+                        borderRadius: '10px',
+                        padding: '10px 18px',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        cursor: exporting === 'payments' ? 'default' : 'pointer',
+                        transition: 'background-color 160ms ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (exporting !== 'payments') e.currentTarget.style.backgroundColor = '#f0fdfa';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (exporting !== 'payments') e.currentTarget.style.backgroundColor = '#ffffff';
+                      }}
+                    >
+                      {exporting === 'payments' ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Download size={15} />
+                      )}
+                      <span>Export Settlements & Transactions CSV</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div
+                style={{
+                  padding: '48px 16px',
+                  textAlign: 'center',
+                  backgroundColor: '#f8faf9',
+                  borderRadius: '12px',
+                  border: '1px dashed #d9ece7',
+                  color: '#8aa39d',
+                  fontSize: '13.5px',
+                }}
+              >
+                No platform analytics available.
+              </div>
+            )}
+          </motion.div>
+        )}
       </AnimatePresence>
     </PageTransition>
   );
@@ -1470,3 +1801,164 @@ const UrgencyTag: React.FC<{ urgency?: string }> = ({ urgency }) => {
 };
 
 export default AdminDashboard;
+
+// ----------------- ANALYTICS VISUALIZATIONS -----------------
+
+const RevenueBarChart: React.FC<{ data: AdminAnalyticsData['monthlyRevenue'] }> = ({ data }) => {
+  if (!data || data.length === 0) {
+    return <div style={{ fontSize: '13px', color: '#8aa39d', padding: '16px 0' }}>No revenue records available.</div>;
+  }
+
+  const maxVal = Math.max(...data.map((d) => Math.max(d.revenuePaise, d.refundPaise, 10000))) / 100;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '14px', fontSize: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: '12px', height: '12px', backgroundColor: '#0f766e', borderRadius: '3px' }} />
+          <span style={{ color: '#0b3f3a', fontWeight: 500 }}>Gross Collections (₹)</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: '12px', height: '12px', backgroundColor: '#f87171', borderRadius: '3px' }} />
+          <span style={{ color: '#0b3f3a', fontWeight: 500 }}>Refunds (₹)</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ width: '12px', height: '12px', backgroundColor: '#0284c7', borderRadius: '3px' }} />
+          <span style={{ color: '#0b3f3a', fontWeight: 500 }}>Net Volume (₹)</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${data.length}, 1fr)`, gap: '12px', alignItems: 'flex-end', height: '220px', paddingTop: '20px', borderBottom: '1px solid #d9ece7' }}>
+        {data.map((item) => {
+          const revRupees = item.revenuePaise / 100;
+          const refRupees = item.refundPaise / 100;
+          const netRupees = item.netPaise / 100;
+
+          const revHeight = Math.max((revRupees / maxVal) * 180, revRupees > 0 ? 6 : 2);
+          const refHeight = Math.max((refRupees / maxVal) * 180, refRupees > 0 ? 6 : 2);
+          const netHeight = Math.max((Math.max(netRupees, 0) / maxVal) * 180, netRupees > 0 ? 6 : 2);
+
+          return (
+            <div key={item.month} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', width: '100%', justifyContent: 'center' }}>
+                {/* Gross */}
+                <div
+                  title={`Gross: ₹${revRupees.toLocaleString('en-IN')}`}
+                  style={{
+                    width: '26%',
+                    maxWidth: '24px',
+                    height: `${revHeight}px`,
+                    backgroundColor: '#0f766e',
+                    borderRadius: '4px 4px 0 0',
+                    transition: 'height 300ms ease',
+                  }}
+                />
+                {/* Refunds */}
+                <div
+                  title={`Refunds: ₹${refRupees.toLocaleString('en-IN')}`}
+                  style={{
+                    width: '26%',
+                    maxWidth: '24px',
+                    height: `${refHeight}px`,
+                    backgroundColor: '#f87171',
+                    borderRadius: '4px 4px 0 0',
+                    transition: 'height 300ms ease',
+                  }}
+                />
+                {/* Net */}
+                <div
+                  title={`Net: ₹${netRupees.toLocaleString('en-IN')}`}
+                  style={{
+                    width: '26%',
+                    maxWidth: '24px',
+                    height: `${netHeight}px`,
+                    backgroundColor: '#0284c7',
+                    borderRadius: '4px 4px 0 0',
+                    transition: 'height 300ms ease',
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: '11px', color: '#52736d', fontWeight: 500, marginTop: '8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                {item.label}
+              </div>
+              <div style={{ fontSize: '10px', color: '#8aa39d', marginTop: '2px' }}>
+                {item.appointmentCount} visits
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const SpecialtyChart: React.FC<{ data: AdminAnalyticsData['topSpecialties'] }> = ({ data }) => {
+  if (!data || data.length === 0) {
+    return <div style={{ fontSize: '13px', color: '#8aa39d', padding: '16px 0' }}>No specialty data recorded.</div>;
+  }
+
+  const maxCount = Math.max(...data.map((s) => s.appointmentCount), 1);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {data.map((item) => {
+        const pct = Math.round((item.appointmentCount / maxCount) * 100);
+        return (
+          <div key={item.specialty}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '5px' }}>
+              <span style={{ fontWeight: 600, color: '#0b3f3a' }}>{item.specialty}</span>
+              <span style={{ color: '#52736d', fontSize: '12px' }}>
+                <strong>{item.appointmentCount}</strong> consultations · ₹{(item.revenuePaise / 100).toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div style={{ width: '100%', height: '8px', backgroundColor: '#f0f7f5', borderRadius: '9999px', overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${pct}%`,
+                  height: '100%',
+                  backgroundColor: '#0f766e',
+                  borderRadius: '9999px',
+                  transition: 'width 300ms ease',
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const CancellationPanel: React.FC<{ metrics: AdminAnalyticsData['cancellationMetrics'] }> = ({ metrics }) => {
+  if (!metrics) return null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ padding: '14px', borderRadius: '12px', backgroundColor: '#fef2f2', border: '1px solid #fee2e2' }}>
+          <div style={{ fontSize: '12px', color: '#991b1b', fontWeight: 500 }}>Cancellation Rate</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#b91c1c', margin: '4px 0' }}>
+            {metrics.cancellationRate}%
+          </div>
+          <div style={{ fontSize: '11px', color: '#b91c1c' }}>
+            {metrics.cancelledCount} of {metrics.totalAppointments} cancelled
+          </div>
+        </div>
+
+        <div style={{ padding: '14px', borderRadius: '12px', backgroundColor: '#fffbeb', border: '1px solid #fef3c7' }}>
+          <div style={{ fontSize: '12px', color: '#92400e', fontWeight: 500 }}>No-Show Rate</div>
+          <div style={{ fontSize: '26px', fontWeight: 700, color: '#d97706', margin: '4px 0' }}>
+            {metrics.noShowRate}%
+          </div>
+          <div style={{ fontSize: '11px', color: '#b45309' }}>
+            {metrics.noShowCount} missed consultations
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '12px 14px', borderRadius: '10px', backgroundColor: '#f8faf9', border: '1px solid #eef5f3', fontSize: '12.5px', color: '#52736d' }}>
+        Total scheduled audits evaluated: <strong style={{ color: '#0b3f3a' }}>{metrics.totalAppointments}</strong> across all enrolled practitioners and hospital sites.
+      </div>
+    </div>
+  );
+};

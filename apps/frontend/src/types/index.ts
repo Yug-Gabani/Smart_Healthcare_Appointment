@@ -580,6 +580,39 @@ export interface AdminPaymentItem {
 }
 
 // ==========================================
+// Admin Analytics Types
+// ==========================================
+
+export interface MonthlyRevenuePoint {
+  month: string;   // "2024-11"
+  label: string;   // "Nov 2024"
+  revenuePaise: number;
+  refundPaise: number;
+  netPaise: number;
+  appointmentCount: number;
+}
+
+export interface SpecialtyBreakdown {
+  specialty: string;
+  appointmentCount: number;
+  revenuePaise: number;
+}
+
+export interface CancellationMetrics {
+  totalAppointments: number;
+  cancelledCount: number;
+  noShowCount: number;
+  cancellationRate: number;
+  noShowRate: number;
+}
+
+export interface AdminAnalyticsData {
+  monthlyRevenue: MonthlyRevenuePoint[];
+  topSpecialties: SpecialtyBreakdown[];
+  cancellationMetrics: CancellationMetrics;
+}
+
+// ==========================================
 // Pharmacy E-Commerce Module Types
 // ==========================================
 

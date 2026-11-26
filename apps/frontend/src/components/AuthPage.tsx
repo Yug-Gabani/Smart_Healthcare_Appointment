@@ -49,10 +49,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
   const nextParam = new URLSearchParams(location.search).get('next');
   const landingFor = (role: Role) =>
     nextParam ? nextParam
-      : role === 'ADMIN'      ? '/admin/doctors'
-      : role === 'PHARMACIST' ? '/pharmacy'
-      : role === 'DOCTOR'     ? '/doctor'
-                              : '/';
+      : role === 'ADMIN' ? '/admin/doctors'
+        : role === 'PHARMACIST' ? '/pharmacy'
+          : role === 'DOCTOR' ? '/doctor'
+            : '/';
 
   // If already logged in, redirect to appropriate landing
   useEffect(() => {
@@ -626,8 +626,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
                 {loading
                   ? 'Processing...'
                   : isLogin
-                  ? 'Sign In to pulsecare'
-                  : 'Create pulsecare Account'}
+                    ? 'Sign In to pulsecare'
+                    : 'Create pulsecare Account'}
               </button>
 
               {/* Alternate switch text */}
