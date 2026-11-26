@@ -19,6 +19,7 @@ import { COMMON_SPECIALTIES, type Role, type User } from '../types';
 import { PageTransition } from '../motion/PageTransition';
 import { WaveInput } from './WaveInput';
 import { CustomSelect } from './CustomSelect';
+import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 import { validateStrongPassword } from '../utils/passwordValidator';
 
 interface AuthPageProps {
@@ -593,6 +594,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
                     </button>
                   }
                 />
+                {!isLogin && <PasswordStrengthMeter password={password} />}
               </div>
 
               {/* Submit Button */}

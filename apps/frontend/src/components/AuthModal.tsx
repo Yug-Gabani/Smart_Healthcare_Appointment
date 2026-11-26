@@ -3,6 +3,7 @@ import { X, AlertCircle } from 'lucide-react';
 import { authApi } from '../services/api';
 import type { User as UserType } from '../types';
 import { WaveInput } from './WaveInput';
+import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 import { validateStrongPassword } from '../utils/passwordValidator';
 
 interface AuthModalProps {
@@ -180,6 +181,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
             onChange={setPassword}
             required
           />
+          {!isLogin && <PasswordStrengthMeter password={password} />}
 
           <button
             type="submit"
