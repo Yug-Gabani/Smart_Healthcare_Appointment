@@ -8,6 +8,7 @@ import { WaveInput } from './WaveInput';
 import { ArrowLeft, Loader2, Save, UserCircle2, Download, Trash2, AlertTriangle, ShieldCheck, X } from 'lucide-react';
 import type { Gender, PatientProfile as PatientProfileT } from '../types';
 import { profileApi, complianceApi, authApi } from '../services/api';
+import { validatePhoneNumber } from '../utils/phoneValidator';
 
 const GENDERS: { value: Gender; label: string }[] = [
   { value: 'MALE', label: 'Male' },
@@ -43,6 +44,16 @@ export const PatientProfile: React.FC = () => {
 
   const handleSave = async () => {
     if (!profile) return;
+    const phoneCheck = validatePhoneNumber(profile.phone);
+    if (!phoneCheck.isValid) {
+      setError(phoneCheck.message);
+      return;
+    }
+    const emergencyPhoneCheck = validatePhoneNumber(profile.emergencyContactPhone);
+    if (!emergencyPhoneCheck.isValid) {
+      setError(`Emergency contact: ${emergencyPhoneCheck.message}`);
+      return;
+    }
     setSaving(true); setError(null);
     try {
       const saved = await profileApi.update({

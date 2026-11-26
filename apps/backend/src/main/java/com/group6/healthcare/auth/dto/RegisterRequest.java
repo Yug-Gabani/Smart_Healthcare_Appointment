@@ -23,7 +23,12 @@ public record RegisterRequest(
         )
         String password,
         @NotBlank @Size(max = 255) String fullName,
-        @Size(max = 50) String phone,
+        @Size(max = 50)
+        @Pattern(
+                regexp = "^(?:\\+?[0-9](?:[\\s\\-()]{0,2}[0-9]){6,14})?$",
+                message = "Please enter a valid phone number (7-15 digits, optional + prefix)"
+        )
+        String phone,
         @NotNull Role role,
 
         // ---------- doctor-only (ignored for other roles) ----------

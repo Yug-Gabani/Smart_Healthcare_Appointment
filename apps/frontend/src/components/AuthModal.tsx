@@ -5,6 +5,7 @@ import type { User as UserType } from '../types';
 import { WaveInput } from './WaveInput';
 import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 import { validateStrongPassword } from '../utils/passwordValidator';
+import { validatePhoneNumber } from '../utils/phoneValidator';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -36,6 +37,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLoginSu
         onLoginSuccess(me, tokens.accessToken);
         onClose();
       } else {
+        const phoneValidation = validatePhoneNumber(phone);
+        if (!phoneValidation.isValid) {
+          setError(phoneValidation.message);
+          setLoading(false);
+          return;
+        }
         const passwordValidation = validateStrongPassword(password);
         if (!passwordValidation.isValid) {
           setError(passwordValidation.message);

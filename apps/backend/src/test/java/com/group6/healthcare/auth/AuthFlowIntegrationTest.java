@@ -175,4 +175,16 @@ class AuthFlowIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.fieldErrors[0].field").value("password"));
     }
+
+    @Test
+    void registerRejectsInvalidPhoneNumber() throws Exception {
+        var badPhoneReq = new RegisterRequest(
+                "badphone@example.com", "SecurePass#123", "Phone Tester", "NOT_A_PHONE_NUMBER_$$$#@",
+                Role.PATIENT, null, null, null, null);
+        mvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(badPhoneReq)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("phone"));
+    }
 }
