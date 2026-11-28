@@ -19,7 +19,9 @@ import { COMMON_SPECIALTIES, type Role, type User } from '../types';
 import { PageTransition } from '../motion/PageTransition';
 import { WaveInput } from './WaveInput';
 import { CustomSelect } from './CustomSelect';
+import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 import { validateStrongPassword } from '../utils/passwordValidator';
+import { validatePhoneNumber } from '../utils/phoneValidator';
 
 interface AuthPageProps {
   onLoginSuccess: (user: User, token: string) => void;
@@ -108,6 +110,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
         // --- REAL BACKEND REGISTRATION ---
         if (!fullName.trim()) {
           throw new Error('Please provide your full legal name');
+        }
+        const phoneValidation = validatePhoneNumber(phone);
+        if (!phoneValidation.isValid) {
+          throw new Error(phoneValidation.message);
         }
         const passwordValidation = validateStrongPassword(password);
         if (!passwordValidation.isValid) {
@@ -593,6 +599,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, currentUser 
                     </button>
                   }
                 />
+                {!isLogin && <PasswordStrengthMeter password={password} />}
               </div>
 
               {/* Submit Button */}

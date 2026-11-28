@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { authApi } from '../services/api';
 import { PageTransition } from '../motion/PageTransition';
 import { WaveInput } from './WaveInput';
+import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 import { validateStrongPassword } from '../utils/passwordValidator';
 
 /**
@@ -234,6 +235,7 @@ export const ResetPasswordPage: React.FC = () => {
                   }
                   disabled={status === 'loading'}
                 />
+                <PasswordStrengthMeter password={password} />
               </div>
 
               <div style={{ marginBottom: 20 }}>
