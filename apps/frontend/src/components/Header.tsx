@@ -168,6 +168,7 @@ export const Header: React.FC<HeaderProps> = ({
   // Active tab detection for Admin
   const adminHash = location.hash;
   const isAdminOverview = isAdmin && location.pathname.startsWith('/admin') && (!adminHash || adminHash === '#overview' || adminHash === '');
+  const isAdminAnalytics = isAdmin && location.pathname.startsWith('/admin') && adminHash === '#analytics';
   const isAdminDoctors = isAdmin && (location.pathname === '/admin/doctors' || (location.pathname.startsWith('/admin') && adminHash === '#doctors'));
   const isAdminConsultations = isAdmin && location.pathname.startsWith('/admin') && (adminHash === '#consultations' || adminHash === '#appointments');
   const isAdminPayments = isAdmin && location.pathname.startsWith('/admin') && adminHash === '#payments';
@@ -283,6 +284,16 @@ export const Header: React.FC<HeaderProps> = ({
           onClick: (e: React.MouseEvent) => {
             e.preventDefault();
             navigate('/admin#overview');
+          },
+        },
+        {
+          id: 'admin-analytics',
+          label: 'Analytics',
+          href: '/admin#analytics',
+          isActive: isAdminAnalytics,
+          onClick: (e: React.MouseEvent) => {
+            e.preventDefault();
+            navigate('/admin#analytics');
           },
         },
         {

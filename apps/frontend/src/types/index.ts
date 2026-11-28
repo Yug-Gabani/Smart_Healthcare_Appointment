@@ -526,6 +526,43 @@ export interface AdminOverviewData {
   systemHealth: SystemHealth;
 }
 
+export interface MonthlyRevenuePoint {
+  monthKey: string;
+  label: string;
+  revenuePaise: number;
+  refundPaise: number;
+  netRevenuePaise: number;
+  transactionCount: number;
+}
+
+export interface SpecialtyMetric {
+  specialty: string;
+  appointmentCount: number;
+  completedCount: number;
+  cancelledCount: number;
+  noShowCount: number;
+  revenuePaise: number;
+}
+
+export interface CancellationMetrics {
+  totalAppointments: number;
+  completedCount: number;
+  cancelledCount: number;
+  noShowCount: number;
+  bookedCount: number;
+  confirmedCount: number;
+  expiredCount: number;
+  completionRatePct: number;
+  cancellationRatePct: number;
+  noShowRatePct: number;
+}
+
+export interface AdminAnalyticsData {
+  monthlyRevenue: MonthlyRevenuePoint[];
+  topSpecialties: SpecialtyMetric[];
+  cancellationMetrics: CancellationMetrics;
+}
+
 export interface AdminAppointmentItem {
   id: string;
   patientId?: string;

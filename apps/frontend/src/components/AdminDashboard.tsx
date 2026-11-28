@@ -26,8 +26,9 @@ import type {
   AppointmentStatus,
 } from '../types';
 import { AdminDoctors } from './AdminDoctors';
+import { AdminAnalyticsPanel } from './AdminAnalyticsPanel';
 
-export type AdminTab = 'OVERVIEW' | 'DOCTORS' | 'APPOINTMENTS' | 'PAYMENTS';
+export type AdminTab = 'OVERVIEW' | 'ANALYTICS' | 'DOCTORS' | 'APPOINTMENTS' | 'PAYMENTS';
 
 interface AdminDashboardProps {
   defaultTab?: AdminTab;
@@ -41,6 +42,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
   const activeTab = useMemo<AdminTab>(() => {
     const hash = location.hash;
     if (location.pathname === '/admin/doctors' || hash === '#doctors') return 'DOCTORS';
+    if (hash === '#analytics') return 'ANALYTICS';
     if (hash === '#consultations' || hash === '#appointments') return 'APPOINTMENTS';
     if (hash === '#payments') return 'PAYMENTS';
     return defaultTab || 'OVERVIEW';
@@ -234,6 +236,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
             }}
           >
             {activeTab === 'OVERVIEW' && 'Operations & overview'}
+            {activeTab === 'ANALYTICS' && 'Platform analytics & audit exports'}
             {activeTab === 'DOCTORS' && 'Practitioner verification'}
             {activeTab === 'APPOINTMENTS' && 'Master consultations ledger'}
             {activeTab === 'PAYMENTS' && 'Financial transactions & settlements'}
@@ -287,8 +290,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
           </div>
         </div>
 
-        <div style={{ fontSize: '13px', color: '#52736d', fontWeight: 500 }}>
-          {todayLabel}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => navigate('/admin#analytics')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              backgroundColor: activeTab === 'ANALYTICS' ? '#0f766e' : '#eaf6f2',
+              color: activeTab === 'ANALYTICS' ? '#ffffff' : '#0f766e',
+              border: '1px solid #bfe3da',
+              borderRadius: '10px',
+              padding: '7px 14px',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <Download size={13} />
+            <span>Analytics &amp; CSV Reports</span>
+          </button>
+          <div style={{ fontSize: '13px', color: '#52736d', fontWeight: 500 }}>
+            {todayLabel}
+          </div>
         </div>
       </section>
 
@@ -852,6 +876,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ defaultTab = 'OV
                 </div>
               )}
             </div>
+          </motion.div>
+        )}
+
+        {/* Platform Analytics & Audit Reports Tab */}
+        {activeTab === 'ANALYTICS' && (
+          <motion.div
+            key="tab-analytics"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <AdminAnalyticsPanel />
           </motion.div>
         )}
 

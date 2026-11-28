@@ -1,4 +1,5 @@
 import type {
+  AdminAnalyticsData,
   AdminAppointmentItem,
   AdminOverviewData,
   AdminPaymentItem,
@@ -513,13 +514,61 @@ export const adminDoctorsApi = {
 
 // ---------- Admin — Platform Dashboard & Finance Operations ----------
 
+async function downloadCsv(path: string, fallbackFilename: string): Promise<void> {
+  const token = localStorage.getItem('pulsecare_token');
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    let message = 'CSV export failed';
+    try {
+      const body = await res.json();
+      if (body?.message) message = body.message;
+    } catch {
+      // ignore non-JSON body
+    }
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fallbackFilename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+}
+
 export const adminApi = {
   getOverview: (): Promise<AdminOverviewData> =>
     request<AdminOverviewData>('/v1/admin/overview'),
+  getAnalytics: (months: number = 6): Promise<AdminAnalyticsData> =>
+    request<AdminAnalyticsData>(`/v1/admin/analytics?months=${months}`),
   getAppointments: (): Promise<AdminAppointmentItem[]> =>
     request<AdminAppointmentItem[]>('/v1/admin/appointments'),
   getPayments: (): Promise<AdminPaymentItem[]> =>
     request<AdminPaymentItem[]>('/v1/admin/payments'),
+  exportAppointmentsCsv: (params?: { from?: string; to?: string; status?: string }): Promise<void> => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    if (params?.status && params.status !== 'ALL') qs.set('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    const dateTag = new Date().toISOString().slice(0, 10);
+    return downloadCsv(`/v1/admin/exports/appointments.csv${suffix}`, `pulsecare-appointments-${dateTag}.csv`);
+  },
+  exportTransactionsCsv: (params?: { from?: string; to?: string; status?: string }): Promise<void> => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    if (params?.status && params.status !== 'ALL') qs.set('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    const dateTag = new Date().toISOString().slice(0, 10);
+    return downloadCsv(`/v1/admin/exports/transactions.csv${suffix}`, `pulsecare-transactions-${dateTag}.csv`);
+  },
 };
 
 // ---------- Files & Medical Attachments ----------
